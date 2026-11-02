@@ -161,9 +161,14 @@ gh release download + cmp          → الأصل المنشور مطابق با
 
 - الإصدار: <https://github.com/n83527040-max/Horizon/releases/tag/redesign-0.7.6>
 - التحميل المباشر: <https://github.com/n83527040-max/Horizon/releases/download/redesign-0.7.6/Horizon-Android-Redesigned-0.7.6-arm64-v8a.apk>
-- الحجم 35,691,424 بايت · `arm64-v8a` · Android 9 / API 28+ · غير قابل للتصحيح
-- مرفقات التحقق: `APK_VERIFICATION.json`, `release-audit.json`, `badging.txt`,
-  `SHA256SUMS.txt`, `BUILD_INFO.txt`, `LICENSE.txt`, `THIRD_PARTY_NOTICES.md`
+- الحجم 35,693,532 بايت · SHA‑256 `fff20f808fb098e374e3185a0e786bd8b155d2bcb22ebef829d60f0bae16b5a8`
+  · `arm64-v8a` · Android 9 / API 28+ · غير قابل للتصحيح · Portrait
+- `APK_VERIFICATION.json` يثبت `binary_manifest_portrait = true`
+  (سطر `aapt2 dump xmltree`: `android:screenOrientation(0x0101001e)=1`) ووجود
+  سياستي `orientation: portrait` / `width_policy: full-width` داخل الـ `.so`
+- مرفقات التحقق: `APK_VERIFICATION.json`, `manifest-tree.txt`, `release-audit.json`,
+  `badging.txt`, `SHA256SUMS.txt`, `BUILD_INFO.txt`, `LICENSE.txt`, `THIRD_PARTY_NOTICES.md`
+- صور Portrait لكل الصفحات: `tools/ui-preview/index.html` / `portrait-overview.png`
 - نسخة احتياطية كـ Actions artifact بنفس الاسم.
 
 **ما لم يُختبر فعلياً:** تشغيل Minecraft على جهاز/AVD، تسجيل الدخول بحساب
