@@ -5,6 +5,9 @@
 //! one of those connections. The tokens below come from `ui_spec.json`, which
 //! the Python layout verifier and the QA preview read too, so a change to a
 //! radius or a palette entry is checked in one place.
+// The design system deliberately exposes a complete set of tokens, icons and
+// helpers; a given launcher screen uses only a subset of them.
+#![allow(dead_code)]
 use horizon_client::ui_theme::{Face, Ui, color};
 use serde_json::Value;
 use std::{

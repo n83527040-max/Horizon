@@ -343,7 +343,7 @@ fn draw_home(
     for (i, (ic, accent, title, detail, action)) in feature_data.iter().enumerate() {
         let r = home.features[i];
         if design::visible(r, top, bottom) {
-            feature_card(ui, t, r, *ic, *accent, *title, detail.as_str(), *action, targets);
+            feature_card(ui, t, r, *ic, accent, title, detail.as_str(), *action, targets);
         }
     }
     // ---- Performance: real /proc and real config only ----
@@ -502,7 +502,7 @@ fn draw_catalog_page(
         let source_only = crate::catalog::source_only_mod(p);
         let java_mod = p.kind == crate::browser::Kind::Mod && p.source == SourceId::Modrinth;
         let installable = state.is_none() && !source_only && !java_mod
-            && !(p.kind == crate::browser::Kind::Mod && !cfg!(target_pointer_width = "64"));
+            && (p.kind != crate::browser::Kind::Mod || cfg!(target_pointer_width = "64"));
         let install_rect = [r[0] + r[2] - 100.0, r[1] + 20.0, 88.0, 42.0];
         if installable {
             list_targets.push((install_rect, Action::Install(i)));
@@ -725,9 +725,9 @@ fn draw_settings_page(
                 } else {
                     let value = ui.fit_text(Face::Regular, 12.0, &value, w - 56.0);
                     ui.text(Face::Regular, 12.0, x + 14.0, y + 36.0, t.muted(), &value);
-                    if action.is_some() {
+                    if let Some(action) = action {
                         design::icon(ui, design::Icon::Chevron, x + w - 32.0, y + 24.0, 20.0, t.dim());
-                        targets.push((r, action.unwrap()));
+                        targets.push((r, action));
                     }
                 }
             }
@@ -1023,13 +1023,13 @@ impl Launcher {
         }
         // Press and success/failure feedback: a short, low-alpha accent ring.
         let pressed_point = [self.cursor.0 as f32 / ui.density, self.cursor.1 as f32 / ui.density];
-        if self.mouse_down || self.drag.as_ref().is_some_and(|drag| !drag.moved) {
-            if let Some(([x, y, tw, th], _)) = self.targets.iter().rev().find(|(rect, _)| {
-                pressed_point[0] >= rect[0] && pressed_point[0] <= rect[0] + rect[2]
-                    && pressed_point[1] >= rect[1] && pressed_point[1] <= rect[1] + rect[3]
-            }) {
-                ui.border(*x - 2.0, *y - 2.0, *tw + 4.0, *th + 4.0, design::radius("chip"), design::alpha(theme.primary(), 0.55));
-            }
+        let pressed = self.mouse_down || self.drag.as_ref().is_some_and(|drag| !drag.moved);
+        if let Some(([x, y, tw, th], _)) = self.targets.iter().rev().find(|(rect, _)| {
+            pressed
+                && pressed_point[0] >= rect[0] && pressed_point[0] <= rect[0] + rect[2]
+                && pressed_point[1] >= rect[1] && pressed_point[1] <= rect[1] + rect[3]
+        }) {
+            ui.border(*x - 2.0, *y - 2.0, *tw + 4.0, *th + 4.0, design::radius("chip"), design::alpha(theme.primary(), 0.55));
         }
         if !self.mouse_down
             && self.drag.is_none()

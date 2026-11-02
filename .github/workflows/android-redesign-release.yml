@@ -55,7 +55,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh issue comment 1 --body "Run $GITHUB_RUN_ID / \`$GITHUB_SHA\`: \`verify\` started (source checks, Rust Android type-check, Clippy)."
+          gh issue comment 1 --body "Run $GITHUB_RUN_ID / \`$GITHUB_SHA\`: \`verify\` started (source checks, Rust Android type-check, Clippy with warnings denied)."
       - name: Source and redesign regression checks
         shell: bash
         run: |
@@ -89,8 +89,7 @@ jobs:
             python3 tools/android_build.py --abi arm64-v8a --check --public \
               --sdk "$ANDROID_HOME" --java-home "$JAVA_HOME"
           } 2>&1 | tee -a "$RUNNER_TEMP/horizon-verify.log"
-      - name: Clippy (advisory, warnings reported)
-        continue-on-error: true
+      - name: Clippy (warnings denied)
         shell: bash
         run: |
           set -euo pipefail

@@ -150,6 +150,9 @@ pub enum Page {
     Installed,
     Settings,
 }
+// The redesigned launcher draws its own five-destination bar, so the complete
+// page list and its labels are kept for other callers rather than removed.
+#[allow(dead_code)]
 impl Page {
     pub const ALL: [Self; 6] = [
         Self::Play,

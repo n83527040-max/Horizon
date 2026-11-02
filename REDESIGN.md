@@ -115,62 +115,79 @@ Glassmorphism خفيف · تدرّجات · Glow ناعم · انتقالات 22
 
 ---
 
-## 5. الاختبارات التي نُفّذت فعلياً في هذه البيئة
+## 5. الاختبارات والبناء الفعلي على GitHub Actions
+
+أنتجنا **APK Release حقيقي** من هذا المصدر المحدَّث (وليس من النسخة الأصلية)
+داخل `.github/workflows/android-redesign-release.yml` على `ubuntu-latest`:
+Rust 1.95.0 + target `aarch64-linux-android`، Android SDK 35 /
+build-tools 35.0.0 / NDK، JDK 17 (Gradle/apksigner) وJDK 25 (مُصدِّرات Java)،
+Gradle 8.14. الـ workflow يعمل بـ `push` على الفرع لأن رمز الـ App الخاص بالجلسة
+لا يملك صلاحية `workflow_dispatch`.
+
+**وظيفة `verify` (بوابة قبل البناء):**
 
 ```text
-python3 -m unittest discover -s tests -p 'test_android*.py'   → 28 tests OK
-python3 tools/android_ui_layout.py                            → all viewports OK
-python3 tools/check_public_tree.py                            → passed
-python3 tools/check_public_tree.py --history                   → passed
-python3 tools/android_ui_preview.py                           → QA render generated
+git diff --check                                            → OK
+python3 tools/check_public_tree.py (+ --history)              → OK
+python3 -m unittest discover -s tests -p 'test_android*.py' → 28 tests OK
+python3 tools/android_ui_layout.py                          → كل المقاسات + safe areas OK
+python3 tools/android_ui_preview.py                         → معاينة QA مولّدة
+cmp android-source.yml packaging/android/source-checks.yml  → OK
+cargo check  -p horizon-android --target aarch64-linux-android --public → OK
+cargo clippy -p horizon-android --target aarch64-linux-android --no-deps -D warnings → OK
 ```
 
-**اختبارات لم تُنفّذ هنا (ببيئة مقيّدة):**
+**وظيفة `release`:**
 
-- `cargo test`, `cargo clippy -D warnings`, `cargo build` — لا يوجد `cargo`/`rustc`
-  في هذه البيئة، والوصول للشبكة محدود بـ GitHub/npm/PyPI فقط.
-- `tools/test_android_diagnostics.py` وأخواتها — تستدعي `cargo` لتشغيل اختبارات Rust
-  وتفشل بـ `FileNotFoundError: cargo`، وليس بسبب تغييرات الواجهة.
-- اختبارات الأجهزة الحقيقية (تشغيل Minecraft، الحسابات، المودات، الحزم، Shaders،
-  الرسومات، الأداء) — تحتاج جهاز Android / AVD و`adb`، غير متوفرة هنا.
-- لذلك **لم يتم إنتاج APK Release داخل هذه الجلسة**؛ انظر القسم التالي.
+```text
+python3 tools/android_prepare.py --java-home <JDK 25>
+  → 5214 ملفاً موثّقاً من Mojang + مُصدِّرات Java → جداول 26.3 المولّدة
+python3 tools/build_release_apk.sh  → cargo build --profile release (ThinLTO)
+                                     + Gradle assembleRelease + apksigner
+tools/verify_android_apk.py         → passed (كل علامات التصميم داخل الـ .so)
+tools/check_android_release.py      → passed, debuggable=false, لا أصول لعبة خاصة
+aapt2 dump badging                 → dev.horizon.android / 0.7.6 / arm64-v8a
+apksigner verify                   → Verifies (APK Signature Scheme v2), signer 1
+gh release download + cmp          → الأصل المنشور مطابق بايت-ببايت للـ APK المبني
+```
 
-> ملاحظة: `python3 -m unittest discover -s tests` (بدون `-p`) يفشل أيضاً على المصدر
-> الأصلي بسبب تضارب اسم `test_basic_feature_parity` بين `tests/` و`tools/`؛
-> أمر CI الرسمي في upstream يستخدم `-p 'test_android*.py'`، وهو ما استخدمناه.
+`verify_android_apk.py` يقرأ **داخل ملف APK**: مكتبة
+`lib/arm64-v8a/libhorizon_android.so` تحتوي نص `ui_spec.json` كاملاً (الألوان
+`#070B1C / #8B45FF / #315BFF / #20DDF5`، `nav_items`)، وعناوين الواجهة الجديدة،
+و**بايتات صورة الـ Hero نفسها**؛ كما أن بصمة المكتبة تختلف عن مكتبة الإصدار
+الرسمي `v0.7.6`، أي أن APK بُني من السورس المحدَّث لا من النسخة القديمة.
+
+**النتيجة المنشورة:**
+
+- الإصدار: <https://github.com/n83527040-max/Horizon/releases/tag/redesign-0.7.6>
+- التحميل المباشر: <https://github.com/n83527040-max/Horizon/releases/download/redesign-0.7.6/Horizon-Android-Redesigned-0.7.6-arm64-v8a.apk>
+- الحجم 35,691,424 بايت · `arm64-v8a` · Android 9 / API 28+ · غير قابل للتصحيح
+- مرفقات التحقق: `APK_VERIFICATION.json`, `release-audit.json`, `badging.txt`,
+  `SHA256SUMS.txt`, `BUILD_INFO.txt`, `LICENSE.txt`, `THIRD_PARTY_NOTICES.md`
+- نسخة احتياطية كـ Actions artifact بنفس الاسم.
+
+**ما لم يُختبر فعلياً:** تشغيل Minecraft على جهاز/AVD، تسجيل الدخول بحساب
+Microsoft، تثبيت مود/حزمة/Shader على الجهاز، وقياس FPS/أداء GPU الحقيقي.
+هذه تحتاج جهازاً فعلياً و`adb`؛ لم نُضف نتائج Device وهمية. الفحوصات أعلاه
+مصدرية/ترجمة/تغليف/توقيع فقط. عند التحديث فوق تثبيت قديم يلزم نفس شهادة
+التوقيع، لأن الـ keystore يُولَّد داخل كل Runner.
 
 ---
 
-## 6. كيف تُبنى نسخة APK Release (المسار الحقيقي)
-
-APK لا يمكن إنتاجه هنا لأنه يحتاج: Rust 1.95 + Android SDK 35 + NDK + JDK + Gradle،
-بالإضافة إلى جداول المحرك المولّدة privately في `.local/horizon-client/26.3`
-(تُنتجها `tools/android_prepare.py` من موارد Mojang الرسمية). مفاتيح التوقيع وملفات
-اللعبة و`*.apk` مستثناة من Git عن قصد في `.gitignore`.
-
-على جهاز/Runner فيه الأدوات:
+## 6. إعادة إنتاج البناء
 
 ```bash
-rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android
-python3 tools/android_prepare.py                     # once; needs desktop JDK + Mojang downloads
-python3 tools/build_release_apk.sh                   # preflight + tests + release APK
+rustup target add aarch64-linux-android
+python3 tools/android_prepare.py --java-home <JDK 25>   # موارد Mojang الرسمية، خارج Git
+export JAVA_HOME=<JDK 17>; export HORIZON_CLIPPY=1; export HORIZON_JOBS=2
+bash tools/build_release_apk.sh
+# .local/android/releases/0.7.6/*.apk + SHA256SUMS.txt
 ```
 
-أو يدوياً:
-
-```bash
-python3 -m unittest discover -s tests -p 'test_android*.py'
-python3 tools/android_ui_layout.py
-python3 tools/check_public_tree.py --history
-python3 tools/android_build.py --abi arm64-v8a --clippy --public
-python3 tools/android_release.py --abi arm64-v8a
-# النتيجة: .local/android/releases/0.7.6/Horizon-Android-0.7.6-arm64-v8a.apk + SHA256SUMS.txt
-```
-
-أضفنا كذلك `.github/workflows/android-ui-release.yml` (`workflow_dispatch` فقط)
-لتشغيل فحوصات المصدر و`cargo check`/`clippy` للـ ABI على GitHub Actions،
-وجمع APK عند توفّر متطلبات البناء. الملف لا يُفعّل تلقائياً حتى لا يكسر
-سياسة upstream الخاصة بتعطيل workflows الإضافية.
+`tools/ci_android_setup.sh` يثبّت إصدارات SDK/NDK/Gradle على Runner،
+`tools/verify_android_apk.py` يتحقق من محتوى APK، و`tools/ci-release-notes.md`
+هو نص الإصدار. مفاتيح التوقيع وملفات اللعبة و`*.apk` تبقى خارج Git بحسب
+`.gitignore` و`tools/check_public_tree.py`.
 
 ---
 
