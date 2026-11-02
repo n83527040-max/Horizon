@@ -52,14 +52,24 @@ if [[ "${1:-}" == "--all-abis" ]]; then
   ABIS=(arm64-v8a armeabi-v7a x86 x86_64)
 fi
 
-echo "== Native type-check / clippy (Android target) =="
-for ABI in "${ABIS[@]}"; do
-  python3 tools/android_build.py --abi "$ABI" --clippy --public \
-    --sdk "$ANDROID_HOME" --java-home "${JAVA_HOME:-$(dirname "$(dirname "$(readlink -f "$(command -v java)")")")}"
-done
+# CI runs the Android Clippy/type-check gate in its own job. Set
+# HORIZON_CLIPPY=0 there to avoid rebuilding the whole dependency graph twice.
+if [[ "${HORIZON_CLIPPY:-1}" != "0" ]]; then
+  echo "== Native type-check / clippy (Android target) =="
+  for ABI in "${ABIS[@]}"; do
+    python3 tools/android_build.py --abi "$ABI" --clippy --public \
+      --sdk "$ANDROID_HOME" --java-home "${JAVA_HOME:-$(dirname "$(dirname "$(readlink -f "$(command -v java)")")")}"
+  done
+else
+  echo "== Native type-check / clippy already verified in CI =="
+fi
 
 echo "== Release APK =="
-python3 tools/android_release.py --abi "${ABIS[@]}"
+JOBS_ARGS=()
+if [[ -n "${HORIZON_JOBS:-}" ]]; then
+  JOBS_ARGS=(--jobs "$HORIZON_JOBS")
+fi
+python3 tools/android_release.py --abi "${ABIS[@]}" "${JOBS_ARGS[@]}"
 
 echo "== Result =="
 find ".local/android/releases/$VERSION" -maxdepth 1 -type f -printf '  %f\n' | sort
