@@ -173,10 +173,9 @@ impl Login {
     ) {
         targets.clear();
         let t = design::Theme::new(1.0);
-        let w = (ui.w - 32.0).min(720.0);
-        let h = (ui.h - 24.0).min(550.0);
-        let x = (ui.w - w) / 2.0;
-        let y = (ui.h - h) / 2.0;
+        // Portrait, full-width account sheet. It stops above the fixed bottom
+        // bar instead of floating as a small centred desktop dialog.
+        let [x, y, w, h] = design::Layout::sheet_rect(ui.w, ui.h);
         design::glass_card(ui, &t, [x, y, w, h], design::radius("card"));
         if editing_name {
             ui.text(

@@ -424,15 +424,16 @@ pub fn draw_ui(ui: &mut Ui<'_>) {
             vec![("Cancel", Choice::Cancel)],
         )
     };
-    let w = 440.0f32.min(ui.w - 24.0);
+    // Full-width portrait dialog: the old 440dp centred desktop box is gone.
+    let l = design::Layout::new(ui.w, ui.h, 0.0, 0.0);
+    let w = l.content_w;
     let vertical = w < 320.0;
     let height = if vertical {
         92.0 + choices.len() as f32 * 44.0
     } else {
         144.0
     };
-    let x = (ui.w - w) / 2.0;
-    let y = ((ui.h - height) / 2.0).max(0.0);
+    let [x, y, w, _] = design::Layout::modal_rect(ui.w, ui.h, height);
     ui.rounded(0.0, 0.0, ui.w, ui.h, 0.0, rgba(0, 0, 0, 180));
     design::glass_card(ui, &t, [x, y, w, height], design::radius("card"));
     ui.text(

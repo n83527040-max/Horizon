@@ -59,11 +59,14 @@ pub struct Config {
 pub use horizon_client::android_gamepad::InputMode as InputHost;
 
 /// Android ActivityInfo orientations, independent of the device's natural axis.
+/// The redesigned launcher is portrait-first: `Portrait` is the default for a
+/// fresh install, and the Activity manifest locks portrait before Rust starts.
+/// All five modes remain available in Settings (the choice is never deleted).
 #[derive(Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Orientation {
-    #[default]
     Landscape,
+    #[default]
     Portrait,
     ReverseLandscape,
     ReversePortrait,
@@ -93,6 +96,15 @@ impl Orientation {
             Self::ReverseLandscape => 8,
             Self::ReversePortrait => 9,
             Self::Auto => 10,
+        }
+    }
+    /// The launcher never auto-rotates into landscape. `Auto` (full sensor) is
+    /// mapped back to portrait when the native window is (re)created. Every
+    /// explicit choice in Settings still calls `setRequestedOrientation`.
+    pub fn launcher_mode(self) -> Self {
+        match self {
+            Self::Auto => Self::Portrait,
+            other => other,
         }
     }
 }

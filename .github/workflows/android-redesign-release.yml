@@ -11,6 +11,11 @@ on:
       - 'tools/ci_android_setup.sh'
       - 'tools/ci-release-notes.md'
       - 'tools/build_release_apk.sh'
+      - 'tools/android_ui_layout.py'
+      - 'tools/android_ui_render.py'
+      - 'tools/android_ui_preview.py'
+      - 'tests/test_android_ui_redesign.py'
+      - 'crates/horizon-client/src/android/ui_spec.json'
       - 'tools/android_prepare.py'
       - 'tools/android_build.py'
       - 'tools/android_release.py'
@@ -61,13 +66,16 @@ jobs:
         run: |
           set -euo pipefail
           {
+            python3 -m pip install --quiet --break-system-packages Pillow
             git diff --check
             python3 tools/check_public_tree.py
             python3 tools/check_public_tree.py --history
             python3 -m unittest discover -s tests -p 'test_android*.py'
             python3 tools/android_ui_layout.py
             python3 tools/android_ui_preview.py
+            python3 tools/android_ui_render.py --check
             python3 -m unittest tests.test_android_ui_redesign -v
+            grep -n 'android:screenOrientation="portrait"' packaging/android/AndroidManifest.xml
             cmp .github/workflows/android-source.yml packaging/android/source-checks.yml
             git status --porcelain
           } 2>&1 | tee -a "$RUNNER_TEMP/horizon-verify.log"
@@ -199,8 +207,12 @@ jobs:
               curl -fL --retry 3 -o /tmp/upstream-v076.apk \
                 https://github.com/Vasysik/horizon-android/releases/download/v0.7.6/Horizon-Android-0.7.6-arm64-v8a.apk
             fi
+            # Evidence from the *binary* manifest inside the APK: portrait lock.
+            "$BT/aapt2" dump xmltree "$APK" AndroidManifest.xml > "$OUT/manifest-tree.txt" || true
+            grep -n -A2 "screenOrientation" "$OUT/manifest-tree.txt" || true
             python3 tools/verify_android_apk.py "$APK" \
-              --upstream /tmp/upstream-v076.apk --report "$OUT/APK_VERIFICATION.json"
+              --upstream /tmp/upstream-v076.apk --manifest-tree "$OUT/manifest-tree.txt" \
+              --report "$OUT/APK_VERIFICATION.json"
             "$BT/aapt2" dump badging "$APK" | tee "$OUT/badging.txt" | grep -E "package:|sdkVersion:|targetSdkVersion:|native-code:|application-label:|application-debuggable" || true
             "$JAVA" -jar "$BT/lib/apksigner.jar" verify --verbose --print-certs "$APK"
             python3 tools/check_android_release.py "$APK" --aapt2 "$BT/aapt2" --public \
@@ -224,8 +236,8 @@ jobs:
             APK="$OUT/Horizon-Android-Redesigned-0.7.6-arm64-v8a.apk"
             NOTES=tools/ci-release-notes.md
             ASSETS=("$APK" "$OUT/SHA256SUMS.txt" "$OUT/APK_VERIFICATION.json" \
-              "$OUT/release-audit.json" "$OUT/badging.txt" "$OUT/BUILD_INFO.txt" \
-              "$OUT/LICENSE.txt" "$OUT/THIRD_PARTY_NOTICES.md")
+              "$OUT/release-audit.json" "$OUT/badging.txt" "$OUT/manifest-tree.txt" \
+              "$OUT/BUILD_INFO.txt" "$OUT/LICENSE.txt" "$OUT/THIRD_PARTY_NOTICES.md")
             if gh release view "$TAG" >/dev/null 2>&1; then
               gh release upload "$TAG" "${ASSETS[@]}" --clobber
             else

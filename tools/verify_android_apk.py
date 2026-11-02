@@ -7,13 +7,16 @@ reads ``ui_spec.json`` with ``include_str!`` and the hero artwork with
 checks the packaged APK (not the source tree) for those bytes, for the redesigned
 launcher labels, for the public resource bundle and for a clean archive layout.
 It also compares the native library with the official v0.7.6 APK, proving the
-binary was rebuilt from the redesigned source rather than repackaged.
+binary was rebuilt from the redesigned source rather than repackaged, and checks
+that the portrait lock reaches both the source manifest and the packaged binary
+manifest (aapt2 dump xmltree).
 """
 from __future__ import annotations
 
 import argparse
 import hashlib
 import json
+import re
 import sys
 import zipfile
 from pathlib import Path
@@ -24,7 +27,7 @@ HERO = ROOT / "crates/horizon-client/src/android/assets/hero.png"
 
 # Every one of these is a byte string that only exists in the redesigned launcher.
 MARKERS = {
-    "ui_spec_embedded": b"Single source of truth for the Android launcher's visual language",
+    "ui_spec_embedded": b"Single source of truth for the Android launcher",
     "palette_background": b"#070B1C",
     "palette_primary": b"#8B45FF",
     "palette_secondary": b"#315BFF",
@@ -34,6 +37,10 @@ MARKERS = {
     "shader_catalog": b"Horizon native .hshader packs",
     "performance_card": b"Performance hints",
     "bottom_navigation": b'"nav_items"',
+    # The portrait / edge-to-edge fix is part of the compiled design spec.
+    "portrait_policy": b'"orientation": "portrait"',
+    "full_width_policy": b'"width_policy": "full-width"',
+    "centred_column_disabled": b'"max_content_width": 0.0',
 }
 
 
@@ -49,10 +56,42 @@ def main() -> int:
     parser.add_argument("apk", type=Path)
     parser.add_argument("--report", type=Path)
     parser.add_argument("--upstream", type=Path, help="Official v0.7.6 APK for a native-library comparison")
+    parser.add_argument("--manifest", type=Path, default=ROOT / "packaging/android/AndroidManifest.xml")
+    parser.add_argument("--catalog", type=Path,
+                        default=ROOT / "crates/horizon-client/src/android/catalog.rs")
+    parser.add_argument("--manifest-tree", type=Path,
+                        help="aapt2 dump xmltree output of the packaged binary manifest")
     args = parser.parse_args()
 
     errors: list[str] = []
     report: dict = {"apk": str(args.apk), "bytes": args.apk.stat().st_size}
+
+    # Portrait is enforced at the Activity, saved-default and window levels.
+    manifest = args.manifest.read_text(encoding="utf-8")
+    portrait = 'android:screenOrientation="portrait"' in manifest and "sensorLandscape" not in manifest
+    catalog = args.catalog.read_text(encoding="utf-8")
+    enum = catalog.split("pub enum Orientation {", 1)[1].split("\n}", 1)[0]
+    default_portrait = enum.split("#[default]", 1)[1].strip().startswith("Portrait")
+    report["orientation"] = {
+        "manifest_portrait": portrait,
+        "fresh_install_default_portrait": default_portrait,
+        "auto_rotation_clamped": "Self::Auto => Self::Portrait" in catalog,
+    }
+    if not portrait:
+        errors.append("Activity manifest is not locked to portrait")
+    if not default_portrait:
+        errors.append("fresh-install orientation default is not Portrait")
+    if not report["orientation"]["auto_rotation_clamped"]:
+        errors.append("automatic rotation is not clamped back to portrait")
+    if args.manifest_tree:
+        tree = (args.manifest_tree.read_text(encoding="utf-8", errors="replace")
+                if args.manifest_tree.is_file() else "")
+        line = next((ln.strip() for ln in tree.splitlines() if "screenOrientation" in ln), "")
+        report["orientation"]["binary_manifest_line"] = line
+        portrait_value = bool(re.search(r"0x0*1\b", line)) or "portrait" in line.lower()
+        report["orientation"]["binary_manifest_portrait"] = bool(line) and portrait_value
+        if not report["orientation"]["binary_manifest_portrait"]:
+            errors.append(f"binary manifest is not portrait: {line!r}")
 
     with zipfile.ZipFile(args.apk) as archive:
         names = archive.namelist()

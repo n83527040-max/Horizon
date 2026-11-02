@@ -193,9 +193,13 @@ bash tools/build_release_apk.sh
 
 ## 7. معاينة QA (ليست التطبيق)
 
-`tools/ui-preview/index.html` تُولَّد من نفس `ui_spec.json` ونفس حسابات التخطيط،
-لفحص المسافات والألوان وشريط التنقل بصرياً دون جهاز Android. هي أداة تحقق داخل
-`tools/` ولا تُضمَّن في APK، ولا تحتوي أرقام أداء مزيّفة.
+`tools/ui-preview/index.html` معرض صور لكل الصفحات على المقاسات
+`360×800 / 393×873 / 432×960`. تُولَّد الصور عبر `tools/android_ui_render.py`
+من نفس `ui_spec.json` ونفس حسابات `tools/android_ui_layout.py` (مرآة `design.rs`)
+ومع خطوط المشروع وصورة الـ Hero المضمّنة. هي **رندر تحقق للتخطيط** وليست لقطات
+شاشة من جهاز، ولا تُضمَّن في APK، ولا تحتوي أرقام أداء مزيّفة (القيم الحقيقية
+تُقرأ وقت التشغيل من `/proc`). الملف `tools/ui-preview/layout-preview.html`
+هو فاحص الشاشة الواحدة القديم، و`portrait-overview.png` يجمع الصفحات التسع.
 
 ---
 
@@ -212,3 +216,41 @@ bash tools/build_release_apk.sh
 - أي تعديل Backend تم توثيقه أعلاه وهو **إضافي فقط** (getter واحد + دوال atlas +
   حقول عرض). لم تُغيّر آلية التشغيل، الحسابات، الملفات، المودات، الحزم، Shaders،
   Vulkan، أو الإعدادات المحفوظة.
+
+---
+
+## 9. إصلاح الاتجاه العمودي واستغلال العرض الكامل (Portrait / Edge-to-edge)
+
+**سبب المشكلة:** كان `AndroidManifest.xml` يفرض `sensorLandscape`، وكان
+`Orientation::default()` هو `Landscape`، لذلك كان `Launcher::open()` يطلب وضعاً
+أفقياً. وفوق ذلك كان `design.rs` يحصر كل البطاقات في عمود عرضه
+`max_content_width = 560` في وسط الشاشة؛ على شاشة أفقية (~960dp) كان ذلك يترك
+حوالي 200dp فراغاً على كل جانب — وهو بالضبط «واجهة Desktop مصغّرة» التي ظهرت.
+
+**ما الذي أُصلح (طبقة العرض + إعدادات النافذة فقط):**
+
+| الملف | الإصلاح |
+| --- | --- |
+| `packaging/android/AndroidManifest.xml` | `android:screenOrientation="portrait"` بدل `sensorLandscape` |
+| `crates/horizon-client/src/android/catalog.rs` | الافتراضي `Portrait` + `launcher_mode()` يمنع `Auto` من الدوران الأفقي؛ كل الخيارات الخمسة باقية |
+| `crates/horizon-client/src/android/launcher.rs` | عند إنشاء/استئناف النافذة يُطلب الوضع العمودي؛ خيار المستخدم الصريح في Settings يبقى فعّالاً |
+| `crates/horizon-client/src/android/ui_spec.json` | `orientation: portrait`, `width_policy: full-width`, `max_content_width: 0` |
+| `crates/horizon-client/src/android/design.rs` | `Layout::with_insets`: عرض كامل + حشوة جانبية متجاوبة + `left/right_inset` للـ cutouts؛ `sheet_rect` / `modal_rect`؛ شريط تنقل من الحافة للحافة مع تعبئة منطقة الإيماءات |
+| `crates/horizon-client/src/android/launcher_pages.rs` | تمرير `left_inset` من `content_rect()` إلى التخطيط، وتحديث `chooser.viewport(w,h)` |
+| `login.rs`, `chooser.rs`, `documents.rs` | النوافذ المنبثقة صارت ألواحاً عمودية بعرض كامل بدل صناديق `720/440dp` في الوسط |
+| `tools/android_ui_layout.py`, `tests/test_android_ui_redesign.py` | فحوص لكل الصفحات التسع: لا فراغات جانبية كبيرة، لا Overflow، الشريط بعرض كامل وفوق safe area |
+| `tools/android_ui_render.py` | صور Portrait جديدة لكل الصفحات على المقاسات الثلاثة |
+
+**النتيجة المقاسة (393×873 مثالاً):** `content_x = 16dp`،
+`content_w = 361dp` من أصل 393dp (أي 92% من عرض الشاشة؛ الباقي حشوة 16dp على
+كل جانب). على 960dp يصبح العرض 892dp بدل 560dp في الوسط. شريط التنقل
+= 393dp كاملاً، و`page_bottom <= nav_y` فلا يغطي المحتوى.
+
+`tools/verify_android_apk.py` يتحقق الآن من وجود سياستي
+`"orientation": "portrait"` و`"width_policy": "full-width"` **داخل**
+`libhorizon_android.so` الموجود في APK، ومن قفل الـ Manifest والافتراضي العمودي؛
+و`manifest-tree.txt` المرفق بالإصدار هو تفريغ `aapt2` للـ Manifest الثنائي.
+
+> ملاحظة أمانة: إعداد «Aspect ratio» في الأصل يبقى كما هو (الافتراضي `Native`
+> = كامل المساحة). إذا اختار المستخدم نسبة ثابتة يدوياً فقد يظهر letterboxing بحسب
+> تصميم الإعداد الأصلي؛ لم نحذفه ولم نغيّر سلوكه.

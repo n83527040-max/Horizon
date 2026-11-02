@@ -114,8 +114,13 @@ class ResponsiveTests(unittest.TestCase):
         for key in ["hero", "play", "version", "feature", "performance", "nav", "header", "subheader"]:
             self.assertIn(key, SPEC)
             self.assertIn(key, source)
-        self.assertIn("max_content_width", SPEC)
-        self.assertIn("max_content_width", source)
+        mirror = (ROOT / "tools/android_ui_layout.py").read_text(encoding="utf-8")
+        for key in ["max_content_width", "side_pad_wide_start", "side_pad_wide_extra"]:
+            self.assertIn(key, SPEC)
+            self.assertIn(key, source, f"Rust does not read {key}")
+            self.assertIn(key, mirror, f"Python mirror does not read {key}")
+        for key in ["orientation", "width_policy"]:
+            self.assertIn(key, SPEC)
 
 
 class RegressionTests(unittest.TestCase):
@@ -145,12 +150,17 @@ class RegressionTests(unittest.TestCase):
             "crates/horizon-client/src/game", "crates/horizon-client-render/",
             "crates/horizon-core/", "crates/horizon-world/", "crates/horizon-protocol/",
             "crates/horizon-mods/", "crates/horizon-shaders/", "launcher/src/",
-            "packaging/android/AndroidManifest.xml", "packaging/android/java/",
+            "packaging/android/java/",
             "tools/android_build.py", "tools/android_release.py", "tools/android_prepare.py",
             "Cargo.toml", "crates/horizon-android/Cargo.toml",
         )
         violations = [p for p in changed if p.startswith(protected)]
         self.assertEqual(violations, [], f"engine/build files changed: {violations}")
+        # The one allowed packaging change is the portrait Activity lock.
+        manifest = (ROOT / "packaging/android/AndroidManifest.xml").read_text(encoding="utf-8")
+        self.assertIn('android:screenOrientation="portrait"', manifest)
+        self.assertNotIn("sensorLandscape", manifest)
+
 
     def test_no_fake_performance_or_content_numbers(self):
         source = (PAGES.read_text(encoding="utf-8") + DESIGN.read_text(encoding="utf-8")).lower()
@@ -176,6 +186,83 @@ class RegressionTests(unittest.TestCase):
         changed = git("diff", "--name-only", self.base, "HEAD").splitlines()
         cargo = [p for p in changed if p.endswith("Cargo.toml") or p == "Cargo.lock"]
         self.assertEqual(cargo, [], f"dependency manifests changed: {cargo}")
+
+
+class PortraitLayoutTests(unittest.TestCase):
+    """The redesign is a real portrait, edge-to-edge phone UI on every page."""
+
+    MANIFEST = ROOT / "packaging/android/AndroidManifest.xml"
+    CATALOG = ROOT / "crates/horizon-client/src/android/catalog.rs"
+    LAUNCHER_RS = ROOT / "crates/horizon-client/src/android/launcher.rs"
+    PAGES = ("home", "mods", "packs", "shaders", "installed", "settings", "accounts", "chooser", "file_dialog")
+
+    def test_activity_is_locked_to_portrait(self):
+        manifest = self.MANIFEST.read_text(encoding="utf-8")
+        self.assertIn('android:screenOrientation="portrait"', manifest)
+        self.assertNotIn("sensorLandscape", manifest)
+        self.assertNotIn('android:screenOrientation="landscape"', manifest)
+
+    def test_fresh_install_defaults_to_portrait(self):
+        catalog = self.CATALOG.read_text(encoding="utf-8")
+        enum = catalog.split("pub enum Orientation {", 1)[1].split("\n}", 1)[0]
+        default_block = enum.split("#[default]", 1)[1].strip()
+        self.assertTrue(default_block.startswith("Portrait"), default_block)
+        # Automatic (full-sensor) rotation cannot flip the launcher sideways.
+        self.assertIn("Self::Auto => Self::Portrait", catalog)
+        self.assertIn("launcher_mode()", self.LAUNCHER_RS.read_text(encoding="utf-8"))
+
+    def test_spec_declares_portrait_and_full_width(self):
+        self.assertEqual(SPEC["orientation"], "portrait")
+        self.assertEqual(SPEC["width_policy"], "full-width")
+        self.assertEqual(float(SPEC["max_content_width"]), 0.0)
+        self.assertGreater(float(SPEC["side_pad_wide_start"]), 432.0)
+
+    def test_every_portrait_phone_uses_the_whole_screen(self):
+        for w, h in [(360.0, 800.0), (393.0, 873.0), (432.0, 960.0)]:
+            with self.subTest(screen=(w, h)):
+                self.assertGreater(h, w)
+                l = layout.Layout.new(w, h)
+                self.assertLessEqual(l.content_x, 40.0)
+                self.assertLessEqual(w - (l.content_x + l.content_w), 40.0)
+                self.assertGreaterEqual(l.content_w, 0.85 * w)
+                self.assertLessEqual(l.page_bottom, l.nav_y)
+                self.assertEqual(layout.check_layout(w, h), [])
+                for page in self.PAGES:
+                    self.assertTrue(l.page_rects(page), page)
+
+    def test_all_pages_and_dialogs_are_full_width(self):
+        for w, h in [(360.0, 800.0), (393.0, 873.0), (432.0, 960.0)]:
+            l = layout.Layout.new(w, h)
+            for page in self.PAGES:
+                with self.subTest(screen=(w, h), page=page):
+                    for name, r in l.page_rects(page):
+                        self.assertGreaterEqual(r.x, -0.01, (page, name))
+                        self.assertLessEqual(r.x + r.w, w + 0.01, (page, name))
+                    if page in ("accounts", "file_dialog"):
+                        self.assertEqual(l.page_rects(page)[0][1].x, l.content_x)
+                        self.assertEqual(l.page_rects(page)[0][1].w, l.content_w)
+
+    def test_navigation_spans_the_full_width_and_respects_safe_areas(self):
+        for top, bottom in [(0.0, 0.0), (24.0, 16.0), (48.0, 24.0)]:
+            l = layout.Layout.new(393.0, 873.0, top, bottom)
+            items = [l.nav_item(i) for i in range(5)]
+            self.assertAlmostEqual(sum(r.w for r in items), l.w, delta=0.02)
+            self.assertEqual(items[0].x, 0.0)
+            self.assertAlmostEqual(items[-1].x + items[-1].w, l.w, delta=0.02)
+            self.assertLessEqual(l.nav_y + l.nav_h, l.h)
+            self.assertLessEqual(l.page_bottom, l.nav_y)
+
+    def test_dialogs_no_longer_use_centred_desktop_boxes(self):
+        login = (ROOT / "crates/horizon-client/src/android/login.rs").read_text(encoding="utf-8")
+        chooser = (ROOT / "crates/horizon-client/src/android/chooser.rs").read_text(encoding="utf-8")
+        documents = (ROOT / "crates/horizon-client/src/android/documents.rs").read_text(encoding="utf-8")
+        self.assertIn("design::Layout::sheet_rect", login)
+        self.assertNotIn("min(720.0)", login)
+        self.assertIn("design::Layout::new", chooser)
+        self.assertIn("fn viewport(&self, w: f32, h: f32)", chooser)
+        self.assertIn("chooser.viewport(w, h)", PAGES.read_text(encoding="utf-8"))
+        self.assertIn("design::Layout::modal_rect", documents)
+        self.assertNotIn("440.0f32.min", documents)
 
 
 if __name__ == "__main__":

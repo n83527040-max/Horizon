@@ -817,6 +817,7 @@ impl Launcher {
         // OEM navigation bars, display cutouts and the IME viewport are kept
         // out of the layout. Surface and input coordinates stay untouched.
         let mut top_inset = 0.0f32;
+        let mut left_inset = 0.0f32;
         let bottom_inset = 0.0f32;
         if let Some(window) = &self.window {
             use winit::platform::android::WindowExtAndroid;
@@ -831,12 +832,19 @@ impl Launcher {
             if rect.top > 0 {
                 top_inset = rect.top as f32 * input[1] as f32 / ui.density;
             }
+            // Cutouts on the left edge shift the content column instead of
+            // centring a narrow desktop container inside the screen.
+            if rect.left > 0 {
+                left_inset = (rect.left as f32 * input[0] as f32 / ui.density).min(64.0);
+            }
         }
         if let Some(bottom) = crate::native_ime::viewport_bottom() {
             ui.h = ui.h.min(bottom as f32 / ui.density);
         }
         let (w, h) = (ui.w, ui.h);
-        let base = design::Layout::new(w, h, top_inset, bottom_inset);
+        // ui.w is already clamped to content_rect().right, so there is no
+        // remaining right-hand inset to subtract.
+        let base = design::Layout::with_insets(w, h, left_inset, top_inset, 0.0, bottom_inset);
         let page = self.catalog.page;
         let theme = design::Theme::new(design::page_alpha(self.page_enter));
         let phase = design::pulse(design::motion("skeleton_ms"));
@@ -980,8 +988,8 @@ impl Launcher {
         }
         if let Some(chooser) = &mut self.chooser {
             chooser.draw(&mut ui, &mut self.targets);
-            self.list_targets = chooser.navigation(ui.w);
-            self.list_view = Some(chooser.viewport(ui.h));
+            self.list_targets = chooser.navigation(w, h);
+            self.list_view = Some(chooser.viewport(w, h));
         }
         if let Some([top, bottom, maximum]) = self.list_view
             && maximum > 0.0

@@ -237,42 +237,44 @@ impl Chooser {
             scroll: 0.0,
         }
     }
-    pub(super) fn navigation(&self, width: f32) -> Vec<([f32; 4], Action)> {
+    /// Hit areas must match the full-width portrait rows drawn above.
+    pub(super) fn navigation(&self, w: f32, h: f32) -> Vec<([f32; 4], Action)> {
+        let (x, width, top, _bottom) = self.geometry(w, h);
         self.choices
             .iter()
             .enumerate()
             .map(|(i, (_, _, action, _))| {
-                (
-                    [
-                        32.0,
-                        137.0 + i as f32 * 84.0 - self.scroll,
-                        width - 64.0,
-                        76.0,
-                    ],
-                    *action,
-                )
+                ([x, top + i as f32 * 84.0 - self.scroll, width, 76.0], *action)
             })
             .collect()
     }
-    pub(super) fn viewport(&self, height: f32) -> [f32; 3] {
-        [
-            137.0,
-            height - 100.0,
-            (self.choices.len() as f32 * 84.0 - (height - 237.0)).max(0.0),
-        ]
+    /// Full-width portrait geometry shared by the option list and scroll bar.
+    fn geometry(&self, w: f32, h: f32) -> (f32, f32, f32, f32) {
+        let l = design::Layout::new(w, h, 0.0, 0.0);
+        let top = l.content_top;
+        // Leave room for the Cancel row above the fixed bottom navigation.
+        let bottom = (l.nav_y - 68.0).max(top + 84.0);
+        (l.content_x, l.content_w, top, bottom)
+    }
+    pub(super) fn viewport(&self, w: f32, h: f32) -> [f32; 3] {
+        let (_, _, top, bottom) = self.geometry(w, h);
+        [top, bottom, (self.choices.len() as f32 * 84.0 - (bottom - top)).max(0.0)]
     }
     pub fn draw(&mut self, ui: &mut Ui, targets: &mut Vec<([f32; 4], Action)>) {
         let t = design::Theme::new(1.0);
-        let (w, h) = (ui.w, ui.h);
+        let (full_w, full_h) = (ui.w, ui.h);
         targets.clear();
-        ui.rounded(0.0, 0.0, w, h, 0.0, t.bg());
-        ui.text(Face::Medium, 28.0, 32.0, 35.0, t.text(), self.title);
-        ui.text(Face::Regular, 15.0, 32.0, 85.0, t.muted(), self.help);
+        ui.rounded(0.0, 0.0, full_w, full_h, 0.0, t.bg());
+        let l = design::Layout::new(full_w, full_h, 0.0, 0.0);
+        let (x, w, top, bottom) = self.geometry(full_w, full_h);
+        let title = ui.fit_text(Face::Medium, 28.0, self.title, w);
+        ui.text(Face::Medium, 28.0, x, l.safe_top + 12.0, t.text(), &title);
+        let help = ui.fit_text(Face::Regular, 15.0, self.help, w);
+        ui.text(Face::Regular, 15.0, x, l.safe_top + 54.0, t.muted(), &help);
         if let Some(device) = &self.device {
-            ui.text(Face::Regular, 13.0, 32.0, 111.0, t.muted(), device);
+            let device = ui.fit_text(Face::Regular, 13.0, device, w);
+            ui.text(Face::Regular, 13.0, x, l.safe_top + 80.0, t.muted(), &device);
         }
-        let top = 137.0;
-        let bottom = h - 100.0;
         self.scroll = self.scroll.clamp(
             0.0,
             (self.choices.len() as f32 * 84.0 - (bottom - top)).max(0.0),
@@ -282,20 +284,22 @@ impl Chooser {
             if y < top || y + 76.0 > bottom {
                 continue;
             }
-            ui.rounded(34.0, y + 10.0, 22.0, 22.0, 11.0, t.text());
-            ui.rounded(36.0, y + 12.0, 18.0, 18.0, 9.0, t.bg());
+            ui.rounded(x + 2.0, y + 10.0, 22.0, 22.0, 11.0, t.text());
+            ui.rounded(x + 4.0, y + 12.0, 18.0, 18.0, 9.0, t.bg());
             if *selected {
-                ui.rounded(40.0, y + 16.0, 10.0, 10.0, 5.0, t.text());
+                ui.rounded(x + 8.0, y + 16.0, 10.0, 10.0, 5.0, t.text());
             }
-            ui.text(Face::Medium, 19.0, 80.0, y + 8.0, t.text(), label);
-            ui.text(Face::Regular, 14.0, 80.0, y + 40.0, t.muted(), detail);
-            ui.rounded(32.0, y + 75.0, w - 64.0, 1.0, 0.0, t.outline());
-            targets.push(([32.0, y, w - 64.0, 76.0], *action));
+            let label = ui.fit_text(Face::Medium, 19.0, label, w - 60.0);
+            ui.text(Face::Medium, 19.0, x + 48.0, y + 8.0, t.text(), &label);
+            let detail = ui.fit_text(Face::Regular, 14.0, detail, w - 60.0);
+            ui.text(Face::Regular, 14.0, x + 48.0, y + 40.0, t.muted(), &detail);
+            ui.rounded(x, y + 75.0, w, 1.0, 0.0, t.outline());
+            targets.push(([x, y, w, 76.0], *action));
         }
         button(
             ui,
             targets,
-            [32.0, h - 78.0, 160.0, 44.0],
+            [x, l.nav_y - 56.0, 160.0f32.min(w), 44.0],
             "Cancel",
             Action::Dismiss,
             false,

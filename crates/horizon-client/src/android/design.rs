@@ -124,6 +124,8 @@ pub struct Layout {
     pub gap: f32,
     pub content_x: f32,
     pub content_w: f32,
+    pub left_inset: f32,
+    pub right_inset: f32,
     pub safe_top: f32,
     pub safe_bottom: f32,
     pub header_y: f32,
@@ -141,13 +143,34 @@ impl Layout {
     /// viewport, converted to dp by the caller. Nothing is allowed under the
     /// fixed bottom navigation or above the status-bar inset.
     pub fn new(w: f32, h: f32, top_inset: f32, bottom_inset: f32) -> Self {
+        Self::with_insets(w, h, 0.0, top_inset, 0.0, bottom_inset)
+    }
+
+    /// Portrait, edge-to-edge mobile layout. The old centred desktop column is
+    /// gone: `max_content_width` is 0 in the shipped spec, so every card spans
+    /// the full screen minus responsive side padding and cutout insets. Side
+    /// padding grows only slightly on wide screens; it never creates a narrow
+    /// container in the middle of the display.
+    pub fn with_insets(w: f32, h: f32, left: f32, top: f32, right: f32, bottom: f32) -> Self {
         let pad = space("pad").max(12.0);
         let gap = space("gap").max(8.0);
-        let max_w = spec()["max_content_width"].as_f64().unwrap_or(560.0) as f32;
-        let content_w = (w - 2.0 * pad).min(max_w).max(240.0);
-        let content_x = (w - content_w) * 0.5;
-        let safe_top = top_inset.max(0.0) + space("safe_top");
-        let safe_bottom = bottom_inset.max(0.0) + space("safe_bottom");
+        let max_w = spec()["max_content_width"].as_f64().unwrap_or(0.0) as f32;
+        let wide_start = spec()["side_pad_wide_start"].as_f64().unwrap_or(600.0) as f32;
+        let wide_extra = spec()["side_pad_wide_extra"].as_f64().unwrap_or(24.0) as f32;
+        let extra = ((w - wide_start).max(0.0) * 0.05).min(wide_extra);
+        let side = pad + extra;
+        let left_inset = left.max(0.0);
+        let right_inset = right.max(0.0);
+        let mut content_w = (w - 2.0 * side - left_inset - right_inset).max(240.0);
+        let mut content_x = side + left_inset;
+        // Only a spec that explicitly opts back into a cap can create a centred
+        // column. The shipped mobile spec disables it (0.0).
+        if max_w > 0.0 && content_w > max_w {
+            content_w = max_w;
+            content_x = (w - content_w) * 0.5;
+        }
+        let safe_top = top.max(0.0) + space("safe_top");
+        let safe_bottom = bottom.max(0.0) + space("safe_bottom");
         let header_h = metric("header", "height");
         let header_y = safe_top;
         let subheader_h = metric("subheader", "height");
@@ -166,6 +189,8 @@ impl Layout {
             gap,
             content_x,
             content_w,
+            left_inset,
+            right_inset,
             safe_top,
             safe_bottom,
             header_y,
@@ -178,6 +203,21 @@ impl Layout {
             nav_h,
             hero_h,
         }
+    }
+
+    /// Full-width portrait sheet shared by the account panel and other modals.
+    /// It stops above the fixed bottom bar and starts below the safe top inset.
+    pub fn sheet_rect(w: f32, h: f32) -> [f32; 4] {
+        let l = Layout::new(w, h, 0.0, 0.0);
+        [l.content_x, l.safe_top, l.content_w, (l.nav_y - 12.0 - l.safe_top).max(240.0)]
+    }
+
+    /// Full-width portrait dialog, vertically centred but never under the nav.
+    pub fn modal_rect(w: f32, h: f32, height: f32) -> [f32; 4] {
+        let l = Layout::new(w, h, 0.0, 0.0);
+        let max_y = (l.nav_y - 12.0 - height).max(l.safe_top);
+        let y = ((h - height) * 0.5).clamp(l.safe_top, max_y);
+        [l.content_x, y, l.content_w, height]
     }
     /// Total height of the scrollable Home column before any scroll offset.
     pub fn home_height(&self) -> f32 {
@@ -240,9 +280,16 @@ impl Layout {
             toast,
         }
     }
+    /// Five equal destinations across the *whole* usable width. Cutout/gesture
+    /// insets shrink the usable area but never centre a narrow desktop bar.
     pub fn nav_item(&self, index: usize) -> [f32; 4] {
-        let width = self.w / 5.0;
-        [index as f32 * width, self.nav_y, width, self.nav_h - self.safe_bottom]
+        let width = (self.w - self.left_inset - self.right_inset) / 5.0;
+        [
+            self.left_inset + index as f32 * width,
+            self.nav_y,
+            width,
+            self.nav_h - self.safe_bottom,
+        ]
     }
     /// A full-width row inside the content column.
     pub fn row(&self, y: f32, h: f32) -> [f32; 4] {
@@ -643,6 +690,12 @@ pub fn navigation(
     labels: &[String],
 ) {
     let r = [0.0, layout.nav_y, layout.w, layout.nav_h];
+    // Edge-to-edge: the gesture/navigation inset below the bar is filled with
+    // the same glass, so no empty strip appears at the bottom of the screen.
+    let inset_h = (layout.h - (r[1] + r[3])).max(0.0);
+    if inset_h > 0.0 {
+        ui.rounded(r[0], r[1] + r[3] - 2.0, r[2], inset_h + 2.0, 0.0, t.glass());
+    }
     ui.rounded(r[0], r[1], r[2], r[3], radius("nav"), t.glass());
     ui.border(r[0], r[1], r[2], r[3], radius("nav"), t.outline());
     ui.gradient(r[0] + radius("nav"), r[1], r[2] - radius("nav") * 2.0, 18.0, alpha(hex("primary"), t.alpha * 0.12), alpha(hex("glass"), 0.0));
@@ -670,6 +723,10 @@ mod tests {
     fn every_test_screen_keeps_cards_inside_the_viewport_and_nav_visible() {
         for (w, h) in [(360.0, 800.0), (393.0, 873.0), (432.0, 960.0), (480.0, 768.0), (960.0, 540.0)] {
             let l = Layout::new(w, h, 0.0, 0.0);
+            // No centred desktop column: cards use the whole screen width.
+            assert!(l.content_x <= 40.0, "large left gap at {w}x{h}");
+            assert!(w - (l.content_x + l.content_w) <= 40.0, "large right gap at {w}x{h}");
+            assert!(l.content_w >= w * 0.85, "content column too narrow at {w}x{h}");
             let home = l.home(0.0);
             let rects = [
                 home.hero, home.play, home.version, home.profile, home.performance, home.toast,
@@ -700,6 +757,21 @@ mod tests {
                     || p[1] + p[3] <= q[1] || q[1] + q[3] <= p[1];
                 assert!(separate);
             }
+        }
+    }
+    #[test]
+    fn dialogs_are_full_width_portrait_sheets() {
+        for (w, h) in [(360.0, 800.0), (393.0, 873.0), (432.0, 960.0)] {
+            let l = Layout::new(w, h, 0.0, 0.0);
+            let sheet = Layout::sheet_rect(w, h);
+            assert_eq!(sheet[0], l.content_x);
+            assert_eq!(sheet[2], l.content_w);
+            assert!(sheet[1] + sheet[3] <= l.nav_y, "sheet covers bottom navigation");
+            let modal = Layout::modal_rect(w, h, 144.0);
+            assert_eq!(modal[0], l.content_x);
+            assert_eq!(modal[2], l.content_w);
+            assert!(modal[1] >= l.safe_top);
+            assert!(modal[1] + modal[3] <= l.nav_y - 12.0);
         }
     }
     #[test]

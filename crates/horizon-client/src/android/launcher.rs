@@ -197,7 +197,12 @@ impl Launcher {
     }
 
     fn open(&mut self, events: &ActiveEventLoop) -> Result<()> {
-        crate::platform::set_orientation(self.catalog.config.orientation);
+        // Portrait is mandatory for the redesigned launcher: the manifest locks
+        // the Activity before Rust starts, the saved default is Portrait, and
+        // an "automatic rotation" preference cannot flip the launcher sideways.
+        // An explicit orientation choice in Settings still applies to the
+        // current session through Action::ChooseOrientation.
+        crate::platform::set_orientation(self.catalog.config.orientation.launcher_mode());
         self.configure_screen();
         crate::display::set_scale(self.catalog.config.render_scale);
         horizon_client::android_runtime::configure_gpu(false);

@@ -1,6 +1,9 @@
 {
   "version": 1,
-  "note": "Single source of truth for the Android launcher's visual language. Read by the native Rust UI (design.rs), the layout verifier (tools/android_ui_layout.py) and the layout QA preview (tools/android_ui_preview.py).",
+  "note": "Single source of truth for the Android launcher's portrait, edge-to-edge visual language. Read by the native Rust UI (design.rs), the layout verifier (tools/android_ui_layout.py), the QA renderer (tools/android_ui_render.py) and the layout QA preview.",
+  "orientation": "portrait",
+  "width_policy": "full-width",
+  "width_policy_note": "max_content_width 0 disables the old centred desktop column. Cards span the whole screen minus responsive side padding and cutout insets.",
   "palette": {
     "bg": "#070B1C",
     "card": "#111A35",
@@ -52,7 +55,9 @@
     "large": 432.0,
     "tablet": 600.0
   },
-  "max_content_width": 560.0,
+  "max_content_width": 0.0,
+  "side_pad_wide_start": 600.0,
+  "side_pad_wide_extra": 24.0,
   "motion": {
     "page_ms": 220.0,
     "press_ms": 160.0,
