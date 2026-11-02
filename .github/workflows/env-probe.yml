@@ -1,0 +1,63 @@
+# Temporary toolchain probe for the redesign APK build. Safe to remove.
+name: Horizon release toolchain probe
+on:
+  push:
+    branches: [arena/92db30ff-horizon]
+    paths: [.github/workflows/env-probe.yml]
+permissions:
+  contents: read
+  issues: write
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Collect runner capabilities
+        shell: bash
+        run: |
+          set +e
+          {
+            echo "## Run $GITHUB_RUN_ID / commit $GITHUB_SHA"
+            echo "### Rust"
+            rustup toolchain list 2>&1
+            rustc --version 2>&1
+            cargo --version 2>&1
+            echo "### Java"
+            java -version 2>&1
+            env | grep '^JAVA_HOME' | sort
+            ls -1 /usr/lib/jvm 2>&1
+            echo "### Android SDK"
+            echo "ANDROID_HOME=$ANDROID_HOME ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+            command -v sdkmanager
+            ls -1 "$ANDROID_HOME/build-tools" 2>&1
+            ls -1 "$ANDROID_HOME/ndk" 2>&1
+            ls -1 "$ANDROID_HOME/platforms" 2>&1
+            echo "### Gradle / Python / disk"
+            command -v gradle || true
+            python3 -c 'import PIL; print("Pillow", PIL.__version__)' 2>&1
+            python3 --version
+            df -h / /mnt /tmp 2>&1
+            echo "### Network endpoints"
+            for url in https://piston-meta.mojang.com/mc/game/version_manifest_v2.json https://resources.download.minecraft.net/ https://launchermeta.mojang.com/ https://services.gradle.org/distributions/gradle-8.14-all.zip https://dl.google.com/dl/android/maven2/ https://repo1.maven.org/maven2/ https://crates.io/; do
+              printf '%s -> ' "$url"
+              curl -sS -m 20 -o /dev/null -w '%{http_code}\n' "$url" 2>&1
+            done
+          } > /tmp/env-probe.txt 2>&1
+          echo "### Rust Android target install"
+          rustup target add aarch64-linux-android >> /tmp/env-probe.txt 2>&1
+          echo "exit=$?" >> /tmp/env-probe.txt
+          echo "### Android SDK install"
+          yes | sdkmanager --licenses >> /tmp/env-probe.txt 2>&1
+          yes | sdkmanager "ndk;28.2.13676358" "build-tools;35.0.0" "platforms;android-35" >> /tmp/env-probe.txt 2>&1
+          echo "sdkmanager exit=$?" >> /tmp/env-probe.txt
+          ls -1 "$ANDROID_HOME/ndk" >> /tmp/env-probe.txt 2>&1
+          tail -c 60000 /tmp/env-probe.txt > /tmp/env-probe-tail.txt
+      - name: Post diagnostics
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue comment 1 --body-file /tmp/env-probe-tail.txt
