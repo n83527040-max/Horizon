@@ -293,6 +293,11 @@ impl Catalog {
     pub fn busy(&self) -> bool {
         self.worker.is_some()
     }
+    /// Read-only progress flag for the launcher's skeleton placeholders. It
+    /// does not start, cancel or observe the search beyond its existence.
+    pub fn searching(&self) -> bool {
+        self.search_worker.is_some()
+    }
     pub fn download_label(&self, project: &Project) -> Option<String> {
         if self
             .downloading

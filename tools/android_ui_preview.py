@@ -1,0 +1,361 @@
+#!/usr/bin/env python3
+"""Generate a static layout-QA render of the native Android launcher design.
+
+This is NOT the application and is not shipped in the APK. It draws the exact
+rectangles computed by tools/android_ui_layout.py (the Python mirror of
+design.rs) and the exact palette from ui_spec.json, so a reviewer can verify
+spacing, overlap, safe areas and the bottom bar without an Android device.
+
+    python3 tools/android_ui_preview.py
+    python3 -m http.server 8000 --bind 0.0.0.0
+    open http://localhost:8000/tools/ui-preview/
+"""
+from __future__ import annotations
+
+import html
+import json
+from pathlib import Path
+
+from android_ui_layout import SPEC, Layout, ROOT
+
+OUT = ROOT / "tools/ui-preview/index.html"
+W, H = 393.0, 873.0
+L = Layout.new(W, H)
+P = SPEC["palette"]
+
+
+def esc(text: str) -> str:
+    return html.escape(text, quote=True)
+
+
+def div(r, cls: str, content: str = "", style: str = "") -> str:
+    return (
+        f'<div class="{cls}" style="left:{r.x:.1f}px;top:{r.y:.1f}px;'
+        f'width:{r.w:.1f}px;height:{r.h:.1f}px;{style}">{content}</div>'
+    )
+
+
+def rect(r, cls: str, content: str = "", style: str = ""):
+    return div(r, cls, content, style)
+
+
+ICON = {
+    "home": '<svg viewBox="0 0 24 24"><path d="M3 11 12 4l9 7v9H3z"/></svg>',
+    "puzzle": '<svg viewBox="0 0 24 24"><path d="M5 8h6V5a2 2 0 1 1 4 0v3h4v6h-3a2 2 0 1 0 0 4h3v3H5z"/></svg>',
+    "layers": '<svg viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5zM3 13l9 5 9-5M3 17l9 5 9-5"/></svg>',
+    "download": '<svg viewBox="0 0 24 24"><path d="M4 17h16v3H4zM11 4h2v9l3-3 1 1-5 5-5-5 1-1 3 3z"/></svg>',
+    "gear": '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/></svg>',
+    "play": '<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>',
+    "cube": '<svg viewBox="0 0 24 24"><path d="m12 2 9 5v10l-9 5-9-5V7zM3 7l9 5 9-5M12 12v10"/></svg>',
+    "sparkle": '<svg viewBox="0 0 24 24"><path d="M12 2l2 7 7 2-7 2-2 7-2-7-7-2 7-2z"/></svg>',
+    "gauge": '<svg viewBox="0 0 24 24"><path d="M4 17a8 8 0 1 1 16 0M12 17l5-6"/></svg>',
+    "user": '<svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>',
+    "chevron": '<svg viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></svg>',
+}
+
+
+def icon(name: str, size: int = 24, color: str = "") -> str:
+    return f'<span class="ic" style="width:{size}px;height:{size}px;{color}">{ICON[name]}</span>'
+
+
+def card(r, content: str, cls: str = "card") -> str:
+    return rect(r, cls, content)
+
+
+def home_screen() -> str:
+    h = L.home(0.0)
+    parts = []
+    # Hero with the exact bundled artwork and the native overlay.
+    hero = h["hero"]
+    inner = (
+        f'<img class="hero-img" src="../../crates/horizon-client/src/android/assets/hero.png" alt="Horizon hero">'
+        f'<div class="hero-veil"></div>'
+        f'<div class="hero-mark"></div>'
+        f'<div class="hero-title">HORIZON</div>'
+        f'<div class="hero-sub">Minecraft Java Edition</div>'
+    )
+    parts.append(card(hero, inner, "card hero"))
+    # Play.
+    play = h["play"]
+    parts.append(
+        rect(play, "play", icon("play", 24) + "<span>Play</span>")
+    )
+    # Version / profile.
+    for r, ic, title, value, detail in [
+        (h["version"], "cube", "Minecraft", "26.3", "Pinned engine version"),
+        (h["profile"], "user", "Profile", "adam", "Offline / Sign in"),
+    ]:
+        body = (
+            f'<div class="mini-icon">{icon(ic, 24)}</div>'
+            f'<div class="mini-title">{title}</div>'
+            f'<div class="mini-value">{esc(value)}</div>'
+            f'<div class="mini-detail">{esc(detail)}</div>'
+        )
+        parts.append(card(r, body, "card mini"))
+    parts.append(rect(h["manage"], "section", "Manage <span class=\"dim\">Content on this device</span>"))
+    features = [
+        ("puzzle", "Mods", "Native .hmod packages", "primary"),
+        ("layers", "Packs", "Resource packs", "cyan"),
+        ("sparkle", "Shaders", "Enable / compatibility", "secondary"),
+        ("download", "Installed", "Manage files", "primary"),
+    ]
+    for r, (ic, title, detail, accent) in zip(h["features"], features):
+        body = (
+            f'<div class="feature-icon {accent}">{icon(ic, 26)}</div>'
+            f'<div class="feature-title">{title}</div>'
+            f'<div class="feature-detail">{esc(detail)}</div>'
+            f'<div class="feature-chevron">{icon("chevron", 18)}</div>'
+        )
+        parts.append(card(r, body, "card feature"))
+    perf = h["performance"]
+    body = (
+        f'<div class="perf-head">{icon("gauge", 22, "color:#20DDF5")}<b>Performance</b>{icon("chevron", 20)}</div>'
+        f'<div class="perf-row"><span>RAM usage</span><span class="dim">/proc/self/status</span></div>'
+        f'<div class="bar"><i style="width:52%"></i></div>'
+        f'<div class="perf-row"><span>Graphics API</span><span>Vulkan / compatibility</span></div>'
+        f'<div class="perf-row"><span>Resolution</span><span>100%</span></div>'
+        f'<div class="perf-note">FPS is only available in-game; the launcher hides it.</div>'
+    )
+    parts.append(card(perf, body, "card perf"))
+    footer = h["footer"]
+    parts.append(card(footer, '<span class="dim">v0.7.6  •  Minecraft Java 26.3</span><span class="link">GitHub ↗</span>', "card footer"))
+    return "".join(parts)
+
+
+def list_screen(title: str, subtitle: str, rows: list[tuple[str, str, str]], chip: str) -> str:
+    parts = [rect(type("R", (), {"x": L.content_x, "y": L.page_top, "w": L.content_w, "h": 52.0})(), "subhead", f"<b>{esc(title)}</b><span>{esc(subtitle)}</span>")]
+    y = L.content_top
+    # Segmented control.
+    for i, name in enumerate(["Mods", "Packs", "Shaders"]):
+        r = L.third(y, 36.0, i)
+        parts.append(rect(r, "chip" + (" active" if name == chip else ""), name))
+    y += 48
+    field = type("R", (), {"x": L.content_x, "y": y, "w": L.content_w - 108.0, "h": 46.0})()
+    parts.append(rect(field, "card field", "Search or paste an HTTPS .hmod link"))
+    btn = type("R", (), {"x": L.content_x + L.content_w - 96.0, "y": y, "w": 96.0, "h": 46.0})()
+    parts.append(rect(btn, "play small", "Search"))
+    y += 58
+    for i, (name, detail, action) in enumerate(rows):
+        r = type("R", (), {"x": L.content_x, "y": y, "w": L.content_w, "h": 84.0})()
+        body = (
+            f'<div class="tile">{name[:1]}</div>'
+            f'<div class="row-title">{esc(name)}</div>'
+            f'<div class="row-detail">{esc(detail)}</div>'
+            f'<div class="row-action">{esc(action)}</div>'
+        )
+        parts.append(card(r, body, "card row"))
+        y += 92
+    return "".join(parts)
+
+
+def settings_screen() -> str:
+    parts = [
+        rect(type("R", (), {"x": L.content_x, "y": L.page_top, "w": L.content_w, "h": 52.0})(),
+             "subhead", "<b>Settings</b><span>Graphics, performance, accounts and app</span>")
+    ]
+    y = L.content_top
+    groups = [
+        ("Graphics", [("Rendering", "Vulkan / compatibility"), ("Client resolution", "100%"), ("Aspect ratio", "Native")]),
+        ("Performance", [("Performance hints", "Off"), ("GPU profiling", "Off"), ("Performance recording", "Off")]),
+        ("Accounts & controls", [("Profile", "Profile 0"), ("Input", "Touch & Android keyboard"), ("Orientation", "Portrait (sensor)")]),
+    ]
+    for name, rows in groups:
+        parts.append(rect(type("R", (), {"x": L.content_x, "y": y, "w": L.content_w, "h": 28.0})(), "section", esc(name)))
+        y += 34
+        for title, value in rows:
+            r = type("R", (), {"x": L.content_x, "y": y, "w": L.content_w, "h": 68.0})()
+            parts.append(card(r, f'<div class="row-title">{esc(title)}</div><div class="row-detail">{esc(value)}</div>{icon("chevron", 20, "position:absolute;right:14px;top:24px")}', "card setting"))
+            y += 76
+    return "".join(parts)
+
+
+def header() -> str:
+    x, y, w = L.content_x, L.header_y, L.content_w
+    badge_x = x + w - 40.0 - 86.0
+    return (
+        f'<div class="logo" style="left:{x:.1f}px;top:{y + 7:.1f}px"></div>'
+        f'<div class="wordmark" style="left:{x + 46:.1f}px;top:{y + 2:.1f}px">HORIZON</div>'
+        f'<div class="tagline" style="left:{x + 46:.1f}px;top:{y + 28:.1f}px">Minecraft Java • Android</div>'
+        f'<div class="badge" style="left:{badge_x:.1f}px;top:{y + 14:.1f}px">v0.7.6</div>'
+        f'<div class="gear" style="left:{x + w - 40:.1f}px;top:{y + 8:.1f}px">{icon("gear", 22)}</div>'
+    )
+
+
+def nav(active: int) -> str:
+    items = []
+    labels = SPEC["nav_items"]
+    icons = ["home", "puzzle", "layers", "download", "gear"]
+    for i in range(5):
+        r = L.nav_item(i)
+        cls = "nav-item active" if i == active else "nav-item"
+        items.append(
+            rect(r, cls, f'{icon(icons[i], 22)}<span>{esc(labels[i])}</span>')
+        )
+    bar = type("R", (), {"x": 0.0, "y": L.nav_y, "w": L.w, "h": L.nav_h})()
+    return rect(bar, "nav-glass", "".join(items))
+
+
+def screen(name: str, body: str, active: int) -> str:
+    return (
+        f'<div class="screen" data-screen="{name}">'
+        f'<div class="glow glow-a"></div><div class="glow glow-b"></div>'
+        f'{header()}<div class="content">{body}</div>{nav(active)}</div>'
+    )
+
+
+def main():
+    screens = [
+        screen("home", home_screen(), 0),
+        screen("mods", list_screen("Mods", "Native .hmod packages • install, enable or remove",
+                                   [("Example native mod", "Works • 26.3", "Install"),
+                                    ("Modrinth Java mod", "Doesn't run", "Java mod")], "Mods"), 1),
+        screen("packs", list_screen("Resource Packs", "Verified downloads • enable in Installed",
+                                    [("Example pack", "Works • 26.3", "Install")], "Packs"), 2),
+        screen("shaders", list_screen("Shaders", "Native .hshader packs • compatibility and activation",
+                                      [("Example shader", "Works • 26.3", "Install")], "Shaders"), 2),
+        screen("installed", list_screen("Installed", "Enable, import or remove content by type",
+                                        [("Mods", "Enable or remove", "Open"),
+                                         ("Resource Packs", "Enable or remove", "Open"),
+                                         ("Shaders", "Enable or remove", "Open")], ""), 3),
+        screen("settings", settings_screen(), 4),
+    ]
+    css = f"""
+:root {{
+  --bg:{P['bg']}; --card:{P['card']}; --card-alt:{P['card_alt']};
+  --primary:{P['primary']}; --secondary:{P['secondary']}; --cyan:{P['cyan']};
+  --text:{P['text']}; --muted:{P['muted']}; --outline:{P['outline']};
+}}
+* {{ box-sizing:border-box; }}
+body {{ margin:0; background:#04071A; color:var(--text);
+  font-family:Inter,Segoe UI,Roboto,system-ui,sans-serif; display:flex;
+  flex-direction:column; align-items:center; padding:24px 12px 48px; }}
+h1 {{ font-size:16px; font-weight:600; letter-spacing:.02em; margin:0 0 6px; }}
+.note {{ font-size:12px; color:#8E9AC0; max-width:520px; text-align:center; margin:0 0 18px; line-height:1.5; }}
+.tabs {{ display:flex; gap:6px; flex-wrap:wrap; justify-content:center; margin-bottom:16px; }}
+.tabs button {{ background:#141E3C; color:#A9B4D0; border:1px solid #2A3560;
+  border-radius:999px; padding:7px 14px; font-size:12px; cursor:pointer; }}
+.tabs button.on {{ background:rgba(139,69,255,.28); border-color:var(--primary); color:#fff; }}
+.phone {{ width:{W:.0f}px; height:{H:.0f}px; position:relative; overflow:hidden;
+  border-radius:34px; background:var(--bg); border:1px solid #232E58;
+  box-shadow:0 24px 80px rgba(0,0,0,.6), 0 0 0 6px #0A1026; }}
+.screen {{ position:absolute; inset:0; display:none; }}
+.screen.on {{ display:block; }}
+.glow {{ position:absolute; border-radius:50%; filter:blur(30px); opacity:.20; }}
+.glow-a {{ width:300px; height:220px; right:-80px; top:-90px; background:var(--primary); }}
+.glow-b {{ width:320px; height:240px; left:-110px; bottom:60px; background:var(--secondary); }}
+.logo {{ position:absolute; width:34px; height:34px; background:linear-gradient(160deg,var(--primary),var(--secondary));
+  clip-path:polygon(50% 0,100% 100%,68% 100%,50% 55%,32% 100%,0 100%); }}
+.wordmark {{ position:absolute; font-size:22px; font-weight:700; letter-spacing:.06em; }}
+.tagline {{ position:absolute; font-size:11px; color:var(--muted); }}
+.badge {{ position:absolute; width:78px; height:28px; border-radius:14px;
+  background:rgba(139,69,255,.24); border:1px solid var(--primary); color:#fff;
+  font-size:11px; font-weight:600; display:flex; align-items:center; justify-content:center; }}
+.gear {{ position:absolute; width:40px; height:40px; border-radius:14px; background:var(--card-alt);
+  border:1px solid var(--outline); display:flex; align-items:center; justify-content:center; }}
+.content {{ position:absolute; left:0; right:0; top:{L.page_top:.1f}px; bottom:{L.h - L.page_bottom:.1f}px; overflow:hidden; }}
+.card {{ position:absolute; background:var(--card); border:1px solid var(--outline);
+  border-radius:22px; overflow:hidden; }}
+.card::before {{ content:''; position:absolute; left:0; right:0; top:0; height:22px;
+  background:linear-gradient(180deg,rgba(139,69,255,.10),transparent); }}
+.hero {{ border-radius:26px; border-color:rgba(139,69,255,.45); }}
+.hero-img {{ position:absolute; inset:3px; width:calc(100% - 6px); height:calc(100% - 6px);
+  object-fit:cover; border-radius:23px; }}
+.hero-veil {{ position:absolute; left:3px; right:3px; bottom:3px; height:58%;
+  background:linear-gradient(180deg,transparent,rgba(7,11,28,.88)); border-radius:0 0 23px 23px; }}
+.hero-mark {{ position:absolute; left:21px; bottom:96px; width:26px; height:26px;
+  background:linear-gradient(160deg,var(--primary),var(--secondary));
+  clip-path:polygon(50% 0,100% 100%,68% 100%,50% 55%,32% 100%,0 100%); }}
+.hero-title {{ position:absolute; left:21px; bottom:64px; font-size:26px; font-weight:700; letter-spacing:.04em; }}
+.hero-sub {{ position:absolute; left:21px; bottom:36px; font-size:13px; color:#E4E9FF; }}
+.play {{ position:absolute; border-radius:18px; display:flex; gap:10px; align-items:center; justify-content:center;
+  background:linear-gradient(110deg,var(--primary),var(--secondary)); font-size:20px; font-weight:650;
+  box-shadow:0 0 24px rgba(139,69,255,.22); }}
+.play.small {{ font-size:13px; font-weight:600; }}
+.play .ic svg {{ fill:#fff; }}
+.mini-icon {{ position:absolute; left:14px; top:12px; color:var(--cyan); }}
+.mini-title {{ position:absolute; left:46px; top:11px; font-size:11px; color:var(--muted); }}
+.mini-value {{ position:absolute; left:14px; top:31px; font-size:17px; font-weight:650; }}
+.mini-detail {{ position:absolute; left:14px; top:55px; font-size:11px; color:var(--muted); }}
+.section {{ position:absolute; font-size:15px; font-weight:650; display:flex; align-items:center; gap:10px; }}
+.dim {{ color:#7E8AAD; font-weight:400; font-size:11px; }}
+.feature-icon {{ position:absolute; left:14px; top:13px; }}
+.feature-icon svg {{ stroke:#8B45FF; }}
+.feature-icon.cyan svg {{ stroke:#20DDF5; }}
+.feature-icon.secondary svg {{ stroke:#315BFF; }}
+.feature-title {{ position:absolute; left:14px; top:44px; font-size:15px; font-weight:650; }}
+.feature-detail {{ position:absolute; left:14px; top:63px; font-size:11px; color:var(--muted); }}
+.feature-chevron {{ position:absolute; right:12px; bottom:12px; color:#7E8AAD; }}
+.perf-head {{ position:absolute; left:14px; right:14px; top:10px; display:flex; align-items:center; gap:8px; font-size:15px; }}
+.perf-head .ic:last-child {{ margin-left:auto; color:#7E8AAD; }}
+.perf-row {{ position:absolute; left:14px; right:14px; display:flex; justify-content:space-between;
+  font-size:11px; color:var(--muted); }}
+.perf-row:nth-of-type(2) {{ top:38px; }}
+.perf-row:nth-of-type(3) {{ top:70px; }}
+.perf-row:nth-of-type(4) {{ top:88px; }}
+.bar {{ position:absolute; left:14px; right:14px; top:56px; height:6px; border-radius:3px;
+  background:var(--card-alt); overflow:hidden; }}
+.bar i {{ display:block; height:100%; border-radius:3px; background:linear-gradient(90deg,var(--primary),var(--secondary)); }}
+.perf-note {{ position:absolute; left:14px; bottom:5px; font-size:10px; color:#7E8AAD; }}
+.footer {{ border-radius:14px; display:flex; align-items:center; justify-content:space-between; padding:0 14px; font-size:11px; }}
+.link {{ color:var(--cyan); }}
+.subhead {{ position:absolute; display:flex; flex-direction:column; gap:4px; font-size:22px; font-weight:650; }}
+.subhead span {{ font-size:12px; color:var(--muted); font-weight:400; }}
+.chip {{ position:absolute; border-radius:14px; background:var(--card-alt); border:1px solid var(--outline);
+  display:flex; align-items:center; justify-content:center; font-size:12px; }}
+.chip.active {{ background:rgba(139,69,255,.30); border-color:var(--primary); color:#fff; }}
+.field {{ display:flex; align-items:center; padding:0 14px; font-size:13px; color:#7E8AAD; }}
+.tile {{ position:absolute; left:12px; top:16px; width:48px; height:48px; border-radius:14px;
+  background:rgba(139,69,255,.22); display:flex; align-items:center; justify-content:center; font-weight:700; }}
+.row-title {{ position:absolute; left:70px; top:12px; font-size:15px; font-weight:650; }}
+.row-detail {{ position:absolute; left:70px; top:36px; font-size:11px; color:var(--muted); }}
+.row-action {{ position:absolute; right:12px; top:22px; width:88px; height:42px; border-radius:14px;
+  background:linear-gradient(110deg,var(--primary),var(--secondary)); display:flex; align-items:center;
+  justify-content:center; font-size:12px; }}
+.setting .row-title {{ left:14px; top:10px; }}
+.setting .row-detail {{ left:14px; top:36px; }}
+.nav-glass {{ position:absolute; border-radius:26px 26px 0 0; background:rgba(12,19,48,.94);
+  border-top:1px solid var(--outline); display:flex; }}
+.nav-item {{ position:absolute; display:flex; flex-direction:column; align-items:center; gap:6px;
+  padding-top:12px; color:#7E8AAD; font-size:10px; }}
+.nav-item.active {{ color:var(--primary); }}
+.nav-item.active::before {{ content:''; position:absolute; top:3px; width:26px; height:3px;
+  border-radius:2px; background:var(--primary); }}
+.ic {{ display:inline-flex; align-items:center; justify-content:center; }}
+.ic svg {{ width:100%; height:100%; fill:none; stroke:currentColor; stroke-width:1.8;
+  stroke-linecap:round; stroke-linejoin:round; }}
+.logo, .hero-mark {{ filter:drop-shadow(0 0 8px rgba(139,69,255,.5)); }}
+"""
+    js = """
+const tabs=[...document.querySelectorAll('.tabs button')];
+const screens=[...document.querySelectorAll('.screen')];
+function show(name){tabs.forEach(b=>b.classList.toggle('on',b.dataset.tab===name));
+ screens.forEach(s=>s.classList.toggle('on',s.dataset.screen===name));}
+tabs.forEach(b=>b.addEventListener('click',()=>show(b.dataset.tab)));
+show('home');
+"""
+    buttons = "".join(
+        f'<button data-tab="{n}" class="{"on" if i == 0 else ""}">{n.title()}</button>'
+        for i, n in enumerate(["home", "mods", "packs", "shaders", "installed", "settings"])
+    )
+    OUT.parent.mkdir(parents=True, exist_ok=True)
+    OUT.write_text(
+        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
+        "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
+        "<title>Horizon 0.7.6 — native layout QA render</title><style>"
+        + css
+        + "</style></head><body>"
+        + "<h1>Horizon Android 0.7.6 — layout QA render</h1>"
+        + "<p class=\"note\">Generated from <code>ui_spec.json</code> and "
+        + "<code>tools/android_ui_layout.py</code> (the exact mirror of the native Rust "
+        + "<code>design.rs</code>). This is a verification render for spacing, safe areas and "
+        + "navigation — it is not the application and is not shipped in the APK. Labels describe "
+        + "real launcher actions; no performance numbers are simulated.</p>"
+        + f'<div class="tabs">{buttons}</div><div class="phone">{"".join(screens)}</div>'
+        + "<script>" + js + "</script></body></html>",
+        encoding="utf-8",
+    )
+    print(f"Wrote {OUT.relative_to(ROOT)}")
+
+
+if __name__ == "__main__":
+    main()

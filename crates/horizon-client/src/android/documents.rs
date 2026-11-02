@@ -3,8 +3,9 @@ use horizon_client::{
     Result,
     content_files::{self, Kind},
     hud::{HudAtlas, HudBatch, rgba},
-    ui_theme::{Face, Ui, color},
+    ui_theme::{Face, Ui},
 };
+use crate::launcher::design;
 use jni::{
     JNIEnv,
     objects::{JObject, JString},
@@ -392,6 +393,7 @@ pub fn draw(batch: &mut HudBatch, atlas: &HudAtlas) {
 }
 /// Launcher overlays must use its bundled font, including before game fonts exist.
 pub fn draw_ui(ui: &mut Ui<'_>) {
+    let t = design::Theme::new(1.0);
     let mut s = STATE.lock().unwrap_or_else(|e| e.into_inner());
     s.hits.clear();
     if s.conflict.is_none() && !s.working {
@@ -432,13 +434,13 @@ pub fn draw_ui(ui: &mut Ui<'_>) {
     let x = (ui.w - w) / 2.0;
     let y = ((ui.h - height) / 2.0).max(0.0);
     ui.rounded(0.0, 0.0, ui.w, ui.h, 0.0, rgba(0, 0, 0, 180));
-    ui.rounded(x, y, w, height, 2.0, color::BG);
+    design::glass_card(ui, &t, [x, y, w, height], design::radius("card"));
     ui.text(
         Face::Medium,
         20.0,
         x + 12.0,
         y + 12.0,
-        color::TEXT,
+        t.text(),
         if s.conflict.is_some() {
             "File exists"
         } else {
@@ -446,7 +448,7 @@ pub fn draw_ui(ui: &mut Ui<'_>) {
         },
     );
     let name = ui.fit_text(Face::Regular, 16.0, &name, w - 24.0);
-    ui.text(Face::Regular, 16.0, x + 12.0, y + 46.0, color::MUTED, &name);
+    ui.text(Face::Regular, 16.0, x + 12.0, y + 46.0, t.muted(), &name);
     let width = (w - 24.0) / choices.len() as f32;
     for (i, (label, choice)) in choices.into_iter().enumerate() {
         let rect = if vertical {
@@ -454,13 +456,13 @@ pub fn draw_ui(ui: &mut Ui<'_>) {
         } else {
             [x + 12.0 + i as f32 * width, y + 92.0, width - 4.0, 38.0]
         };
-        ui.rounded(rect[0], rect[1], rect[2], rect[3], 2.0, color::RAISED);
+        design::card_alt(ui, &t, [rect[0], rect[1], rect[2], rect[3]], design::radius("chip"));
         ui.text(
             Face::Medium,
             16.0,
             rect[0] + 8.0,
             rect[1] + 7.0,
-            color::TEXT,
+            t.text(),
             label,
         );
         s.hits.push((

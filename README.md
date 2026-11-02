@@ -1,5 +1,10 @@
 # Horizon Android
 
+> **واجهة جديدة 0.7.6 / Redesigned 0.7.6 UI** — تمت إعادة تصميم واجهة Android
+> بالكامل (Mobile-first، هوية داكنة بنفسجية، شريط تنقل سفلي، بطاقات، Hero banner)
+> مع الحفاظ على المحرك والوظائف الأصلية. التفاصيل والاختبارات وطريقة بناء APK:
+> **[REDESIGN.md](REDESIGN.md)** · معاينة التخطيط: `tools/ui-preview/index.html`.
+
 A native Android port of [Horizon](https://github.com/ludovic111/horizon), the
 Rust engine for Minecraft Java 26.3. Unofficial and in active development.
 

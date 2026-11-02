@@ -11,6 +11,8 @@ pub(crate) fn session_argument() -> Option<PathBuf> {
 mod chooser;
 #[path = "launcher_gesture.rs"]
 mod gesture;
+#[path = "design.rs"]
+pub(super) mod design;
 #[path = "launcher_pages.rs"]
 mod pages;
 use horizon_client::{
@@ -30,6 +32,20 @@ use winit::{
     event_loop::{ActiveEventLoop, ControlFlow},
     window::{Window, WindowId},
 };
+
+/// The bundled hero artwork (512x256 RGBA). It is compiled into the native
+/// library, not downloaded, and uses one reserved corner of the run-time
+/// glyph atlas: no new texture, no extra GPU memory, no APK asset plumbing.
+fn hero_rgba() -> Option<Vec<u8>> {
+    const PNG: &[u8] = include_bytes!("assets/hero.png");
+    let image = image::load_from_memory_with_format(PNG, image::ImageFormat::Png).ok()?;
+    let image = if image.width() == 512 && image.height() == 256 {
+        image
+    } else {
+        image.resize_exact(512, 256, image::imageops::FilterType::Lanczos3)
+    };
+    Some(image.to_rgba8().into_raw())
+}
 
 pub(super) struct Launcher {
     home: PathBuf,
@@ -58,6 +74,11 @@ pub(super) struct Launcher {
     session_ready: bool,
     focus: Option<usize>,
     diagnostic_export: Option<mpsc::Receiver<std::result::Result<String, String>>>,
+    /// Presentation-only state. None of these fields is read by the game,
+    /// the installer, the account code or the content managers.
+    hero_patch: Option<horizon_client::font::Patch>,
+    hero_ready: bool,
+    page_enter: Option<Instant>,
 }
 
 impl Launcher {
@@ -112,6 +133,9 @@ impl Launcher {
             session_ready: false,
             focus: None,
             diagnostic_export: None,
+            hero_patch: None,
+            hero_ready: false,
+            page_enter: None,
         }
     }
 
@@ -134,6 +158,8 @@ impl Launcher {
         self.chooser = None;
         self.focus = None;
         self.pending_focus = None;
+        self.page_enter = None;
+        self.hero_ready = false;
         if let Err(error) = std::env::set_current_dir(&self.home) {
             self.fail(error);
             return;
@@ -188,8 +214,11 @@ impl Launcher {
             events.create_window(Window::default_attributes().with_title("Horizon Android"))?,
         );
         crate::display::prepare(&window)?;
+        let mut atlas = HudAtlas::build(&self.home.join("installer"))?;
+        self.hero_patch = hero_rgba().and_then(|rgba| horizon_client::ui_theme::install_hero(&mut atlas, rgba));
+        self.hero_ready = false;
         let gui = game::UiResources {
-            atlas: HudAtlas::build(&self.home.join("installer"))?,
+            atlas,
             panorama: Arc::new(horizon_client::gfx::panorama::Faces {
                 size: 1,
                 pixels: [0u8; 4].repeat(6),

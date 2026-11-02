@@ -11,7 +11,12 @@
 //! function draws and hit-tests, so they never disagree.
 use crate::hud::{HudAtlas, HudBatch, Rect};
 use ab_glyph::{Font as _, FontRef, PxScale, ScaleFont as _};
-use std::{cell::RefCell, collections::HashMap, path::Path};
+use std::{
+    cell::RefCell,
+    collections::HashMap,
+    path::Path,
+    sync::atomic::{AtomicBool, Ordering},
+};
 
 /// A Horizon-only preference from `horizon.txt` beside `options.txt`
 /// (`key:value` lines), so vanilla's options file stays exactly as vanilla
@@ -137,8 +142,24 @@ struct Cache {
 thread_local! {
     static CACHE: RefCell<Option<Cache>> = const { RefCell::new(None) };
 }
+/// The Android launcher's hero banner lives in a reserved corner of the
+/// run-time glyph region. Nothing else may rasterize over it. The reservation
+/// is inert on desktop, where `install_hero` is never called.
+pub const HERO_SPRITE: &str = "horizon/android-hero";
+const HERO_W: u32 = 512;
+const HERO_H: u32 = 256;
+static HERO_RESERVED: AtomicBool = AtomicBool::new(false);
+fn reserved_shelf() -> (u32, u32, u32) {
+    if HERO_RESERVED.load(Ordering::Relaxed) {
+        (HERO_W, 0, HERO_H)
+    } else {
+        (0, 0, 0)
+    }
+}
 /// Reloaded atlases can occupy the same address with empty run-time slots.
 pub fn reset_atlas() {
+    // Reinitializing the cache picks up `reserved_shelf()` again, so an atlas
+    // reset never lets a glyph overwrite the hero banner.
     CACHE.with(|cache| *cache.borrow_mut() = None);
 }
 fn with_cache<R>(atlas: &HudAtlas, f: impl FnOnce(&mut Cache) -> R) -> R {
@@ -148,17 +169,58 @@ fn with_cache<R>(atlas: &HudAtlas, f: impl FnOnce(&mut Cache) -> R) -> R {
         let cache = c.get_or_insert_with(|| Cache {
             fonts: Fonts::load(),
             entries: HashMap::new(),
-            shelf: (0, 0, 0),
+            shelf: reserved_shelf(),
             pending: Vec::new(),
             atlas: id,
         });
         if cache.atlas != id {
             cache.atlas = id;
             cache.entries.clear();
-            cache.shelf = (0, 0, 0);
+            cache.shelf = reserved_shelf();
             cache.pending.clear();
         }
         f(cache)
+    })
+}
+/// Register one bundled RGBA image inside the run-time text region and return
+/// the atlas patch that uploads it. Android calls this once per launcher atlas;
+/// every other platform keeps the whole region for glyphs.
+pub fn install_hero(atlas: &mut HudAtlas, rgba: Vec<u8>) -> Option<crate::font::Patch> {
+    let region = atlas.sprites.get("horizon/ui-text").copied()?;
+    if region.w < HERO_W || region.h < HERO_H {
+        return None;
+    }
+    let (aw, ah) = (atlas.width as f32, atlas.height as f32);
+    let x = (region.u0 * aw).round() as u32;
+    let y = (region.v0 * ah).round() as u32;
+    if x + HERO_W > atlas.width || y + HERO_H > atlas.height {
+        return None;
+    }
+    atlas.sprites.insert(
+        HERO_SPRITE.into(),
+        Rect {
+            u0: x as f32 / aw,
+            v0: y as f32 / ah,
+            u1: (x + HERO_W) as f32 / aw,
+            v1: (y + HERO_H) as f32 / ah,
+            w: HERO_W,
+            h: HERO_H,
+        },
+    );
+    HERO_RESERVED.store(true, Ordering::Relaxed);
+    let id = atlas as *const HudAtlas as usize;
+    with_cache(atlas, |cache| {
+        cache.atlas = id;
+        cache.entries.clear();
+        cache.pending.clear();
+        cache.shelf = reserved_shelf();
+    });
+    Some(crate::font::Patch {
+        x,
+        y,
+        width: HERO_W,
+        height: HERO_H,
+        rgba,
     })
 }
 impl Cache {
@@ -176,7 +238,7 @@ impl Cache {
         }
         if y + h > region.h || w > region.w {
             self.entries.clear();
-            self.shelf = (0, 0, 0);
+            self.shelf = reserved_shelf();
             return None;
         }
         self.shelf = (x + w + 1, y, row.max(h));
@@ -362,6 +424,47 @@ impl<'a> Ui<'a> {
     pub fn finish(self) {
         let pending = with_cache(self.atlas, |c| std::mem::take(&mut c.pending));
         self.batch.patches.extend(pending);
+    }
+
+    // ---- additions for the Android launcher's card-based design ----
+    /// A vertical two-colour gradient. Only the flat middle of a rounded plate
+    /// is filled; callers draw the rounded base first so corners stay clean.
+    pub fn gradient(&mut self, x: f32, y: f32, w: f32, h: f32, top: u32, bottom: u32) {
+        let (s, d) = (self.scale, self.density);
+        self.batch.fill_gradient(
+            self.atlas,
+            (x * d / s, y * d / s, w * d / s, h * d / s),
+            top,
+            bottom,
+        );
+    }
+    /// Draw a stitched atlas sprite scaled into dp.
+    pub fn image(&mut self, name: &str, x: f32, y: f32, w: f32, h: f32, color: u32) {
+        let (s, d) = (self.scale, self.density);
+        self.batch.sprite_scaled(
+            self.atlas,
+            name,
+            x * d / s,
+            y * d / s,
+            w * d / s,
+            h * d / s,
+            color,
+        );
+    }
+    /// Number of vertices already emitted, for `clip`.
+    pub fn vertices(&self) -> usize {
+        self.batch.vertices.len()
+    }
+    /// Clip everything drawn since `start` to a dp rectangle.
+    pub fn clip(&mut self, start: usize, x: f32, y: f32, w: f32, h: f32) {
+        let (s, d) = (self.scale, self.density);
+        self.batch.clip_since(
+            start,
+            x * d / s,
+            y * d / s,
+            (x + w) * d / s,
+            (y + h) * d / s,
+        );
     }
 
     // ---- geometry, snapped to physical pixels ----

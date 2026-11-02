@@ -1,7 +1,8 @@
 //! Native account panel; authentication is shared with the desktop launcher.
 use super::pages::{Action, button};
 use crate::account::{self, Account, Accounts, Secrets, SignIn, SignInState};
-use horizon_client::ui_theme::{Face, Ui, color};
+use horizon_client::ui_theme::{Face, Ui};
+use super::design;
 
 pub(super) struct Login {
     pub visible: bool,
@@ -171,18 +172,19 @@ impl Login {
         editing_name: bool,
     ) {
         targets.clear();
+        let t = design::Theme::new(1.0);
         let w = (ui.w - 32.0).min(720.0);
         let h = (ui.h - 24.0).min(550.0);
         let x = (ui.w - w) / 2.0;
         let y = (ui.h - h) / 2.0;
-        ui.rounded(x, y, w, h, 8.0, color::BG);
+        design::glass_card(ui, &t, [x, y, w, h], design::radius("card"));
         if editing_name {
             ui.text(
                 Face::Medium,
                 24.0,
                 x + 20.0,
                 y + 20.0,
-                color::TEXT,
+                t.text(),
                 "Offline player name",
             );
             ui.text(
@@ -190,7 +192,7 @@ impl Login {
                 16.0,
                 x + 20.0,
                 y + 66.0,
-                color::MUTED,
+                t.muted(),
                 "Used when signed out of Microsoft.",
             );
             button(
@@ -217,7 +219,7 @@ impl Login {
             24.0,
             x + 20.0,
             y + 18.0,
-            color::TEXT,
+            t.text(),
             "Accounts",
         );
         ui.text(
@@ -226,9 +228,9 @@ impl Login {
             x + 20.0,
             y + 58.0,
             if self.signed_in {
-                color::ACCENT
+                t.primary()
             } else {
-                color::MUTED
+                t.muted()
             },
             &self.status(offline_name),
         );
@@ -247,7 +249,7 @@ impl Login {
                 16.0,
                 x + 20.0,
                 y + 104.0,
-                color::TEXT,
+                t.text(),
                 if self.signed_in {
                     "Account saved securely. Sessions renew automatically."
                 } else {
@@ -269,7 +271,7 @@ impl Login {
                     14.0,
                     x + 20.0,
                     y + 166.0 + row as f32 * 20.0,
-                    color::TEXT,
+                    t.text(),
                     &line,
                 );
                 row += 1;
@@ -289,7 +291,7 @@ impl Login {
                 14.0,
                 x + 20.0,
                 y + 166.0 + row as f32 * 20.0,
-                color::TEXT,
+                t.text(),
                 &line,
             );
         }
@@ -299,7 +301,7 @@ impl Login {
                 14.0,
                 x + 20.0,
                 y + h - 247.0,
-                color::MUTED,
+                t.muted(),
                 "Offline player name",
             );
             button(
