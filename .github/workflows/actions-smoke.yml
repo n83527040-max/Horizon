@@ -1,0 +1,59 @@
+# Temporary CI capability probe for the release pipeline. Safe to remove.
+name: Horizon Actions capability probe
+on:
+  push:
+    branches: [arena/92db30ff-horizon]
+    paths: [.github/workflows/actions-smoke.yml]
+permissions:
+  contents: write
+  actions: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Runner toolchain inventory
+        run: |
+          echo "ref=$GITHUB_REF sha=$GITHUB_SHA"
+          echo "--- rust ---"
+          rustup toolchain list || true
+          rustc --version || true
+          echo "--- java ---"
+          java -version 2>&1 || true
+          for v in 17 21 25; do eval "echo JAVA_HOME_${v}_X64=\$JAVA_HOME_${v}_X64"; done
+          echo "--- android ---"
+          echo "ANDROID_HOME=$ANDROID_HOME ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+          ls -1 "$ANDROID_HOME" || true
+          ls -1 "$ANDROID_HOME/build-tools" || true
+          ls -1 "$ANDROID_HOME/ndk" || true
+          command -v sdkmanager || true
+          echo "--- gradle / python / disk ---"
+          command -v gradle || true
+          python3 -c 'import PIL; print("Pillow", PIL.__version__)' || echo "Pillow missing"
+          df -h / /mnt || true
+      - name: Release-token permission probe
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -x
+          if gh release view horizon-ci-probe >/dev/null 2>&1; then
+            gh release delete horizon-ci-probe --yes --cleanup-tag || true
+          fi
+          printf 'probe\n' > probe.txt
+          if gh release create horizon-ci-probe --title 'CI capability probe' --notes 'temporary' --target "$GITHUB_SHA" probe.txt; then
+            echo "RELEASE_CREATE=OK"
+            gh release download horizon-ci-probe --pattern probe.txt --dir /tmp/probe-download
+            cat /tmp/probe-download/probe.txt
+            gh release delete horizon-ci-probe --yes --cleanup-tag
+          else
+            echo "RELEASE_CREATE=FAILED"
+          fi
+      - name: Artifact probe
+        uses: actions/upload-artifact@v4
+        with:
+          name: horizon-ci-probe
+          path: probe.txt
+          if-no-files-found: error
