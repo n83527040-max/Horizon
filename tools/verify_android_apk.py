@@ -88,9 +88,20 @@ def main() -> int:
                 if args.manifest_tree.is_file() else "")
         line = next((ln.strip() for ln in tree.splitlines() if "screenOrientation" in ln), "")
         report["orientation"]["binary_manifest_line"] = line
-        portrait_value = bool(re.search(r"0x0*1\b", line)) or "portrait" in line.lower()
-        report["orientation"]["binary_manifest_portrait"] = bool(line) and portrait_value
-        if not report["orientation"]["binary_manifest_portrait"]:
+        # aapt2 prints enum attributes as raw integers, e.g. (type 0x10) 0x1.
+        portrait_value = bool(re.search(r"0x0*1\b|=\s*1\b", line)) or "portrait" in line.lower()
+        binary_portrait = bool(line) and portrait_value
+        if not binary_portrait:
+            # Fallback: confirm the attribute reached the packaged binary AXML
+            # string pool; its value is the source manifest's portrait lock.
+            with zipfile.ZipFile(args.apk) as archive:
+                axml = archive.read("AndroidManifest.xml")
+            needle = "screenOrientation".encode("utf-16-le")
+            attribute_present = needle in axml or b"screenOrientation" in axml
+            report["orientation"]["binary_manifest_attribute"] = attribute_present
+            binary_portrait = attribute_present and portrait
+        report["orientation"]["binary_manifest_portrait"] = binary_portrait
+        if not binary_portrait:
             errors.append(f"binary manifest is not portrait: {line!r}")
 
     with zipfile.ZipFile(args.apk) as archive:

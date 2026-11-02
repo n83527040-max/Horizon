@@ -208,7 +208,7 @@ jobs:
                 https://github.com/Vasysik/horizon-android/releases/download/v0.7.6/Horizon-Android-0.7.6-arm64-v8a.apk
             fi
             # Evidence from the *binary* manifest inside the APK: portrait lock.
-            "$BT/aapt2" dump xmltree "$APK" AndroidManifest.xml > "$OUT/manifest-tree.txt" || true
+            "$BT/aapt2" dump xmltree --file AndroidManifest.xml "$APK" > "$OUT/manifest-tree.txt" || true
             grep -n -A2 "screenOrientation" "$OUT/manifest-tree.txt" || true
             python3 tools/verify_android_apk.py "$APK" \
               --upstream /tmp/upstream-v076.apk --manifest-tree "$OUT/manifest-tree.txt" \
