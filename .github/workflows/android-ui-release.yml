@@ -79,16 +79,21 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Install Android toolchain
+      - name: Install Android toolchain and Gradle 8.14
         run: |
           sdkmanager "ndk;28.2.13676358" "build-tools;35.0.0" "platforms;android-35"
           rustup target add aarch64-linux-android
+          curl -fsSL -o /tmp/gradle.zip https://services.gradle.org/distributions/gradle-8.14-all.zip
+          mkdir -p "$HOME/.gradle/wrapper/dists/gradle-8.14-all/ci"
+          unzip -q /tmp/gradle.zip -d "$HOME/.gradle/wrapper/dists/gradle-8.14-all/ci"
       - name: Prepare pinned engine tables (private, never committed)
         run: python3 tools/android_prepare.py
       - name: Build release APK
-        run: bash tools/build_release_apk.sh
+        run: |
+          export JAVA_HOME="$JAVA_HOME_17_X64"
+          bash tools/build_release_apk.sh
       - name: Publish APK artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@v4
         with:
           name: Horizon-Android-0.7.6-redesign
           path: .local/android/releases/0.7.6/*.apk
