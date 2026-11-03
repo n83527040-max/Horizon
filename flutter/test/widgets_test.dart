@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:horizon_launcher/core/widgets/horizon_bottom_nav.dart';
+import 'package:horizon_launcher/core/theme/horizon_motion.dart';
 import 'package:horizon_launcher/features/home/home_page.dart';
 
 import 'helpers.dart';
@@ -29,13 +30,14 @@ void main() {
     await pumpApp(tester, fixture());
     expect(find.text('Play'), findsOneWidget);
     expect(find.text('HORIZON'), findsWidgets);
-    expect(find.text('267 MB / 3.7 GB'), findsOneWidget);
+    expect(find.text(ltr('267 MB / 3.7 GB')), findsOneWidget);
     expect(find.text('Vulkan / compatibility'), findsWidgets);
   });
 
   testWidgets('unavailable real values are hidden, not replaced by demo numbers', (WidgetTester tester) async {
     await pumpApp(tester, fixture(rich: false));
     expect(find.text('Vulkan / compatibility', skipOffstage: false), findsNothing);
+    expect(find.text(ltr('267 MB / 3.7 GB'), skipOffstage: false), findsNothing);
     expect(find.text('267 MB / 3.7 GB', skipOffstage: false), findsNothing);
     expect(find.text('No content installed', skipOffstage: false), findsOneWidget);
   });

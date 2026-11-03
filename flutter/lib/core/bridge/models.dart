@@ -28,6 +28,15 @@ class LauncherSnapshot {
     this.loginCode,
     this.loginUri,
     this.loginMessage,
+    this.catalogStatus,
+    this.errorKind = 'none',
+    this.canRetry = false,
+    this.authStage,
+    this.progress,
+    this.activePage,
+    this.filterVersion,
+    this.filterLoader,
+    this.accounts = const <LauncherAccount>[],
   });
 
   final String appVersion;
@@ -55,6 +64,20 @@ class LauncherSnapshot {
   final String? loginCode;
   final String? loginUri;
   final String? loginMessage;
+  /// REAL native status text; never replaced by a generic "No results".
+  final String? catalogStatus;
+  /// network | api | parse | compatibility | storage | auth | other | none
+  final String errorKind;
+  final bool canRetry;
+  final String? authStage;
+  /// Real download progress 0..1, null when no download is running.
+  final double? progress;
+  final String? activePage;
+  final String? filterVersion;
+  final String? filterLoader;
+  final List<LauncherAccount> accounts;
+
+  bool get hasError => errorKind != 'none' && errorKind != 'other';
 
   int count(ContentKind kind) => installed.where((i) => i.kind == kind).length;
   int get totalInstalled => installed.length;
@@ -106,6 +129,18 @@ class LauncherSnapshot {
       loginCode: text(raw['loginCode']),
       loginUri: text(raw['loginUri']),
       loginMessage: text(raw['loginMessage']),
+      catalogStatus: text(raw['catalogStatus']),
+      errorKind: text(raw['errorKind']) ?? 'none',
+      canRetry: raw['canRetry'] == true,
+      authStage: text(raw['authStage']),
+      progress: raw['progress'] is num ? (raw['progress']! as num).toDouble() : null,
+      activePage: text(raw['activePage']),
+      filterVersion: text(raw['filterVersion']),
+      filterLoader: text(raw['filterLoader']),
+      accounts: list(raw['accounts'])
+          .whereType<Map<Object?, Object?>>()
+          .map(LauncherAccount.fromJson)
+          .toList(growable: false),
     );
   }
 }
@@ -144,6 +179,13 @@ class CatalogProject {
     this.source,
     this.iconUrl,
     this.compatibility,
+    this.author,
+    this.downloads,
+    this.versions = const <String>[],
+    this.loaders = const <String>[],
+    this.installable = true,
+    this.projectId,
+    this.pageUrl,
     required this.index,
   });
 
@@ -153,6 +195,13 @@ class CatalogProject {
   final String? source;
   final String? iconUrl;
   final String? compatibility;
+  final String? author;
+  final int? downloads;
+  final List<String> versions;
+  final List<String> loaders;
+  final bool installable;
+  final String? projectId;
+  final String? pageUrl;
   final int index;
 
   factory CatalogProject.fromJson(Map<Object?, Object?> raw) => CatalogProject(
@@ -162,6 +211,13 @@ class CatalogProject {
         source: raw['source'] is String ? raw['source']! as String : null,
         iconUrl: raw['iconUrl'] is String ? raw['iconUrl']! as String : null,
         compatibility: raw['compatibility'] is String ? raw['compatibility']! as String : null,
+        author: raw['author'] is String ? raw['author']! as String : null,
+        downloads: raw['downloads'] is num ? (raw['downloads']! as num).toInt() : null,
+        versions: list(raw['versions']).whereType<String>().toList(growable: false),
+        loaders: list(raw['loaders']).whereType<String>().toList(growable: false),
+        installable: raw['installable'] != false,
+        projectId: raw['projectId'] is String ? raw['projectId']! as String : null,
+        pageUrl: raw['pageUrl'] is String ? raw['pageUrl']! as String : null,
         index: raw['index'] is num ? (raw['index']! as num).toInt() : 0,
       );
 }
@@ -195,4 +251,32 @@ class BridgeResult {
     }
     return const BridgeResult(false, 'Malformed native reply');
   }
+}
+
+
+/// A REAL account from accounts.json (Microsoft or offline). No invented data.
+class LauncherAccount {
+  const LauncherAccount({
+    required this.id,
+    required this.name,
+    required this.type,
+    this.selected = false,
+    this.skinUrl,
+  });
+
+  final String id;
+  final String name;
+  final String type; // 'microsoft' | 'offline'
+  final bool selected;
+  final String? skinUrl;
+
+  bool get isOffline => type == 'offline';
+
+  factory LauncherAccount.fromJson(Map<Object?, Object?> raw) => LauncherAccount(
+        id: raw['id'] is String ? raw['id']! as String : '',
+        name: raw['name'] is String ? raw['name']! as String : '',
+        type: raw['type'] is String ? raw['type']! as String : 'offline',
+        selected: raw['selected'] == true,
+        skinUrl: raw['skin'] is String ? raw['skin']! as String : null,
+      );
 }

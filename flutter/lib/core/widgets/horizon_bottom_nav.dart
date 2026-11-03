@@ -44,7 +44,29 @@ class HorizonBottomNav extends StatelessWidget {
           left: 8,
           right: 8,
         ),
-        child: Row(
+        child: LayoutBuilder(
+          builder: (BuildContext context, BoxConstraints constraints) => Stack(
+            clipBehavior: Clip.none,
+            children: <Widget>[
+              // Animated glowing indicator that slides between destinations.
+              AnimatedPositioned(
+                duration: const Duration(milliseconds: 260),
+                curve: Curves.easeOutCubic,
+                left: (constraints.maxWidth / labels.length) * index + 6,
+                width: (constraints.maxWidth / labels.length) - 12,
+                bottom: 0,
+                height: 3,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: HorizonPalette.primaryGradient,
+                    borderRadius: BorderRadius.circular(HorizonRadii.pill),
+                    boxShadow: <BoxShadow>[
+                      BoxShadow(color: HorizonPalette.primary.withValues(alpha: 0.55), blurRadius: 12),
+                    ],
+                  ),
+                ),
+              ),
+              Row(
           children: List<Widget>.generate(labels.length, (int i) {
             final bool active = i == index;
             return Expanded(
@@ -82,25 +104,15 @@ class HorizonBottomNav extends StatelessWidget {
                           color: active ? HorizonPalette.primary : HorizonPalette.textSecondary,
                         ),
                       ),
-                      if (active)
-                        Container(
-                          margin: const EdgeInsets.only(top: 3),
-                          width: 18,
-                          height: 2,
-                          decoration: BoxDecoration(
-                            color: HorizonPalette.primary,
-                            borderRadius: BorderRadius.circular(2),
-                            boxShadow: <BoxShadow>[
-                              BoxShadow(color: HorizonPalette.primary, blurRadius: 8),
-                            ],
-                          ),
-                        ),
                     ],
                   ),
                 ),
               ),
             );
           }),
+              ),
+            ],
+          ),
         ),
       ),
     );

@@ -9,6 +9,11 @@ on:
       - 'tools/verify_flutter_foundation.py'
       - 'tools/verify_flutter_migration_audit.py'
       - 'tools/verify_flutter_native_bridge.py'
+      - 'tools/test_live_catalog_api.py'
+      - 'tools/check_jni_symbols.py'
+      - 'tools/verify_action_matrix.py'
+      - 'crates/horizon-client/src/android/bridge_rules.rs'
+      - 'crates/horizon-client/src/android/catalog.rs'
       - 'FLUTTER_MIGRATION_AUDIT.md'
       - 'FLUTTER_NATIVE_BRIDGE_ANALYSIS.md'
       - 'FLUTTER_BRIDGE_EVIDENCE.md'
@@ -63,6 +68,13 @@ jobs:
             python3 tools/verify_flutter_foundation.py
             echo "\$ python3 tools/verify_flutter_native_bridge.py --write-evidence"
             python3 tools/verify_flutter_native_bridge.py --write-evidence
+            echo "\$ REAL Rust unit tests (rustc --test bridge_rules.rs)"
+            rustc --test crates/horizon-client/src/android/bridge_rules.rs -o /tmp/bridge_rules_test
+            /tmp/bridge_rules_test
+            echo "\$ LIVE Modrinth / Horizon API integration test"
+            python3 tools/test_live_catalog_api.py
+            echo "\$ 49-action test matrix"
+            python3 tools/verify_action_matrix.py --write
             echo "\$ python3 -m unittest discover -s tests -p 'test_android*.py'"
             python3 -m unittest discover -s tests -p 'test_android*.py'
           } 2>&1 | tee /tmp/contract.txt
@@ -86,6 +98,22 @@ jobs:
           set -o pipefail
           flutter test --reporter expanded 2>&1 | tee /tmp/flutter-test.txt
 
+      - name: Generate golden baselines (no comparison claim yet)
+        if: always()
+        working-directory: flutter
+        run: |
+          set -o pipefail
+          flutter test --dart-define=GENERATE_GOLDENS=true --update-goldens \
+            test/golden_generation_test.dart 2>&1 | tee /tmp/flutter-golden.txt
+
+      - name: Upload generated golden baselines
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: horizon-golden-baselines
+          path: flutter/test/goldens/*.png
+          if-no-files-found: ignore
+
       # The results-receiver host is not reachable from the coding sandbox, so
       # mirror every step's output into an issue comment (api.github.com only).
       - name: Publish results
@@ -94,7 +122,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set +e
-          touch /tmp/contract.txt /tmp/flutter-pubget.txt /tmp/flutter-analyze.txt /tmp/flutter-test.txt /tmp/flutter-version.txt
+          touch /tmp/contract.txt /tmp/flutter-pubget.txt /tmp/flutter-analyze.txt /tmp/flutter-test.txt /tmp/flutter-version.txt /tmp/flutter-golden.txt
           {
             echo "🤖 Agent: Flutter foundation run $GITHUB_RUN_ID ($GITHUB_SHA)"
             echo
@@ -110,6 +138,8 @@ jobs:
             echo '```'; head -n 220 /tmp/flutter-test.txt; echo '```'
             echo "### flutter test (summary)"
             echo '```'; tail -n 60 /tmp/flutter-test.txt; echo '```'
+            echo "### golden generation"
+            echo '```'; tail -n 25 /tmp/flutter-golden.txt; echo '```'
           } > /tmp/flutter-report.md
           head -c 60000 /tmp/flutter-report.md > /tmp/flutter-report-trim.md
           gh api "repos/${GITHUB_REPOSITORY}/issues/1/comments" -F body=@/tmp/flutter-report-trim.md

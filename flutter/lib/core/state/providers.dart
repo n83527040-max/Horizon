@@ -78,36 +78,46 @@ class ActionRunner {
       final LauncherBridge bridge = ref.read(bridgeProvider);
       final BridgeResult result = await bridge.dispatch(action, args: args);
       if (!context.mounted) return;
-      if (result.pending || result.needsActivity) {
-        ScaffoldMessenger.of(context)
-          ..hideCurrentSnackBar()
-          ..showSnackBar(
-            SnackBar(
-              content: Text(result.message.isEmpty ? action.name : result.message),
-              backgroundColor: HorizonPalette.card,
-              duration: const Duration(seconds: 4),
-              action: SnackBarAction(
-                label: 'Cancel',
-                onPressed: () => cancel(),
-              ),
-            ),
-          );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(result.message.isEmpty ? action.name : result.message),
-            backgroundColor: result.ok ? HorizonPalette.card : HorizonPalette.danger,
-            duration: const Duration(seconds: 2),
-          ),
-        );
-      }
+      final HorizonStrings s = ref.read(stringsProvider);
+      final String message = s.native(result.message.isEmpty ? action.name : result.message);
+      _feedback(
+        context,
+        message: message,
+        ok: result.ok,
+        duration: result.pending || result.needsActivity
+            ? const Duration(seconds: 4)
+            : const Duration(seconds: 2),
+        pending: result.pending || result.needsActivity,
+      );
       if (result.changed || result.pending) ref.invalidate(snapshotProvider);
     } on Object catch (error) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('$error'), backgroundColor: HorizonPalette.danger),
-      );
+      _feedback(context, message: '$error', ok: false);
     }
+  }
+
+  /// Floating SnackBar above the fixed bottom navigation (never covers it).
+  void _feedback(
+    BuildContext context, {
+    required String message,
+    required bool ok,
+    Duration duration = const Duration(seconds: 2),
+    bool pending = false,
+  }) {
+    if (!context.mounted) return;
+    final HorizonStrings s = ref.read(stringsProvider);
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: Text(message),
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 82),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(HorizonRadii.control)),
+        backgroundColor: ok ? HorizonPalette.card : HorizonPalette.danger,
+        duration: duration,
+        action: pending
+            ? SnackBarAction(label: s.t('cancel'), onPressed: () => cancel())
+            : null,
+      ));
   }
 
   /// Requests real cancellation from Rust (`nativeCancel`). Downloads that the
@@ -117,17 +127,13 @@ class ActionRunner {
       final BridgeResult result = await ref.read(bridgeProvider).cancel();
       ref.invalidate(snapshotProvider);
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(result.message.isEmpty ? 'Cancellation requested' : result.message),
-          backgroundColor: HorizonPalette.card,
-        ),
-      );
+      _feedback(context,
+          message: ref.read(stringsProvider).native(
+              result.message.isEmpty ? 'Cancellation requested' : result.message),
+          ok: result.ok);
     } on Object catch (error) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('$error'), backgroundColor: HorizonPalette.danger),
-      );
+      _feedback(context, message: '$error', ok: false);
     }
   }
 }

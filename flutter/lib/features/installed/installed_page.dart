@@ -25,7 +25,8 @@ class InstalledPage extends ConsumerWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
-            SectionTitle(s.t('installed'), subtitle: '${d.totalInstalled} items • enable, import or remove content'),
+            SectionTitle(s.t('installed'),
+                subtitle: s.t('installedSubtitle').replaceAll('{count}', ltr('${d.totalInstalled}'))),
             ...ContentKind.values.map((ContentKind kind) => Padding(
                   padding: const EdgeInsets.only(bottom: 10),
                   child: HorizonCard(
@@ -39,7 +40,7 @@ class InstalledPage extends ConsumerWidget {
                             Expanded(
                               child: Text(_label(kind, s), style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
                             ),
-                            Text('${d.count(kind)}', style: const TextStyle(fontSize: 13, color: HorizonPalette.textSecondary)),
+                            Text(ltr('${d.count(kind)}'), style: const TextStyle(fontSize: 13, color: HorizonPalette.textSecondary)),
                           ],
                         ),
                         ...d.installed.where((InstalledItem i) => i.kind == kind).map((InstalledItem item) => Padding(
@@ -114,7 +115,7 @@ class InstalledPage extends ConsumerWidget {
   static String _label(ContentKind kind, HorizonStrings s) {
     switch (kind) {
       case ContentKind.Mods: return s.t('mods');
-      case ContentKind.Packs: return 'Resource Packs';
+      case ContentKind.Packs: return s.t('resourcePacks');
       case ContentKind.Shaders: return s.t('shaders');
     }
   }

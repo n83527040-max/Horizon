@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/bridge/actions.dart';
 import '../core/state/providers.dart';
 import '../core/theme/horizon_strings.dart';
+import '../core/theme/horizon_motion.dart';
 import '../core/theme/horizon_theme.dart';
 import '../core/widgets/horizon_bottom_nav.dart';
 import '../features/catalog/catalog_page.dart';
@@ -35,6 +36,23 @@ class _AppShellState extends ConsumerState<AppShell> with WidgetsBindingObserver
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // A catalog page must tell Rust its real Page before browse() works.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _autoBrowse(ref.read(navIndexProvider));
+    });
+  }
+
+  void _autoBrowse(int index) {
+    final String? kind = switch (index) {
+      1 => 'Mods',
+      2 => 'Packs',
+      5 => 'Shaders',
+      _ => null,
+    };
+    if (kind == null) return;
+    // Direct dispatch: no SnackBar for an automatic background browse.
+    ref.read(bridgeProvider).dispatch(HorizonAction.Page,
+        args: <String, Object?>{'kind': kind});
   }
 
   @override
@@ -61,6 +79,9 @@ class _AppShellState extends ConsumerState<AppShell> with WidgetsBindingObserver
   @override
   Widget build(BuildContext context) {
     final int index = ref.watch(navIndexProvider);
+    ref.listen<int>(navIndexProvider, (int? previous, int next) {
+      if (previous != next) _autoBrowse(next);
+    });
     final HorizonStrings s = ref.watch(stringsProvider);
     // Asynchronous real results (SAF import, game hand-off failure, sign-in
     // code) arrive after the method call returned. Show their real outcome.
@@ -71,12 +92,15 @@ class _AppShellState extends ConsumerState<AppShell> with WidgetsBindingObserver
         final String message = value['message'] is String
             ? value['message']! as String
             : 'Native operation finished';
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(message),
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(
+            content: Text(s.native(message)),
+            behavior: SnackBarBehavior.floating,
+            margin: const EdgeInsets.fromLTRB(16, 0, 16, 82),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(HorizonRadii.control)),
             backgroundColor: ok ? HorizonPalette.card : HorizonPalette.danger,
-          ),
-        );
+          ));
         ref.invalidate(snapshotProvider);
       });
     });
@@ -93,9 +117,14 @@ class _AppShellState extends ConsumerState<AppShell> with WidgetsBindingObserver
           children: <Widget>[
             if (pending) const LinearProgressIndicator(minHeight: 2),
             Expanded(
-              child: IndexedStack(
-                index: index.clamp(0, _pages.length - 1),
-                children: _pages,
+              // A short animated transition WITHOUT replacing children:
+              // IndexedStack still preserves every page's state and scroll.
+              child: AnimatedPageFade(
+                index: index,
+                child: IndexedStack(
+                  index: index.clamp(0, _pages.length - 1),
+                  children: _pages,
+                ),
               ),
             ),
             HorizonBottomNav(

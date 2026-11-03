@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/bridge/actions.dart';
 import '../../core/bridge/models.dart';
 import '../../core/state/providers.dart';
+import '../../core/theme/horizon_motion.dart';
 import '../../core/theme/horizon_strings.dart';
 import '../../core/theme/horizon_theme.dart';
 import '../../core/widgets/horizon_widgets.dart';
@@ -27,7 +28,7 @@ class SettingsPage extends ConsumerWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
-            SectionTitle(s.t('settings'), subtitle: 'Graphics, performance, accounts and app'),
+            SectionTitle(s.t('settings'), subtitle: s.t('graphics')),
             _Group(s.t('graphics'), <Widget>[
               _Row(s.t('rendering'), _value(d, SettingKeys.renderer), HorizonAction.Renderer),
               _Row(s.t('resolution'), _percent(d), HorizonAction.RenderScale),
@@ -42,14 +43,14 @@ class SettingsPage extends ConsumerWidget {
               _Switch(s.t('recording'), d.setting(SettingKeys.recordPerformance) == true, HorizonAction.RecordPerformance),
               _Row(s.t('ramUsage'), d.ramUsedMb == null ? null : '${d.ramUsedMb} MB', null),
               _Row(s.t('graphicsApi'), d.graphicsApi, null),
-              _Row(s.t('diagnostics'), 'Export one ZIP to share', HorizonAction.ExportDiagnostics),
+              _Row(s.t('diagnostics'), s.t('details'), HorizonAction.ExportDiagnostics),
             ]),
             _Group(s.t('accounts'), <Widget>[
-              _Row('Microsoft / Xbox account', d.accountStatus ?? d.profileName ?? '—', HorizonAction.Account),
+              _Row(s.t('accounts'), d.accountStatus ?? d.profileName ?? '—', HorizonAction.Account),
               _Row(s.t('offlineName'), d.profileName, HorizonAction.Field),
               _Row(s.t('orientation'), _value(d, SettingKeys.orientation), HorizonAction.Orientation),
               _Row(s.t('server'), _value(d, SettingKeys.server), HorizonAction.Field),
-              _Row('Profile', _value(d, SettingKeys.profile), HorizonAction.Profile),
+              _Row(s.t('profile'), _value(d, SettingKeys.profile), HorizonAction.Profile),
             ]),
             _Group(s.t('application'), <Widget>[
               _Choice(
@@ -96,13 +97,12 @@ class SettingsPage extends ConsumerWidget {
                 ),
               ),
               _Row(s.t('appVersion'), d.appVersion.isEmpty ? null : 'v${d.appVersion}', null),
-              _Row(s.t('about'), 'Minecraft Java ${d.gameVersion} • Rust engine', HorizonAction.Repository),
-              _Row(s.t('sourceUpdates'), 'Open the repository', HorizonAction.Repository),
+              _Row(s.t('about'), ltr('Minecraft Java ${d.gameVersion}'), HorizonAction.Repository),
+              _Row(s.t('sourceUpdates'), s.t('details'), HorizonAction.Repository),
             ]),
             const SizedBox(height: 10),
             Text(
-              'Flutter host · engine, Vulkan, accounts, mods and files stay native. '
-              'Values shown here are read from the real launcher configuration.',
+              s.t('footerNote'),
               textAlign: TextAlign.center,
               style: const TextStyle(fontSize: 10.5, color: HorizonPalette.textSecondary),
             ),

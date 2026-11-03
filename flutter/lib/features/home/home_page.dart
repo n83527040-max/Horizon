@@ -28,7 +28,9 @@ class HomePage extends ConsumerWidget {
           children: <Widget>[
             _Header(s: s, d: d, onSettings: () => ref.read(navIndexProvider.notifier).state = 4),
             SizedBox(height: m.isTablet ? 20 : 14),
-            _Hero(height: m.heroHeight, gameVersion: d.gameVersion),
+            StaggeredEntrance(
+              child: _Hero(height: m.heroHeight, gameVersion: d.gameVersion),
+            ),
             const SizedBox(height: 14),
             GradientButton(
               label: s.t('play'),
@@ -43,7 +45,7 @@ class HomePage extends ConsumerWidget {
                 Expanded(
                   child: _InfoCard(
                     label: s.t('profile'),
-                    value: d.profileName ?? d.accountStatus ?? '—',
+                    value: d.profileName ?? (d.accountStatus != null ? ltr(d.accountStatus!) : null) ?? '—',
                     icon: Icons.person_rounded,
                     onTap: () => showAccountsSheet(context, ref, d),
                   ),
@@ -258,7 +260,9 @@ class _PerformanceCard extends StatelessWidget {
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  used != null && total != null ? '$used MB / ${_gib(total)}' : s.t('performance'),
+                  used != null && total != null
+                      ? ltr('$used MB / ${_gib(total)}')
+                      : s.t('performance'),
                   style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
                 ),
               ),
@@ -280,8 +284,8 @@ class _PerformanceCard extends StatelessWidget {
             runSpacing: 8,
             children: <Widget>[
               if (d.graphicsApi != null) MetricTile(label: s.t('graphicsApi'), value: d.graphicsApi!, icon: Icons.memory_rounded),
-              if (d.renderScalePercent != null) MetricTile(label: s.t('resolution'), value: '${d.renderScalePercent}%', icon: Icons.aspect_ratio_rounded),
-              if (d.ramPeakMb != null) MetricTile(label: s.t('ramPeak'), value: '${d.ramPeakMb} MB', icon: Icons.trending_up_rounded),
+              if (d.renderScalePercent != null) MetricTile(label: s.t('resolution'), value: ltr('${d.renderScalePercent}%'), icon: Icons.aspect_ratio_rounded),
+              if (d.ramPeakMb != null) MetricTile(label: s.t('ramPeak'), value: ltr('${d.ramPeakMb} MB'), icon: Icons.trending_up_rounded),
             ],
           ),
         ],

@@ -9,6 +9,8 @@ on:
       - '.github/workflows/flutter-mixed-apk.yml'
       - 'tools/prepare_mixed_flutter.py'
       - 'tools/verify_mixed_apk.py'
+      - 'tools/check_jni_symbols.py'
+      - 'tools/test_live_catalog_api.py'
       - 'flutter/**'
       - 'crates/horizon-client/src/android/flutter_bridge.rs'
       - 'crates/horizon-client/src/android_main.rs'
@@ -60,6 +62,9 @@ jobs:
             flutter --version
             python3 tools/verify_flutter_foundation.py
             python3 tools/verify_flutter_native_bridge.py --write-evidence
+            rustc --test crates/horizon-client/src/android/bridge_rules.rs -o /tmp/bridge_rules_test
+            /tmp/bridge_rules_test
+            python3 tools/verify_action_matrix.py --write
             python3 -m unittest discover -s tests -p 'test_android*.py'
             git diff --check
           } 2>&1 | tee /tmp/mixed-contracts.txt
@@ -95,6 +100,8 @@ jobs:
           PY
           sha256sum .local/android/gradle-jni/arm64-v8a/libhorizon_android.so \
                     .local/android/gradle-assets/engine-data.zip
+          python3 tools/check_jni_symbols.py \
+            .local/android/gradle-jni/arm64-v8a/libhorizon_android.so
           # Prove this is the rebuilt binary with the real JNI bridge, not the
           # older Rust-only launcher that had no C ABI exports.
           grep -a -c 'Java_dev_horizon_android_HorizonEngine_nativeDispatch' \

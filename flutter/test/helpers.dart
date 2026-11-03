@@ -41,6 +41,12 @@ LauncherSnapshot fixture({
   bool rich = true,
   String theme = 'dark',
   String language = 'en',
+  String errorKind = 'none',
+  String? catalogStatus,
+  bool pending = false,
+  double? progress,
+  List<LauncherAccount> accounts = const <LauncherAccount>[],
+  List<CatalogProject>? results,
 }) {
   return LauncherSnapshot(
     appVersion: '0.7.6',
@@ -59,18 +65,23 @@ LauncherSnapshot fixture({
             const InstalledItem(file: 'bsl.zip', title: 'BSL Shaders', kind: ContentKind.Shaders, index: 2),
           ]
         : const <InstalledItem>[],
-    results: rich
-        ? <CatalogProject>[
-            const CatalogProject(
-              title: 'A very long resource pack title used to stress narrow screens without overflowing',
-              description: 'A description that is deliberately long enough to wrap on a 360dp phone and must be clipped safely.',
-              version: '26.3',
-              source: 'Modrinth',
-              compatibility: 'Works',
-              index: 0,
-            ),
-          ]
-        : const <CatalogProject>[],
+    results: results ??
+        (rich
+            ? <CatalogProject>[
+                const CatalogProject(
+                  title: 'A very long resource pack title used to stress narrow screens without overflowing',
+                  description: 'A description that is deliberately long enough to wrap on a 360dp phone and must be clipped safely.',
+                  version: '26.3',
+                  source: 'Modrinth',
+                  compatibility: 'Works',
+                  author: 'RealAuthor',
+                  downloads: 123456,
+                  versions: <String>['26.3', '1.21.1'],
+                  loaders: <String>['fabric', 'quilt'],
+                  index: 0,
+                ),
+              ]
+            : const <CatalogProject>[]),
     status: rich ? '1 result - select Install to check compatibility' : null,
     settings: rich
         ? <String, Object?>{
@@ -94,6 +105,13 @@ LauncherSnapshot fixture({
     choices: const <String, List<String>>{
       'Renderer': <String>['Vulkan / batching', 'Vulkan / compatibility', 'OpenGL ES / experimental'],
     },
+    catalogStatus: catalogStatus,
+    errorKind: errorKind,
+    canRetry: errorKind != 'none',
+    pending: pending,
+    progress: progress,
+    accounts: accounts,
+    activePage: 'Mods',
     storageBytes: rich ? 123456789 : null,
     cacheBytes: rich ? 45678901 : null,
     contentBytes: const <String, int>{'mods': 1024000, 'packs': 2048000, 'shaders': 512000},

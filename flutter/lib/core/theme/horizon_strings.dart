@@ -1,7 +1,9 @@
 import 'dart:ui' show Locale;
 
-/// A small, real localization catalog for the launcher's own labels.
-/// Language is a persisted, applied setting (en/ar), not a decorative switch.
+/// Complete real localization catalog for the launcher. Brand/product names
+/// (HORIZON, Minecraft Java, Modrinth) stay as proper nouns; every UI sentence
+/// has an Arabic counterpart. `native()` maps REAL native status messages only;
+/// unknown native text is returned verbatim, never invented.
 class HorizonStrings {
   const HorizonStrings(this.code);
 
@@ -9,12 +11,39 @@ class HorizonStrings {
 
   static const List<Locale> supported = <Locale>[Locale('en'), Locale('ar')];
 
-  static HorizonStrings of(String? preference) {
-    final String code = preference == 'ar' ? 'ar' : 'en';
-    return HorizonStrings(code);
-  }
+  static HorizonStrings of(String? preference) =>
+      HorizonStrings(preference == 'ar' ? 'ar' : 'en');
+
+  bool get arabic => code == 'ar';
 
   String t(String key) => _catalog[code]?[key] ?? _catalog['en']![key] ?? key;
+
+  /// A real native message, localized when we know its exact text.
+  String native(String message) => _native[code]?[message] ?? message;
+
+  static const Map<String, Map<String, String>> _native = <String, Map<String, String>>{
+    'ar': <String, String>{
+      'Catalog source saved': 'تم حفظ مصدر المحتوى',
+      'Preference saved': 'تم حفظ الإعداد',
+      'Settings saved': 'تم حفظ الإعدادات',
+      'Server saved': 'تم حفظ الخادم',
+      'Setting saved': 'تم حفظ الإعداد',
+      'Sign-in cancelled': 'أُلغي تسجيل الدخول',
+      'Microsoft sign-in cancelled': 'أُلغي تسجيل الدخول عبر Microsoft',
+      'File removed': 'حُذف الملف',
+      'Selection saved for the next game launch': 'حُفظ الاختيار للتشغيل القادم',
+      'Operation cancelled': 'أُلغيت العملية',
+      'Cancellation requested': 'طُلب الإلغاء',
+      'Searching the real Modrinth / Horizon catalog': 'جارٍ البحث في Modrinth / Horizon',
+      'Loading real catalog': 'جارٍ تحميل المحتوى الحقيقي',
+      'Compatibility filters applied': 'طُبّقت فلاتر التوافق',
+      'Retrying the real catalog request': 'إعادة محاولة الاتصال بالمصدر',
+      'Offline / Sign in': 'دون اتصال / تسجيل الدخول',
+      'Offline name saved': 'تم حفظ الاسم دون اتصال',
+      'Signed out. Offline play is available.': 'تم تسجيل الخروج؛ اللعب دون اتصال متاح',
+      'Real Rust engine bridge ready': 'جسر المحرك الحقيقي جاهز',
+    },
+  };
 
   static const Map<String, Map<String, String>> _catalog = <String, Map<String, String>>{
     'en': <String, String>{
@@ -23,6 +52,7 @@ class HorizonStrings {
       'home': 'Home',
       'mods': 'Mods',
       'packs': 'Packs',
+      'resourcePacks': 'Resource Packs',
       'installed': 'Installed',
       'settings': 'Settings',
       'shaders': 'Shaders',
@@ -38,16 +68,33 @@ class HorizonStrings {
       'openFolder': 'Open folder',
       'importFile': 'Import file',
       'install': 'Install',
+      'installing': 'Installing…',
       'remove': 'Remove',
       'enable': 'Enable',
       'disable': 'Disable',
       'noContent': 'No content installed',
       'noContentHint': 'Install mods, resource packs or shaders to see them here.',
+      'installedSubtitle': '{count} items • enable, import or remove content',
+      'modsSubtitle': 'Native .hmod packages • install, enable or remove',
+      'packsSubtitle': 'Verified downloads • enable in Installed',
+      'shadersSubtitle': 'Lighting, shadows and visual effects',
       'noResults': 'No results yet',
       'noResultsHint': 'Search a real source or import a file.',
+      'networkError': 'Network error',
+      'networkErrorHint': 'Could not reach the content source. Check the connection and retry.',
+      'apiError': 'Source API error',
+      'apiErrorHint': 'The content source returned an error (rate limit or server). Retry shortly.',
+      'parseError': 'Invalid API response',
+      'parseErrorHint': 'The source response could not be parsed. Retry or change the source.',
+      'compatibilityError': 'Incompatible content',
+      'storageError': 'Storage / permission error',
+      'authError': 'Authentication error',
+      'otherError': 'Operation failed',
+      'errorDetails': 'Details',
+      'retry': 'Retry',
+      'cancel': 'Cancel',
       'loading': 'Loading real launcher data…',
       'error': 'Could not read launcher data',
-      'retry': 'Retry',
       'ramUsage': 'RAM usage',
       'ramPeak': 'Peak RAM',
       'ramTotal': 'Device RAM',
@@ -84,6 +131,35 @@ class HorizonStrings {
       'bridgePending': 'This action requires the native engine bridge (phase 9).',
       'importContent': 'Import content',
       'details': 'Details',
+      'author': 'By',
+      'downloads': 'Downloads',
+      'supportedVersions': 'Minecraft versions',
+      'loaders': 'Loaders',
+      'compatibility': 'Compatibility',
+      'allVersions': 'All versions',
+      'allLoaders': 'All loaders',
+      'filters': 'Compatibility filters',
+      'addOffline': 'Add offline account',
+      'offlineHint': '3–16 letters, digits or _',
+      'offlineInvalid': 'Enter a valid player name (3–16 letters, digits or _)',
+      'add': 'Add',
+      'select': 'Select',
+      'delete': 'Delete',
+      'defaultAccount': 'Default',
+      'refreshSession': 'Refresh session',
+      'noAccounts': 'No accounts yet — add an offline account or sign in with Microsoft.',
+      'microsoftAccounts': 'Microsoft accounts',
+      'offlineAccounts': 'Offline accounts',
+      'deviceCodeHint': 'Enter this code at the Microsoft page, then wait for approval.',
+      'openLink': 'Open verification page',
+      'copyCode': 'Copy code',
+      'signInStarted': 'Contacting Microsoft…',
+      'authStage': 'Stage',
+      'loadingContent': 'Loading real content…',
+      'installedState': 'Installed',
+      'projectDetails': 'Project details',
+      'notInstallable': 'Not compatible',
+      'footerNote': 'Flutter host · engine, Vulkan, accounts, mods and files stay native.',
     },
     'ar': <String, String>{
       'appName': 'HORIZON',
@@ -91,6 +167,7 @@ class HorizonStrings {
       'home': 'الرئيسية',
       'mods': 'المودات',
       'packs': 'الحزم',
+      'resourcePacks': 'حزم الموارد',
       'installed': 'المثبّت',
       'settings': 'الإعدادات',
       'shaders': 'الشيدرات',
@@ -106,16 +183,33 @@ class HorizonStrings {
       'openFolder': 'فتح المجلد',
       'importFile': 'استيراد ملف',
       'install': 'تثبيت',
+      'installing': 'جارٍ التثبيت…',
       'remove': 'حذف',
       'enable': 'تفعيل',
       'disable': 'تعطيل',
       'noContent': 'لا يوجد محتوى مثبّت',
       'noContentHint': 'ثبّت المودات أو الحزم أو الشيدرات لتظهر هنا.',
+      'installedSubtitle': '{count} عنصر • فعّل أو استورد أو احذف المحتوى',
+      'modsSubtitle': 'حزم .hmod أصلية • ثبّت أو فعّل أو احذف',
+      'packsSubtitle': 'تنزيلات موثّقة • فعّلها من «المثبّت»',
+      'shadersSubtitle': 'الإضاءة والظلال والتأثيرات البصرية',
       'noResults': 'لا توجد نتائج بعد',
       'noResultsHint': 'ابحث في مصدر حقيقي أو استورد ملفاً.',
+      'networkError': 'خطأ في الشبكة',
+      'networkErrorHint': 'تعذّر الوصول إلى مصدر المحتوى. تحقّق من الاتصال ثم أعد المحاولة.',
+      'apiError': 'خطأ في واجهة المصدر',
+      'apiErrorHint': 'أعاد المصدر خطأً (حدّ الطلبات أو الخادم). أعد المحاولة بعد قليل.',
+      'parseError': 'استجابة غير صالحة',
+      'parseErrorHint': 'تعذّر تحليل استجابة المصدر. أعد المحاولة أو غيّر المصدر.',
+      'compatibilityError': 'محتوى غير متوافق',
+      'storageError': 'خطأ في التخزين أو الصلاحيات',
+      'authError': 'خطأ في المصادقة',
+      'otherError': 'فشلت العملية',
+      'errorDetails': 'التفاصيل',
+      'retry': 'إعادة المحاولة',
+      'cancel': 'إلغاء',
       'loading': 'جارٍ قراءة بيانات المشغّل الحقيقية…',
       'error': 'تعذّرت قراءة بيانات المشغّل',
-      'retry': 'إعادة المحاولة',
       'ramUsage': 'الذاكرة المستخدمة',
       'ramPeak': 'ذروة الذاكرة',
       'ramTotal': 'ذاكرة الجهاز',
@@ -152,6 +246,35 @@ class HorizonStrings {
       'bridgePending': 'هذا الإجراء يتطلب جسر المحرك الأصلي (المرحلة 9).',
       'importContent': 'استيراد محتوى',
       'details': 'التفاصيل',
+      'author': 'المطوّر',
+      'downloads': 'التنزيلات',
+      'supportedVersions': 'إصدارات Minecraft',
+      'loaders': 'اللودرات',
+      'compatibility': 'التوافق',
+      'allVersions': 'كل الإصدارات',
+      'allLoaders': 'كل اللودرات',
+      'filters': 'فلاتر التوافق',
+      'addOffline': 'إضافة حساب دون اتصال',
+      'offlineHint': '3–16 حرفاً أو رقماً أو _',
+      'offlineInvalid': 'أدخل اسماً صحيحاً (3–16 حرفاً أو رقماً أو _)',
+      'add': 'إضافة',
+      'select': 'تحديد',
+      'delete': 'حذف',
+      'defaultAccount': 'الافتراضي',
+      'refreshSession': 'تجديد الجلسة',
+      'noAccounts': 'لا توجد حسابات — أضف حساباً دون اتصال أو سجّل الدخول عبر Microsoft.',
+      'microsoftAccounts': 'حسابات Microsoft',
+      'offlineAccounts': 'الحسابات دون اتصال',
+      'deviceCodeHint': 'أدخل هذا الرمز في صفحة Microsoft ثم انتظر الموافقة.',
+      'openLink': 'فتح صفحة التحقق',
+      'copyCode': 'نسخ الرمز',
+      'signInStarted': 'جارٍ الاتصال بـ Microsoft…',
+      'authStage': 'المرحلة',
+      'loadingContent': 'جارٍ تحميل المحتوى الحقيقي…',
+      'installedState': 'مثبّت',
+      'projectDetails': 'تفاصيل المشروع',
+      'notInstallable': 'غير متوافق',
+      'footerNote': 'واجهة Flutter · المحرك وVulkan والحسابات والملفات تبقى أصلية.',
     },
   };
 }

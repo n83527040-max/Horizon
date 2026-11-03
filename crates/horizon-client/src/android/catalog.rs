@@ -211,6 +211,10 @@ pub struct Catalog {
     worker: Option<mpsc::Receiver<Result<Reply, String>>>,
     search_worker: Option<mpsc::Receiver<Result<Vec<Project>, String>>>,
     searches: crate::search_queue::Queue<(Page, browser::SourceId, String, usize), Vec<Project>>,
+    /// Additive, hosting-layer filters set by the Flutter UI. The desktop
+    /// browser logic is untouched; only `start_search` copies these into Query.
+    filter_version: Option<String>,
+    filter_loader: Option<String>,
 }
 #[derive(Clone)]
 pub struct LocalItem {
@@ -242,6 +246,8 @@ impl Catalog {
             worker: None,
             search_worker: None,
             searches: crate::search_queue::Queue::new(),
+            filter_version: None,
+            filter_loader: None,
         };
         result.refresh(home);
         result
@@ -307,6 +313,29 @@ impl Catalog {
     }
     pub fn busy(&self) -> bool {
         self.worker.is_some()
+    }
+    /// Real download progress (0.0..=1.0) while a download is running.
+    pub fn progress(&self) -> Option<f32> {
+        if self.downloading.is_none() || !self.busy() {
+            return None;
+        }
+        Some(
+            *self
+                .progress
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()),
+        )
+    }
+    /// Whitelisted filters from the Flutter host; no engine/API logic changes.
+    pub fn set_filters(&mut self, version: Option<String>, loader: Option<String>) {
+        self.filter_version = version;
+        self.filter_loader = loader;
+    }
+    pub fn filters(&self) -> (Option<String>, Option<String>) {
+        (self.filter_version.clone(), self.filter_loader.clone())
+    }
+    pub fn page(&self) -> Page {
+        self.page
     }
     /// Read-only progress flag for the launcher's skeleton placeholders. It
     /// does not start, cancel or observe the search beyond its existence.
@@ -478,6 +507,8 @@ impl Catalog {
         };
         let (tx, rx) = mpsc::channel();
         self.search_worker = Some(rx);
+        let filter_version = self.filter_version.clone();
+        let filter_loader = self.filter_loader.clone();
         std::thread::spawn(move || {
             let kind = match page {
                 Page::Mods => Kind::Mod,
@@ -487,6 +518,8 @@ impl Catalog {
             let mut query = Query::new(&text, kind);
             query.offset = offset;
             query.limit = 12;
+            query.filters.game_version = filter_version;
+            query.filters.loader = filter_loader;
             let result = if page == Page::Shaders && source == browser::SourceId::Modrinth {
                 query.everything = true;
                 browser::modrinth::search_shader_packs(&query)

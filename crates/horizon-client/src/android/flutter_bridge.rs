@@ -11,6 +11,9 @@
 //! winit/Vulkan surface. See FLUTTER_NATIVE_BRIDGE_ANALYSIS.md.
 #![allow(clippy::all)]
 
+#[path = "bridge_rules.rs"]
+mod rules;
+
 use jni::{
     JNIEnv,
     objects::{JClass, JObject, JString, JValue},
@@ -34,6 +37,9 @@ struct Engine {
     login_code: Option<String>,
     login_uri: Option<String>,
     login_message: String,
+    /// Real classified error from the latest native operation.
+    error_kind: String,
+    auth_stage: String,
     status: String,
     cancel: Arc<AtomicBool>,
     shutdown: Arc<AtomicBool>,
@@ -176,30 +182,73 @@ fn settings(e: &Engine) -> Value {
 }
 
 fn account_status(e: &Engine) -> Option<String> {
-    use crate::account::Accounts;
+    use crate::account::{Accounts, Player, Secrets};
     let accounts = Accounts::load();
-    let selected = accounts.selected().cloned();
-    let signed_in = selected.as_ref().is_some_and(|a| {
-        crate::account::store()
-            .get(&a.uuid)
-            .ok()
-            .flatten()
-            .is_some_and(|s| serde_json::from_str::<crate::account::Secrets>(&s).is_ok())
-    });
-    let status = match (selected, signed_in) {
-        (Some(a), true) => format!("Signed in: {}", a.name),
-        (Some(a), false) => format!("Sign in required: {}", a.name),
-        (None, _) if e.sign_in.is_some() => "Signing in...".to_string(),
-        (None, _) if !e.catalog.config.name.trim().is_empty() => {
+    let status = match accounts.player() {
+        Player::Microsoft(_) => {
+            let signed_in = accounts.selected().is_some_and(|a| {
+                crate::account::store()
+                    .get(&a.uuid)
+                    .ok()
+                    .flatten()
+                    .is_some_and(|s| serde_json::from_str::<Secrets>(&s).is_ok())
+            });
+            match accounts.selected() {
+                Some(a) if signed_in => format!("Microsoft: {}", a.name),
+                Some(a) => format!("Sign in required: {}", a.name),
+                None => "Sign in required".to_string(),
+            }
+        }
+        // An offline account plays without asking Microsoft for anything.
+        Player::Offline(name) => format!("Offline: {name}"),
+        Player::GameName if !e.catalog.config.name.trim().is_empty() => {
             format!("Offline: {}", e.catalog.config.name)
         }
-        _ => "Offline / Sign in".to_string(),
+        Player::GameName => "Offline / Sign in".to_string(),
     };
     Some(status)
 }
 
+/// The REAL account list from accounts.json (Microsoft + offline), used by the
+/// Flutter accounts sheet for select / switch / delete / default selection.
+fn accounts_json() -> Value {
+    use crate::account::{Accounts, Player};
+    let accounts = Accounts::load();
+    let current = accounts.player();
+    let mut out: Vec<Value> = Vec::new();
+    for a in &accounts.accounts {
+        out.push(json!({
+            "id": a.uuid.clone(),
+            "name": a.name.clone(),
+            "type": "microsoft",
+            "selected": matches!(&current, Player::Microsoft(u) if u == &a.uuid),
+            "skin": a.skin.as_ref().map(|(url, _)| url.clone()),
+        }));
+    }
+    for name in &accounts.offline {
+        out.push(json!({
+            "id": name.clone(),
+            "name": name.clone(),
+            "type": "offline",
+            "selected": matches!(&current, Player::Offline(n) if n == name),
+        }));
+    }
+    Value::Array(out)
+}
+
+/// Classify the real catalog status text. Never turns a network/API error into
+/// "No results". Uses the host-tested rules module.
+fn catalog_status(e: &Engine) -> (String, String, bool) {
+    let raw = e.catalog.status.clone();
+    let kind = rules::classify_error(&raw).to_string();
+    let retry = rules::can_retry(&kind);
+    (raw, kind, retry)
+}
+
 fn snapshot(e: &Engine) -> Value {
     let game = e.catalog.config.game_home(&e.home);
+    let (catalog_status, error_kind, can_retry) = catalog_status(e);
+    let (filter_version, filter_loader) = e.catalog.filters();
     let mut content_bytes = serde_json::Map::new();
     for kind in horizon_client::content_files::Kind::ALL {
         content_bytes.insert(
@@ -231,10 +280,17 @@ fn snapshot(e: &Engine) -> Value {
             json!({
                 "title": p.title.clone(),
                 "description": p.summary.clone(),
+                "author": p.author.clone(),
+                "downloads": p.downloads,
                 "version": p.game_versions.first().cloned(),
+                "versions": p.game_versions.clone(),
+                "loaders": p.loaders.clone(),
                 "source": p.source.label(),
                 "iconUrl": p.icon.clone(),
                 "compatibility": p.support().label(),
+                "installable": p.support().installable(),
+                "projectId": p.id.clone(),
+                "pageUrl": p.page.clone(),
                 "index": i
             })
         })
@@ -252,7 +308,28 @@ fn snapshot(e: &Engine) -> Value {
         "ramTotalMb": proc_kb("/proc/meminfo", "MemTotal:").map(|v| v / 1024),
         "installed": installed,
         "results": results,
-        "status": if e.status.is_empty() { Value::Null } else { json!(e.status) },
+        // REAL native status (network/API/parse/compatibility), never hidden.
+        "status": if catalog_status.is_empty() {
+            if e.status.is_empty() { Value::Null } else { json!(e.status.clone()) }
+        } else {
+            json!(catalog_status.clone())
+        },
+        "catalogStatus": if catalog_status.is_empty() { Value::Null } else { json!(catalog_status) },
+        "errorKind": if e.error_kind.is_empty() { error_kind } else { e.error_kind.clone() },
+        "canRetry": can_retry,
+        "authStage": e.auth_stage.clone(),
+        "progress": e.catalog.progress(),
+        "activePage": match e.catalog.page() {
+            crate::catalog::Page::Mods => "Mods",
+            crate::catalog::Page::Packs => "Packs",
+            crate::catalog::Page::Shaders => "Shaders",
+            crate::catalog::Page::Installed => "Installed",
+            crate::catalog::Page::Settings => "Settings",
+            _ => "Play",
+        },
+        "filterVersion": filter_version,
+        "filterLoader": filter_loader,
+        "accounts": accounts_json(),
         "settings": settings(e),
         "choices": choices(),
         "storageBytes": content_bytes.values().filter_map(|v| v.as_u64()).sum::<u64>(),
@@ -280,6 +357,7 @@ fn poll_loop(shutdown: Arc<AtomicBool>) {
                 }
                 let home = e.home.clone();
                 e.catalog.poll(&home);
+                e.error_kind = rules::classify_error(&e.catalog.status).to_string();
                 let sign_in_state = e.sign_in.as_ref().map(|task| task.state());
                 if let Some(state) = sign_in_state {
                     match state {
@@ -289,10 +367,12 @@ fn poll_loop(shutdown: Arc<AtomicBool>) {
                             e.status = "Waiting for Microsoft approval".into();
                         }
                         crate::account::SignInState::Done(result) => {
-                            e.login_message = match result {
-                                Ok(a) => format!("Signed in as {}", a.name),
-                                Err(error) => error,
+                            let (message, stage) = match result {
+                                Ok(a) => (format!("Signed in as {}", a.name), "done".to_string()),
+                                Err(error) => (error.clone(), rules::auth_stage(&error).to_string()),
                             };
+                            e.login_message = message;
+                            e.auth_stage = stage;
                             e.status = e.login_message.clone();
                             e.sign_in = None;
                             e.login_code = None;
@@ -352,30 +432,127 @@ fn save(e: &mut Engine) -> Result<(), String> {
     e.catalog.config.save(&home)
 }
 
+/// REAL account management through the existing `Accounts` API. Returns None
+/// when `name` is not an account operation. `offline_without_owner=true` is the
+/// upstream option that lets an offline name reach the game without Microsoft;
+/// no authentication logic is rewritten here.
+fn account_operation(e: &mut Engine, name: &str, input: &str, args: &Value) -> Option<Value> {
+    use crate::account::{Accounts, Endpoints, Player, Secrets};
+    let known = matches!(name, "name" | "offlineName" | "offline/add" | "offline/select"
+        | "offline/delete" | "account/select" | "account/delete" | "account/refresh");
+    if !known {
+        return None;
+    }
+    let store = crate::account::store();
+    let result: Result<String, String> = (|| {
+        let mut accounts = Accounts::load();
+        match name {
+            "name" | "offlineName" | "offline/add" | "offline/select" => {
+                let player = input.trim();
+                if !crate::account::valid_offline_name(player) {
+                    return Err("Offline names must be 3-16 ASCII letters, digits or _".into());
+                }
+                accounts.play_as_with(store, Player::Offline(player.to_string()), true)?;
+                accounts.save()?;
+                e.catalog.config.name = player.to_string();
+                save(e)?;
+                Ok(format!("Offline account {player} is ready"))
+            }
+            "offline/delete" => {
+                accounts.remove_offline(input.trim(), &crate::skins::dir())?;
+                accounts.save()?;
+                if e.catalog.config.name.eq_ignore_ascii_case(input.trim()) {
+                    e.catalog.config.name = accounts.offline_selected.clone().unwrap_or_default();
+                    save(e)?;
+                }
+                Ok(format!("Removed offline account {}", input.trim()))
+            }
+            "account/select" => {
+                let id = arg(args, "id").unwrap_or(input).trim().to_string();
+                accounts.play_as_with(store, Player::Microsoft(id), false)?;
+                accounts.save()?;
+                Ok("Microsoft account selected".into())
+            }
+            "account/delete" => {
+                let id = arg(args, "id").unwrap_or(input).trim().to_string();
+                accounts.remove(store, &id)?;
+                accounts.save()?;
+                Ok("Microsoft account removed".into())
+            }
+            "account/refresh" => {
+                let Some(a) = accounts.selected().cloned() else {
+                    return Err("No Microsoft account is selected".into());
+                };
+                let secrets = store
+                    .get(&a.uuid)?
+                    .and_then(|s| serde_json::from_str::<Secrets>(&s).ok())
+                    .ok_or("Session ended. Sign in again.")?;
+                let (a2, s2) = crate::account::fresh(
+                    &Endpoints::live(),
+                    e.catalog.config.microsoft_client_id.trim(),
+                    &a,
+                    secrets,
+                )?;
+                accounts.add(store, a2.clone(), &s2)?;
+                accounts.save()?;
+                Ok(format!("Refreshed session for {}", a2.name))
+            }
+            _ => unreachable!(),
+        }
+    })();
+    Some(match result {
+        Ok(message) => success(message, true),
+        Err(error) => failure(format!("{error} [{}]", rules::classify_error(&error))),
+    })
+}
+
 /// Every arm performs a real operation. Nothing returns success without doing
 /// the work; actions that need the Vulkan/winit host return `needsActivity`.
 fn dispatch(e: &mut Engine, action: &str, args: &Value) -> Value {
     let home = e.home.clone();
     let value = arg(args, "value");
     match action {
-        // UI-only state lives in Flutter; it is real, not an engine stub.
-        "Page" | "ToggleSection" | "Dismiss" | "Account" | "Profile" | "Renderer"
+        // Opening a catalog page MUST set the real Rust page and start a real
+        // browse; otherwise `Catalog::page` stays `Play` and browse() returns
+        // early, which is why every page used to show "No results".
+        "Page" => {
+            let kind = arg(args, "kind").or_else(|| arg(args, "page")).unwrap_or("");
+            let Some(page) = page_of(kind) else {
+                return success("Navigation handled in Dart", false);
+            };
+            e.catalog.page = page;
+            if page.is_catalog() {
+                e.catalog.offset = 0;
+                e.catalog.browse(&home);
+                return success("Loading real catalog", true);
+            }
+            success("Navigation handled in Dart", false)
+        }
+        "ToggleSection" | "Dismiss" | "Account" | "Profile" | "Renderer"
         | "RenderScale" | "Orientation" | "InputHost" | "Aspect" | "DisplayHz" => {
             success("Choose a value from the real launcher options", false)
         }
         "Play" => needs_activity("Starting Minecraft in the native engine"),
         "Search" => {
-            if let Some(text) = arg(args, "query") {
-                e.catalog.query = text.to_string();
-            }
             if let Some(kind) = arg(args, "kind") {
                 if let Some(page) = page_of(kind) {
                     e.catalog.page = page;
                 }
             }
+            if let Some(text) = arg(args, "query") {
+                e.catalog.query = text.to_string();
+            }
+            let version = arg(args, "version")
+                .and_then(rules::normalize_version);
+            let loader = arg(args, "loader")
+                .and_then(rules::normalize_loader)
+                .map(str::to_string);
+            e.catalog.set_filters(version, loader);
             e.catalog.offset = 0;
             e.catalog.search(&home);
-            success("Searching Modrinth / Horizon catalog", true)
+            let mut reply = success("Searching the real Modrinth / Horizon catalog", true);
+            reply["pending"] = json!(true);
+            reply
         }
         "ModSource" | "ShaderSource" => {
             let Some(origin) = value.and_then(origin_of) else {
@@ -389,12 +566,25 @@ fn dispatch(e: &mut Engine, action: &str, args: &Value) -> Value {
             if let Err(error) = save(e) {
                 return failure(error);
             }
+            if let Some(kind) = arg(args, "kind") {
+                if let Some(page) = page_of(kind) {
+                    e.catalog.page = page;
+                }
+            }
             e.catalog.browse(&home);
-            success("Catalog source saved", true)
+            let mut reply = success("Catalog source saved", true);
+            reply["pending"] = json!(true);
+            reply
         }
         "Field" => {
             let name = arg(args, "name").unwrap_or("");
             let input = value.unwrap_or("");
+            if rules::empty_name_save(name, Some(input)) {
+                return failure("Enter a player name first (3-16 letters, digits or _)");
+            }
+            if let Some(reply) = account_operation(e, name, input, args) {
+                return reply;
+            }
             match name {
                 "theme" | "language" => {
                     let mut prefs = match flutter_preferences(&home) {
@@ -437,15 +627,28 @@ fn dispatch(e: &mut Engine, action: &str, args: &Value) -> Value {
                         Err(error) => failure(error),
                     }
                 }
-                "name" | "offlineName" => {
-                    if !input.is_empty() && !crate::account::valid_offline_name(input) {
-                        return failure("Offline names are 3-16 letters, digits or _");
+                "filter/version" | "filter/loader" => {
+                    let (mut version, mut loader) = e.catalog.filters();
+                    if name == "filter/version" {
+                        version = rules::normalize_version(input);
+                    } else {
+                        loader = rules::normalize_loader(input).map(str::to_string);
                     }
-                    e.catalog.config.name = input.to_string();
-                    match save(e) {
-                        Ok(()) => success("Offline name saved", true),
-                        Err(error) => failure(error),
-                    }
+                    e.catalog.set_filters(version.clone(), loader.clone());
+                    e.catalog.offset = 0;
+                    // search(refresh=true) bypasses the queue cache: the cache
+                    // key does not include filters, so browse() would be stale.
+                    e.catalog.search(&home);
+                    let mut reply = success("Compatibility filters applied", true);
+                    reply["pending"] = json!(true);
+                    reply
+                }
+                "retry" => {
+                    e.catalog.offset = 0;
+                    e.catalog.search(&home);
+                    let mut reply = success("Retrying the real catalog request", true);
+                    reply["pending"] = json!(true);
+                    reply
                 }
                 "client_id" => {
                     e.catalog.config.microsoft_client_id = input.to_string();
@@ -465,11 +668,29 @@ fn dispatch(e: &mut Engine, action: &str, args: &Value) -> Value {
             let Some(i) = index_arg(args) else {
                 return failure("Missing catalog index");
             };
-            if e.catalog.results.get(i).is_none() {
+            let Some(project) = e.catalog.results.get(i).cloned() else {
                 return failure("No catalog project at this index");
+            };
+            if crate::catalog::source_only_mod(&project) {
+                return failure(
+                    "This .hnmod needs a separately compiled client; only sandboxed .hmod mods install here",
+                );
+            }
+            if !project.support().installable() {
+                return failure(format!(
+                    "{} is not compatible with Minecraft {} / this client ({})",
+                    project.title,
+                    horizon_core::VANILLA_VERSION,
+                    project.support().label()
+                ));
             }
             e.catalog.install(&home, i);
-            success("Downloading and checking compatibility", true)
+            let mut reply = success(
+                format!("Downloading {} with checksum verification", project.title),
+                true,
+            );
+            reply["pending"] = json!(true);
+            reply
         }
         "Import" => {
             let mut reply = needs_activity("Choose a file with the Android document picker");
@@ -509,6 +730,11 @@ fn dispatch(e: &mut Engine, action: &str, args: &Value) -> Value {
             success("File removed", true)
         }
         "Next" | "Previous" => {
+            if let Some(kind) = arg(args, "kind") {
+                if let Some(page) = page_of(kind) {
+                    e.catalog.page = page;
+                }
+            }
             if action == "Next" {
                 e.catalog.offset = e.catalog.offset.saturating_add(12);
             } else {
@@ -551,7 +777,11 @@ fn dispatch(e: &mut Engine, action: &str, args: &Value) -> Value {
                 e.catalog.config.microsoft_client_id.trim().to_string(),
             )));
             e.status = "Contacting Microsoft...".into();
-            success("Microsoft sign-in started; approve the code in your browser", true)
+            e.auth_stage = "device_code".into();
+            let mut reply = success("Contacting Microsoft for a real device code", true);
+            reply["pending"] = json!(true);
+            reply["authStage"] = json!("device_code");
+            reply
         }
         "CopyLoginCode" => match e.login_code.clone() {
             Some(code) => {
@@ -765,6 +995,8 @@ extern "system" fn Java_dev_horizon_android_HorizonEngine_nativeInit(
             login_code: None,
             login_uri: None,
             login_message: String::new(),
+            error_kind: String::new(),
+            auth_stage: String::new(),
             status: String::new(),
             cancel: Arc::new(AtomicBool::new(false)),
             shutdown: shutdown.clone(),
