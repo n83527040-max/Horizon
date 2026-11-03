@@ -26,8 +26,19 @@ SIGNER=("$JAVA_DIR/bin/java" -jar "$BT/lib/apksigner.jar")
   --key-pass env:CRAFTIX_KEY_PASSWORD \
   --v1-signing-enabled true \
   --v2-signing-enabled true \
-  --min-sdk-version 21 \
+  --v3-signing-enabled false \
+  --min-sdk-version 28 \
   "$APK"
 
-"${SIGNER[@]}" verify --verbose --min-sdk-version 21 "$APK"
+# 28 is the APK's real minSdk: apksigner then applies v2 as well as the
+# explicitly forced v1. Verify at 21 (OEM compatibility) and 28.
+V21="$("${SIGNER[@]}" verify --verbose --min-sdk-version 21 "$APK" 2>&1)"
+V28="$("${SIGNER[@]}" verify --verbose --min-sdk-version 28 "$APK" 2>&1)"
+printf '%s\n%s\n' "$V21" "$V28"
+for scheme in v1 v2; do
+  if ! printf '%s' "$V28" | grep -q "Verified using ${scheme} scheme.*: true"; then
+    echo "ERROR: CRAFTIX APK is missing the ${scheme} signature" >&2
+    exit 1
+  fi
+done
 echo "CRAFTIX APK re-signed with v1 (JAR) + v2 using the permanent owner key."

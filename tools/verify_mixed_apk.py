@@ -92,11 +92,12 @@ def main() -> int:
 
     signature = run([*shlex.split(args.apksigner), "verify", "--verbose",
                      "--print-certs", str(args.apk)])
+    report["signature_v1"] = "Verified using v1 scheme (JAR signing): true" in signature
     report["signature_v2"] = "Verified using v2 scheme (APK Signature Scheme v2): true" in signature
     report["signer_count"] = re.search(r"Number of signers: (\d+)", signature).group(1) \
         if re.search(r"Number of signers: (\d+)", signature) else "0"
-    if not report["signature_v2"]:
-        errors.append("APK is not signed with v2")
+    if not (report["signature_v1"] or report["signature_v2"]):
+        errors.append("APK has no valid v1/v2 signature")
     if report["signer_count"] != "1":
         errors.append(f"unexpected signer count: {report['signer_count']}")
 
