@@ -224,6 +224,9 @@ jobs:
             APK="$OUT/CRAFTIX-Android-0.7.8-arm64-v8a.apk"
             BT="$ANDROID_HOME/build-tools/35.0.0"
             JAVA="$JAVA_HOME_17_X64/bin/java"
+            # v1+v2 with the SAME permanent CRAFTIX key (OEM install
+            # compatibility). apksigner strips the previous v2-only signature.
+            bash tools/resign_craftix_apk.sh "$APK"
             if [[ ! -f /tmp/upstream-v076.apk ]]; then
               curl -fL --retry 3 -o /tmp/upstream-v076.apk \
                 https://github.com/Vasysik/horizon-android/releases/download/v0.7.6/Horizon-Android-0.7.6-arm64-v8a.apk
@@ -238,6 +241,9 @@ jobs:
             "$JAVA" -jar "$BT/lib/apksigner.jar" verify --verbose --print-certs "$APK"
             python3 tools/check_android_release.py "$APK" --aapt2 "$BT/aapt2" --public \
               --report "$OUT/release-audit.json"
+            python3 tools/diagnose_apk_install.py "$APK" \
+              --aapt2 "$BT/aapt2" --apksigner "$JAVA -jar $BT/lib/apksigner.jar" \
+              --report "$OUT/INSTALL_DIAGNOSTICS.json"
             # Assemble the final, clearly named deliverable and its checksums.
             mv "$APK" "$OUT/CRAFTIX-Rust-0.7.8-arm64-v8a.apk"
             ( cd "$OUT" && sha256sum CRAFTIX-Rust-0.7.8-arm64-v8a.apk > SHA256SUMS_RUST.txt )
@@ -271,6 +277,7 @@ jobs:
             ASSETS=("$APK" "$OUT/SHA256SUMS_RUST.txt" "$OUT/APK_VERIFICATION.json" \
               "$OUT/release-audit.json" "$OUT/badging.txt" "$OUT/manifest-tree.txt" \
               "$OUT/BUILD_INFO.txt" "$OUT/CERT_FINGERPRINT.json" "$OUT/certificate.txt" \
+              "$OUT/INSTALL_DIAGNOSTICS.json" \
               "$OUT/LICENSE.txt" "$OUT/THIRD_PARTY_NOTICES.md")
             if gh release view "$TAG" >/dev/null 2>&1; then
               gh release upload "$TAG" "${ASSETS[@]}" --clobber

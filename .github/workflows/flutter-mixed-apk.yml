@@ -160,6 +160,9 @@ jobs:
           cp "$APK" "$OUT/CRAFTIX-Flutter-Rust-0.7.8-arm64-v8a.apk"
           BT="$ANDROID_HOME/build-tools/35.0.0"
           JAVA="$JAVA_HOME/bin/java"
+          # v1 (JAR) + v2 with the SAME permanent CRAFTIX key: some OEM
+          # installers reject v2-only APKs as "package appears to be invalid".
+          bash tools/resign_craftix_apk.sh "$OUT/CRAFTIX-Flutter-Rust-0.7.8-arm64-v8a.apk"
           "$BT/aapt2" dump xmltree --file AndroidManifest.xml "$OUT/CRAFTIX-Flutter-Rust-0.7.8-arm64-v8a.apk" \
             > "$OUT/MIXED_manifest-tree.txt" || true
           grep -n -E 'screenOrientation|:engine|lib_name' "$OUT/MIXED_manifest-tree.txt" || true
@@ -174,6 +177,9 @@ jobs:
           python3 tools/verify_mixed_apk.py "$OUT/CRAFTIX-Flutter-Rust-0.7.8-arm64-v8a.apk" \
             --aapt2 "$BT/aapt2" --apksigner "$JAVA_HOME/bin/java -jar $BT/lib/apksigner.jar" \
             --report "$OUT/MIXED_APK_VERIFICATION.json"
+          python3 tools/diagnose_apk_install.py "$OUT/CRAFTIX-Flutter-Rust-0.7.8-arm64-v8a.apk" \
+            --aapt2 "$BT/aapt2" --apksigner "$JAVA -jar $BT/lib/apksigner.jar" \
+            --report "$OUT/MIXED_INSTALL_DIAGNOSTICS.json"
           ( cd "$OUT" && sha256sum CRAFTIX-Flutter-Rust-0.7.8-arm64-v8a.apk > SHA256SUMS_FLUTTER.txt )
           printf 'BUILD_COMMIT=%s\nSOURCE=craftix-0.7.8 Rust APK + Flutter build\n' "$GITHUB_SHA" \
             > "$OUT/BUILD_INFO.txt"
@@ -220,7 +226,8 @@ jobs:
                   "$OUT/MIXED_APK_VERIFICATION.json" "$OUT/MIXED_badging.txt" \
                   "$OUT/MIXED_manifest-tree.txt" "$OUT/MIXED_signature.txt" \
                   "$OUT/MIXED_certificate.txt" "$OUT/MIXED_CERT_FINGERPRINT.json" \
-                  "$OUT/CERT_FINGERPRINT.json" "$OUT/BUILD_INFO.txt")
+                  "$OUT/CERT_FINGERPRINT.json" "$OUT/MIXED_INSTALL_DIAGNOSTICS.json" \
+                  "$OUT/BUILD_INFO.txt")
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "${ASSETS[@]}" --clobber
           else

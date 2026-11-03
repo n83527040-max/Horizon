@@ -47,6 +47,11 @@ def main() -> int:
         report["flutterLibraries"] = flutter
         report["engineData"] = engine
         report["flutterAssetCount"] = len(dart_assets)
+        signer_files = [n for n in names if n.startswith("META-INF/")
+                        and n.endswith((".RSA", ".DSA", ".EC"))]
+        report["v1SignerFiles"] = signer_files
+        if not signer_files:
+            errors.append("v1 (JAR) signature is missing from the APK")
         if len(rust) != 1:
             errors.append(f"expected one libhorizon_android.so, found {rust}")
         if len(flutter) != 1:

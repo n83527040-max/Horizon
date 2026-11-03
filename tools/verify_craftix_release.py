@@ -93,6 +93,13 @@ def main() -> int:
           "release build fails clearly when CRAFTIX secrets are missing")
     check("signingConfig craftixKeystore ? signingConfigs.craftix : null" in gradle,
           "release never silently falls back to debug signing")
+    resign = read("tools/resign_craftix_apk.sh")
+    check("--v1-signing-enabled true" in resign and "--v2-signing-enabled true" in resign,
+          "apksigner re-signs with v1 (JAR) + v2 using the SAME CRAFTIX key")
+    check("CRAFTIX_KEYSTORE_FILE" in resign and "env:CRAFTIX_STORE_PASSWORD" in resign,
+          "re-sign reads the permanent key from secrets/env, never from the repo")
+    check(joined.count("tools/resign_craftix_apk.sh") >= 2,
+          "both release workflows re-sign the final APK with v1+v2")
     check("No fallback debug" in gradle or "never fall back" in read("tools/android_build.py"),
           "debug fallback explicitly forbidden")
     check(EXPECTED_CERT in joined or EXPECTED_CERT in read("CRAFTIX_MIGRATION_ANALYSIS.md"),

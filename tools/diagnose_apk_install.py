@@ -140,10 +140,11 @@ def main() -> int:
                 result["problems"].append(
                     f"{lib['name']} is not 4096-byte page aligned (offset {lib['dataOffset']})")
     # v2-only APKs are valid on API 24+, but many OEM installers expect v1 too.
-    if result["v2SigningBlockPresent"] and not result["v1Present"]:
-        result["warnings"] = ["v2-only signature: enable v1 (JAR) signing for wider OEM compatibility"]
-    else:
-        result["warnings"] = []
+    result["warnings"] = []
+    if not result["v1Present"]:
+        result["problems"].append("v1 (JAR) signature missing: v2-only APKs are rejected by some OEM installers")
+    if not result["v2SigningBlockPresent"]:
+        result["problems"].append("APK Signature Scheme v2 block missing")
     result["passed"] = not result["problems"]
     text = json.dumps(result, indent=2, ensure_ascii=False) + "\n"
     print(text)
