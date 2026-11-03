@@ -66,20 +66,25 @@ LauncherSnapshot fixture({
           ]
         : const <CatalogProject>[],
     status: rich ? '1 result - select Install to check compatibility' : null,
-    settings: <String, Object?>{
-      SettingKeys.renderer: 'Vulkan / compatibility',
-      SettingKeys.renderScale: 100,
-      SettingKeys.orientation: 'portrait',
-      SettingKeys.immersive: true,
-      SettingKeys.avoidCutout: false,
-      SettingKeys.performanceHints: true,
-      SettingKeys.gpuProfile: false,
-      SettingKeys.recordPerformance: false,
-      SettingKeys.theme: theme,
-      SettingKeys.language: language,
-      SettingKeys.server: '',
-      SettingKeys.profile: '0',
-    },
+    settings: rich
+        ? <String, Object?>{
+            SettingKeys.renderer: 'Vulkan / compatibility',
+            SettingKeys.renderScale: 100,
+            SettingKeys.orientation: 'portrait',
+            SettingKeys.immersive: true,
+            SettingKeys.avoidCutout: false,
+            SettingKeys.performanceHints: true,
+            SettingKeys.gpuProfile: false,
+            SettingKeys.recordPerformance: false,
+            SettingKeys.theme: theme,
+            SettingKeys.language: language,
+            SettingKeys.server: '',
+            SettingKeys.profile: '0',
+          }
+        : <String, Object?>{
+            SettingKeys.theme: theme,
+            SettingKeys.language: language,
+          },
     choices: const <String, List<String>>{
       'Renderer': <String>['Vulkan / batching', 'Vulkan / compatibility', 'OpenGL ES / experimental'],
     },
