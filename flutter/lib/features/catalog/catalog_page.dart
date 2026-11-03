@@ -121,6 +121,24 @@ class _CatalogPageState extends ConsumerState<CatalogPage> {
             ],
             const SizedBox(height: 12),
             // REAL error state: never a generic "No results" for network/API errors.
+            if (d.hasError && d.results.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: HorizonCard(
+                  child: Row(children: <Widget>[
+                    const Icon(Icons.error_outline_rounded, color: HorizonPalette.danger, size: 18),
+                    const SizedBox(width: 8),
+                    Expanded(child: Text(ltr(d.catalogStatus ?? d.status ?? d.errorKind),
+                        maxLines: 2, overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 11.5))),
+                    TextButton(
+                      onPressed: () => ActionRunner(ref, context).run(HorizonAction.Field,
+                          args: <String, Object?>{'name': 'retry', 'kind': widget.kind.name}),
+                      child: Text(s.t('retry')),
+                    ),
+                  ]),
+                ),
+              ),
             if (d.hasError && d.results.isEmpty)
               _ErrorCard(s: s, d: d, ref: ref, context: context, kind: widget.kind)
             else if (d.pending && d.results.isEmpty)
