@@ -85,7 +85,8 @@ def main() -> int:
     if not report["native_activity_meta"]:
         errors.append("NativeActivity lib_name meta-data is missing")
 
-    signature = run([*shlex.split(args.apksigner), "verify", "--verbose", str(args.apk)])
+    signature = run([*shlex.split(args.apksigner), "verify", "--verbose",
+                     "--print-certs", str(args.apk)])
     report["signature_v2"] = "Verified using v2 scheme (APK Signature Scheme v2): true" in signature
     report["signer_count"] = re.search(r"Number of signers: (\d+)", signature).group(1) \
         if re.search(r"Number of signers: (\d+)", signature) else "0"
@@ -94,10 +95,18 @@ def main() -> int:
     if report["signer_count"] != "1":
         errors.append(f"unexpected signer count: {report['signer_count']}")
 
-    public_cert = re.search(r"Signer #1 certificate SHA-256 digest: ([0-9a-f]{64})", signature)
+    public_cert = re.search(
+        r"Signer #1 certificate SHA-256 digest: ([0-9a-fA-F]{64})", signature)
     report["signerCertificateSha256"] = public_cert.group(1) if public_cert else None
     if not public_cert:
         errors.append("public signer certificate fingerprint could not be read")
+    else:
+        raw = public_cert.group(1).upper()
+        colon = ":".join(raw[i : i + 2] for i in range(0, 64, 2))
+        report["signerCertificateSha256ColonForm"] = colon
+        report["matchesOwnerReference"] = (
+            colon == "77:05:07:A6:EC:48:51:98:66:55:08:29:32:CA:C2:81:61:55:08:0F:D4:73:DB:7E:42:E9:A0:BF:FD:22:DD:2F"
+        )
 
     report["sha256"] = hashlib.sha256(args.apk.read_bytes()).hexdigest()
     report["passed"] = not errors

@@ -19,8 +19,15 @@ def main() -> int:
     certificate = Path(sys.argv[1])
     output = Path(sys.argv[2])
     text = certificate.read_text(encoding="utf-8", errors="replace")
-    match = re.search(r"([0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){31})", text)
-    actual = match.group(1).upper() if match else "NOT FOUND"
+    # apksigner prints either a colon-separated fingerprint (keytool) or a
+    # plain 64-hex digest (verify --print-certs). Accept both, normalise to
+    # the colon-separated public form used in the owner's reference.
+    match = re.search(r"([0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){31}|[0-9A-Fa-f]{64})", text)
+    if match:
+        raw = match.group(1).replace(":", "").upper()
+        actual = ":".join(raw[i : i + 2] for i in range(0, 64, 2))
+    else:
+        actual = "NOT FOUND"
     equals = actual == EXPECTED.upper()
     report = {
         "actualSha256Fingerprint": actual,

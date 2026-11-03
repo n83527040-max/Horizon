@@ -212,11 +212,15 @@ jobs:
           set -euo pipefail
           TAG=craftix-0.7.8
           OUT=.local/android/releases/mixed-0.7.8
+          # Both APKs use the SAME CRAFTIX key. Publish one CI-generated public
+          # fingerprint report under the Rust asset name too (clobbers the
+          # earlier report that used a colon-only regex).
+          cp "$OUT/MIXED_CERT_FINGERPRINT.json" "$OUT/CERT_FINGERPRINT.json"
           ASSETS=("$OUT/CRAFTIX-Flutter-Rust-0.7.8-arm64-v8a.apk" "$OUT/SHA256SUMS_FLUTTER.txt" \
                   "$OUT/MIXED_APK_VERIFICATION.json" "$OUT/MIXED_badging.txt" \
                   "$OUT/MIXED_manifest-tree.txt" "$OUT/MIXED_signature.txt" \
                   "$OUT/MIXED_certificate.txt" "$OUT/MIXED_CERT_FINGERPRINT.json" \
-                  "$OUT/BUILD_INFO.txt")
+                  "$OUT/CERT_FINGERPRINT.json" "$OUT/BUILD_INFO.txt")
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "${ASSETS[@]}" --clobber
           else
