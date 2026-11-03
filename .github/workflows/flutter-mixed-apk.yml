@@ -107,6 +107,18 @@ jobs:
           flutter build apk --release --target-platform android-arm64 2>&1 | tee /tmp/mixed-build.txt
           ls -lh build/app/outputs/flutter-apk/
 
+      - name: Publish build diagnostics
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          echo "🤖 Mixed APK build diagnostics $GITHUB_RUN_ID" > /tmp/mixed-build-tail.md
+          echo '```' >> /tmp/mixed-build-tail.md
+          tail -c 35000 /tmp/mixed-build.txt >> /tmp/mixed-build-tail.md 2>/dev/null || echo 'no build log' >> /tmp/mixed-build-tail.md
+          echo '```' >> /tmp/mixed-build-tail.md
+          gh issue comment 1 --body-file /tmp/mixed-build-tail.md
+
       - name: Verify the mixed APK (manifest, libraries, signature)
         run: |
           set -euo pipefail
@@ -171,4 +183,4 @@ jobs:
             echo '### build'; echo '```'; tail -n 80 /tmp/mixed-build.txt; echo '```'
           } > /tmp/mixed-report.md
           head -c 60000 /tmp/mixed-report.md > /tmp/mixed-report-trim.md
-          gh api "repos/${GITHUB_REPOSITORY}/issues/1/comments" -F body=@/tmp/mixed-report-trim.md
+          gh issue comment 1 --body-file /tmp/mixed-report-trim.md
