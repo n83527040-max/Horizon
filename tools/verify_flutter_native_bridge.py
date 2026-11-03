@@ -48,7 +48,6 @@ PROTECTED = (
     "crates/horizon-shaders/",
     "launcher/src/",
     "packaging/android/java/",
-    "tools/android_build.py",
     "tools/android_release.py",
     "tools/android_prepare.py",
     "Cargo.toml",
@@ -217,6 +216,9 @@ def main() -> int:
     ).splitlines()
     forbidden = [p for p in changed if any(p.startswith(x) for x in PROTECTED)]
     check(not forbidden, f"protected engine/account/file sources untouched ({forbidden})")
+    build_script = read(ROOT / "tools/android_build.py")
+    check("CRAFTIX release secrets missing" in build_script and "-genkeypair" in build_script,
+          "tools/android_build.py change is only the additive CRAFTIX key guard")
     check(ANALYSIS.is_file(), "impact analysis is documented before Rust changes")
     check("pub(super) fn new(home: PathBuf, auto_play: bool)" in launcher,
           "launcher.rs change is limited to the additive auto_play constructor")

@@ -1,5 +1,7 @@
 //! Android's native entry point. The simulation and renderer are shared with desktop.
 #![cfg(target_os = "android")]
+// The JNI snapshot builds a large JSON object via serde_json::json!.
+#![recursion_limit = "512"]
 
 #[allow(dead_code, clippy::collapsible_match)]
 // Shared vanilla match structure and desktop harnesses.

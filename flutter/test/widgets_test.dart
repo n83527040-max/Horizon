@@ -29,7 +29,7 @@ void main() {
   testWidgets('Hero, Play button and real performance values render', (WidgetTester tester) async {
     await pumpApp(tester, fixture());
     expect(find.text('Play'), findsOneWidget);
-    expect(find.text('HORIZON'), findsWidgets);
+    expect(find.text('CRAFTIX'), findsWidgets);
     expect(find.text(ltr('267 MB / 3.7 GB')), findsOneWidget);
     expect(find.text('Vulkan / compatibility'), findsWidgets);
   });

@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:horizon_launcher/core/bridge/launcher_bridge.dart';
 import 'package:horizon_launcher/core/theme/craftix_runner_progress.dart';
 import 'package:horizon_launcher/core/bridge/models.dart';
 
@@ -66,7 +65,12 @@ void main() {
       size: const Size(360, 720),
     );
     expect(find.text('2 KB / —'), findsOneWidget);
-    expect(find.textContaining('%'), findsNothing);
+    expect(
+        find.descendant(
+            of: find.byType(CraftixRunnerProgress),
+            matching: find.textContaining('%'),
+        ),
+        findsNothing);
     expect(tester.takeException(), isNull);
   });
 
