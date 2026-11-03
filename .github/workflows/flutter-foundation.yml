@@ -33,6 +33,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: subosito/flutter-action@v2
         with:
@@ -96,7 +98,7 @@ jobs:
             echo "### flutter analyze"
             echo '```'; tail -n 120 /tmp/flutter-analyze.txt; echo '```'
             echo "### flutter test"
-            echo '```'; tail -n 200 /tmp/flutter-test.txt; echo '```'
+            echo '```'; tail -n 900 /tmp/flutter-test.txt; echo '```'
           } > /tmp/flutter-report.md
           head -c 60000 /tmp/flutter-report.md > /tmp/flutter-report-trim.md
           gh api "repos/${GITHUB_REPOSITORY}/issues/1/comments" -F body=@/tmp/flutter-report-trim.md
