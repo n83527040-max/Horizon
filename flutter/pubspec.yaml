@@ -1,0 +1,23 @@
+name: horizon_launcher
+description: "Horizon Android 0.7.6 launcher UI - Flutter/Dart front end."
+publish_to: 'none'
+version: 0.7.6+28
+
+environment:
+  sdk: '>=3.4.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  flutter_riverpod: ^2.6.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/hero.png

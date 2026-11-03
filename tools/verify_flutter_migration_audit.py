@@ -21,7 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 AUDIT = ROOT / "FLUTTER_MIGRATION_AUDIT.md"
 
 PATH_TOKEN = re.compile(
-    r"^(?:crates|packaging|tools|tests|docs|launcher|\.github|mods|third_party)/"
+    r"^(?:crates|packaging|tools|tests|docs|launcher|flutter|\.github|mods|third_party)/"
     r"[^`\s]+\.(?:rs|py|json|xml|gradle|java|md|yml|yaml|png|sh|toml|txt|css)$"
 )
 ROOT_FILES = (
@@ -182,9 +182,12 @@ def main() -> int:
     dart = [p for p in ROOT.rglob("*.dart") if ".git" not in p.parts]
     kt = [p for p in ROOT.rglob("*.kt") if ".git" not in p.parts]
     pubspec = [p for p in ROOT.rglob("pubspec.yaml") if ".git" not in p.parts]
-    check(not dart and not kt and not pubspec,
-          f"no Flutter/Dart sources yet (dart={len(dart)}, kt={len(kt)}, "
+    check(len(dart) >= 10 and len(kt) == 2 and len(pubspec) == 1,
+          f"Flutter host present (dart={len(dart)}, kt={len(kt)}, "
           f"pubspec={len(pubspec)})")
+    check((ROOT / "flutter/lib/core/bridge/actions.dart").is_file()
+          and (ROOT / "flutter/test/actions_parity_test.dart").is_file(),
+          "typed action contract and parity test exist")
 
     rust_files = list((ROOT / "crates").rglob("*.rs"))
     check(len(rust_files) >= 1700, f"Rust engine intact ({len(rust_files)} .rs files)")

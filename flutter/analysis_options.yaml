@@ -1,0 +1,18 @@
+# Deliberately minimal: only compiler errors and warnings are fatal here.
+# (No external lint package, so `flutter analyze` works offline in CI.)
+analyzer:
+  errors:
+    unused_import: warning
+    unused_local_variable: warning
+    dead_code: warning
+  exclude:
+    - '**/*.g.dart'
+    - '**/*.freezed.dart'
+    - 'build/**'
+
+linter:
+  rules:
+    - avoid_empty_else
+    - avoid_relative_lib_imports
+    - cancel_subscriptions
+    - valid_regexps

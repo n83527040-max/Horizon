@@ -1,0 +1,85 @@
+# Gates phases 3-4 of the Flutter migration. The sandbox has no Dart/Flutter
+# SDK and no device, so GitHub Actions is the only real analyzer/test runner.
+name: Flutter foundation checks
+on:
+  push:
+    branches: [arena/92db30ff-horizon]
+    paths:
+      - 'flutter/**'
+      - 'tools/verify_flutter_foundation.py'
+      - 'tools/verify_flutter_migration_audit.py'
+      - 'FLUTTER_MIGRATION_AUDIT.md'
+      - 'crates/horizon-client/src/android/launcher_pages.rs'
+      - 'research-lock.json'
+      - 'packaging/android/build.gradle'
+      - '.github/workflows/flutter-foundation.yml'
+      - 'ci-flutter.trigger'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  actions: read
+
+concurrency:
+  group: horizon-flutter-foundation
+  cancel-in-progress: true
+
+env:
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Toolchain
+        run: |
+          flutter --version 2>&1 | tee /tmp/flutter-version.txt
+          dart --version 2>&1 | tee -a /tmp/flutter-version.txt
+          python3 --version
+
+      - name: Cross-language contract + audit + existing Android tests
+        run: |
+          python3 tools/verify_flutter_migration_audit.py
+          python3 tools/verify_flutter_foundation.py
+          python3 -m unittest discover -s tests -p 'test_android*.py'
+
+      - name: Pub get
+        working-directory: flutter
+        run: flutter pub get
+
+      - name: Flutter analyze
+        working-directory: flutter
+        run: |
+          set -o pipefail
+          flutter analyze --no-fatal-infos 2>&1 | tee /tmp/flutter-analyze.txt
+
+      - name: Flutter test
+        working-directory: flutter
+        run: |
+          set -o pipefail
+          flutter test --reporter expanded 2>&1 | tee /tmp/flutter-test.txt
+
+      - name: Publish results
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          {
+            echo "🤖 Agent: Flutter foundation run $GITHUB_RUN_ID ($GITHUB_SHA)"
+            echo
+            echo "### Toolchain"
+            echo '```'; cat /tmp/flutter-version.txt 2>/dev/null; echo '```'
+            echo "### flutter analyze"
+            echo '```'; tail -n 80 /tmp/flutter-analyze.txt 2>/dev/null; echo '```'
+            echo "### flutter test"
+            echo '```'; tail -n 120 /tmp/flutter-test.txt 2>/dev/null; echo '```'
+          } > /tmp/flutter-report.md
+          gh issue comment 1 --body-file /tmp/flutter-report.md || true

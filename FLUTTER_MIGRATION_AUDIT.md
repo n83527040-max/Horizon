@@ -1,10 +1,13 @@
 # تدقيق الانتقال إلى Flutter / Flutter Migration Audit — Horizon Android 0.7.6
 
-> **الحالة:** المرحلتان 1 و2 من خطة التنفيذ (تحليل المشروع كاملاً + جرد الوظائف والاعتماديات)
-> منفّذتان ومُختبَرتان آلياً بواسطة `tools/verify_flutter_migration_audit.py`.
-> المراحل 3–13 **لم تبدأ**: لا توجد أكواد Flutter، ولا APK جديد، ولا أي ادعاء باكتمالها.
-> السبب: ثلاثة تعارضات حاسمة في الطلب تحتاج قرارك قبل كتابة أي كود (القسم 7).
-> لا يُقدَّم هنا Prototype ولا واجهة وهمية، التزاماً بشرطك «لا توجد صفحات وهمية / لا بيانات تجريبية».
+> **الحالة (محدَّثة بعد قراراتك):** المراحل 1 و2 (التحليل الكامل + الجرد) منفّذتان
+> ومُختبَرتان آلياً. وبعد إجابتك على الأسئلة، نُفِّذت المرحلتان 3 و4 (بنية Flutter +
+> نظام التصميم) مع كل الصفحات والتنقل وعقد الجسر المكتوب، وهي الآن بانتظار باب
+> اختبار CI (`flutter analyze` / `flutter test`). **المراحل 5–13 لم تُعلَن مكتملة**:
+> الجسر الخاص بمنطق المحرك (البحث/التثبيت/الحسابات) وAPK المختلط واختبارات الجهاز
+> لم تُنجز بعد. انظر القسم 9 للتفصيل.
+> لا يُقدَّم Prototype ولا واجهة وهمية: كل قيمة تُقرأ من المضيف الأصلي، والقيم غير
+> المتوفرة تُخفى، والإجراءات غير الموصولة تُعيد فشلاً صريحاً لا نجاحاً مزيّفاً.
 
 ---
 
@@ -142,9 +145,10 @@
 - **أدوات/اختبارات:** أكثر من 480 سكربت Python في `tools/`، 100 ملف اختبار في `tests/`،
   324 parity harness، CI: `cargo check` + `clippy -D warnings` + `assembleRelease` +
   `apksigner` + `verify_android_apk.py` + تنزيل/mقارنة الـ APK.
-- **Flutter/Dart:** **صفر**. لا `pubspec.yaml`، لا `*.dart`، لا `*.kt`، لا
-  `io.flutter`، لا `libflutter.so`. (المطابقات الوحيدة لكلمة flutter في المستودع هي
-  أوصاف حركة أجنحة الخفافيش في `mobs/`، لا علاقة لها بإطار العمل.)
+- **Flutter/Dart (بعد بدء المرحلة 3):** أُضيف `flutter/` بتطبيق Dart كامل
+  (`pubspec.yaml` يعتمد `flutter_riverpod` و`flutter_localizations`)، و`*.kt` للمضيف
+  الأصلي، و`libflutter.so` لم يُبنَ بعد. قبل هذا العمل كان العدد **صفراً**
+  (المطابقات الوحيدة لكلمة flutter كانت أوصاف حركة أجنحة الخفافيش في `mobs/`).
 
 ### 2.4 الإصدار المنشور حالياً (لا يُستبدل قبل قرار)
 
@@ -225,7 +229,7 @@ git status                                                    → clean (قبل 
 
 ---
 
-## 7. القرارات الثلاثة المطلوبة منك قبل المرحلة 3
+## 7. القرارات المطلوبة قبل المرحلة 3 (✅ أُجيب عنها — انظر القسم 9)
 
 1. **الهندسة:** هل تسمح بتغيير طبقة الاستضافة (Activity/نافذة/حلقة أحداث + جسر
    FFI/JNI جديد) مع بقاء محاكاة Minecraft و Vulkan و`.so` كما هي؟ أم تفضّل الإبقاء
@@ -255,3 +259,62 @@ git status                                                    → clean (قبل 
 > كل مرحلة تُعلَن مكتملة فقط بعد اجتياز باب اختبارها فعلياً، التزاماً بشرطك
 > «لا تعلن اكتمال أي مرحلة قبل اختبارها فعلياً». الاختبارات التي تحتاج جهازاً
 > ستبقى معلّمة بوضوح «غير مُختبرة على جهاز» ما لم يتوفر جهاز/AVD.
+
+---
+
+## 9. القرارات المتخذة والعمل المنفَّذ بعدها
+
+### 9.1 قراراتك (مُسجَّلة)
+
+| السؤال | القرار |
+|---|---|
+| الهندسة | **Flutter كأساس فعلي + جسر حقيقي**: استبدال طبقة الاستضافة (Activity/النافذة/حلقة الأحداث) وبناء C ABI/JNI أو Pigeon مع بقاء محاكاة Minecraft وVulkan و`.so` داخلياً |
+| الاتجاه | **Portrait للمشغّل + Landscape للّعبة**: واجهة Flutter عمودية دائماً، و`HorizonActivity` الخاصة باللعبة تحتفظ بسياسة دورانها |
+| التحقق | **CI فقط مع تصريح صريح** بعدم وجود اختبار جهاز/AVD |
+| الخيارات الجديدة | **إضافتها كميزات حقيقية** (Theme/Language/Storage/Cache/About/صورة اللاعب)، لا كواجهات وهمية |
+
+### 9.2 ما نُفِّذ (المرحلتان 3 و4 + عقد الجسر)
+
+- `flutter/pubspec.yaml`, `flutter/analysis_options.yaml`, `flutter/.metadata`
+  — تطبيق Flutter/Dart مع Material 3 و`flutter_riverpod` و`flutter_localizations`.
+- `flutter/lib/core/theme/` — نظام مركزي: ألوان `#080B1D/#8B35FF/#3565FF/#20DDF5/#111B38`
+  بالضبط، تدرّجات، زوايا، ظلّ/توهّج خفيف، تايبوجرافي، `HorizonMetrics` (LayoutBuilder/
+  MediaQuery) وكتالوج en/ar حقيقي مطبَّق.
+- `flutter/lib/core/bridge/` — `HorizonAction` بـ **49** اسماً مطابقاً لحرفياً لـ
+  `enum Action` في Rust، نماذج `LauncherSnapshot` بكل الحقول قابلة للإخفاء،
+  و`MethodChannelLauncherBridge` مقابل `dev.horizon.android/bridge`.
+- `flutter/lib/core/state/` — Riverpod: بثّ لقطة حقيقية، حالة تنقل، ثيم ولغة من
+  الإعدادات الحقيقية، و`ActionRunner` لعرض نجاح/فشل كل إجراء.
+- `flutter/lib/core/widgets/` — بطاقات زجاجية، زر متدرّج مع حركة ضغط، Chips،
+  مؤشرات أداء، حالات فارغة/خطأ/تحميل، وشريط تنقل سفلي **بعرض الشاشة كاملاً**
+  مع SafeArea ومؤشر نشط متوهّج.
+- `flutter/lib/features/` — Home وMods وPacks وShaders وInstalled وSettings
+  وAccounts وChooser وImport، كلها تقرأ اللقطة الحقيقية وترسل إجراءات مكتوبة.
+- `flutter/lib/navigation/app_shell.dart` — `IndexedStack` يحفظ حالة الصفحات،
+  معالجة زر الرجوع عبر `WidgetsBindingObserver.didPopRoute`، وصفحة Shaders
+  كوجهة سادسة خارج الشريط.
+- `flutter/android/app/src/main/` — `MainActivity : FlutterActivity`،
+  `HorizonBridge.kt` يقرأ `android-launcher.json` والمجلدات الحقيقية و`/proc`
+  و`host-info.json`، ومانيفست يفصل بين نشاط المشغّل (Portrait) ونشاط اللعبة
+  (دوران حر) مع الإبقاء على `DocumentsProvider` واختصارات `GameActivity`.
+- `tools/generate` داخل `tools/verify_flutter_foundation.py --generate` يولّد
+  `flutter/assets/host-info.json` من `research-lock.json` و`build.gradle` فعلياً.
+- `.github/workflows/flutter-foundation.yml` — بوابة CI: عقد عبر اللغات +
+  التدقيق + اختبارات Android الحالية + `flutter pub get` + `flutter analyze` +
+  `flutter test` على 7 أحجام شاشة.
+
+### 9.3 ما لم يُنجز بعد (بصراحة)
+
+- **المرحلة 9 (ربط منطق المحرك):** 41 إجراءً من أصل 49 ما زالت تُعيد فشلاً صريحاً
+  في `HorizonBridge.kt`؛ لم تُبنَ بعد طبقة C ABI/JNI القابلة للاستدعاء دون
+  `winit::EventLoop` و`AndroidApp`. لا يوجد أي ادعاء بأن هذه الأزرار «تعمل».
+- **إطلاق اللعبة:** `Action::Play` يفتح `HorizonActivity` بعلم
+  `horizon.launch_game=true`، لكن `android_main.rs` لم يضِف بعد مسار تخطّي واجهة
+  Rust عند وجود هذا العلم. هذا تغيير طبقة الاستضافة الذي وافقت عليه، ولم يُنفَّذ.
+- **APK مختلط:** لا يوجد APK جديد؛ تغليف Gradle مع `libhorizon_android.so` هو المرحلة 13.
+- **اختبارات الجهاز:** لم تُجرَ (Minecraft، Microsoft، SAF، Modes، FPS،
+  Memory Leaks). أي إعلان اكتمال سيقتصر على ما اجتازه CI فعلياً.
+- **الخيارات الجديدة:** Theme وLanguage وStorage وCache وAbout موصولة بقيم/عمليات
+  حقيقية؛ «صورة اللاعب» تبقى مخفية لأن المضيف لا يوفّر جلداً حقيقياً بعد،
+  و«إدارة إصدارات Minecraft» لم تُضف لأنها تتطلب تغييراً في المحرك يحتاج موافقة
+  إضافية (كما نُصّ في خيارك).
