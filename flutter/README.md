@@ -38,8 +38,11 @@ numbers exist in production Dart.
 
 ## Honest status
 
-- **Completed and CI-gated:** phases 3 (Flutter architecture) and 4 (design
-  system), plus all-page layouts, navigation, and the typed bridge contract.
+- **Completed and CI-gated (run 41571959078, all steps green):** phases 3
+  (Flutter architecture) and 4 (design system), plus all-page layouts,
+  navigation, and the typed bridge contract. `flutter analyze` = No issues;
+  23/23 Flutter tests pass, including no-overflow checks on 360x720, 360x800,
+  393x873, 412x915, 480x960, 800x1280 and 960x540.
 - **Not yet bridged:** engine-domain actions (Modrinth/Horizon search, install,
   account sign-in, enable/disable, diagnostics, game play). The Kotlin
   dispatcher returns an explicit, visible failure for those — never fake success.
