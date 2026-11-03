@@ -15,7 +15,7 @@ class HorizonApp extends ConsumerWidget {
     final ThemeMode mode = ref.watch(themeModeProvider);
     final Locale locale = ref.watch(localeProvider);
     return MaterialApp(
-      title: 'Horizon',
+      title: 'CRAFTIX',
       debugShowCheckedModeBanner: false,
       theme: HorizonTheme.light(),
       darkTheme: HorizonTheme.dark(),

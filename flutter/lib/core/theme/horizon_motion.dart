@@ -267,14 +267,18 @@ class _AnimatedPageFadeState extends State<AnimatedPageFade>
   }
 
   @override
-  Widget build(BuildContext context) => FadeTransition(
-        opacity: CurvedAnimation(parent: _controller, curve: Curves.easeOut),
-        child: SlideTransition(
-          position: Tween<Offset>(
-            begin: const Offset(0, 0.012),
-            end: Offset.zero,
-          ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOut)),
-          child: widget.child,
-        ),
-      );
+  Widget build(BuildContext context) {
+    // Accessibility: no slide/fade when the user asked for reduced motion.
+    if (MediaQuery.of(context).disableAnimations) return widget.child;
+    return FadeTransition(
+      opacity: CurvedAnimation(parent: _controller, curve: Curves.easeOut),
+      child: SlideTransition(
+        position: Tween<Offset>(
+          begin: const Offset(0, 0.012),
+          end: Offset.zero,
+        ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOut)),
+        child: widget.child,
+      ),
+    );
+  }
 }

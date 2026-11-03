@@ -214,6 +214,13 @@ jobs:
           set -euo pipefail
           {
             OUT=.local/android/releases/0.7.8
+            # tools/android_release.py still names the staged APK with the
+            # historical upstream prefix; give the deliverable its CRAFTIX name
+            # before verification. The binary itself is unchanged.
+            if [[ -f "$OUT/Horizon-Android-0.7.8-arm64-v8a.apk" ]]; then
+              mv "$OUT/Horizon-Android-0.7.8-arm64-v8a.apk" \
+                 "$OUT/CRAFTIX-Android-0.7.8-arm64-v8a.apk"
+            fi
             APK="$OUT/CRAFTIX-Android-0.7.8-arm64-v8a.apk"
             BT="$ANDROID_HOME/build-tools/35.0.0"
             JAVA="$JAVA_HOME_17_X64/bin/java"
@@ -245,7 +252,7 @@ jobs:
           OUT=.local/android/releases/0.7.8
           APK="$OUT/CRAFTIX-Rust-0.7.8-arm64-v8a.apk"
           BT="$ANDROID_HOME/build-tools/35.0.0"
-          "$JAVA_HOME/bin/java" -jar "$BT/lib/apksigner.jar" verify --print-certs "$APK" \
+          "$JAVA_HOME_17_X64/bin/java" -jar "$BT/lib/apksigner.jar" verify --print-certs "$APK" \
             > "$OUT/certificate.txt"
           python3 tools/ci_record_certificate.py "$OUT/certificate.txt" \
             "$OUT/CERT_FINGERPRINT.json"
@@ -285,6 +292,8 @@ jobs:
         with:
           name: CRAFTIX-Rust-0.7.8-arm64-v8a
           path: .local/android/releases/0.7.8/CRAFTIX-Rust-0.7.8-arm64-v8a.apk
+          if-no-files-found: error
+          retention-days: 90
 
       - name: Remove temporary CRAFTIX keystore
         if: always()
@@ -292,9 +301,8 @@ jobs:
         run: |
           set +e
           rm -f "$RUNNER_TEMP/craftix-release.jks"
-          echo "temporary CRAFTIX keystore removed from the runner" 
-          if-no-files-found: error
-          retention-days: 90
+          echo "temporary CRAFTIX keystore removed from the runner"
+
       - name: Report build log
         if: always()
         env:

@@ -110,6 +110,8 @@ class _AppShellState extends ConsumerState<AppShell> with WidgetsBindingObserver
       s.t('home'), s.t('mods'), s.t('packs'), s.t('installed'), s.t('settings'),
     ];
     return Scaffold(
+      // The keyboard/IME must never resize the shell or shift the bottom nav.
+      resizeToAvoidBottomInset: false,
       body: SafeArea(
         top: false,
         bottom: false,
