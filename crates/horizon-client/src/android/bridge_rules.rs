@@ -61,6 +61,9 @@ pub fn classify_error(message: &str) -> &'static str {
         || m.contains("minecraftservices")
         || m.contains("client id")
         || m.contains("owns")
+        || m.contains("doesn't own")
+        || m.contains("does not own")
+        || m.contains("do not own")
         || m.contains("session ended")
     {
         "auth"
@@ -81,7 +84,13 @@ pub fn auth_stage(message: &str) -> &'static str {
         "xsts"
     } else if m.contains("minecraftservices") || m.contains("minecraft login") {
         "minecraft_services"
-    } else if m.contains("owns") || m.contains("profile") || m.contains("no profile") {
+    } else if m.contains("owns")
+        || m.contains("doesn't own")
+        || m.contains("does not own")
+        || m.contains("do not own")
+        || m.contains("profile")
+        || m.contains("no profile")
+    {
         "entitlement_profile"
     } else if m.contains("keychain") || m.contains("keystore") || m.contains("store") {
         "secure_store"
@@ -188,7 +197,9 @@ mod tests {
         assert_eq!(auth_stage("user.auth.xboxlive.com refused"), "xbox_live");
         assert_eq!(auth_stage("XSTS returned 401"), "xsts");
         assert_eq!(auth_stage("api.minecraftservices.com: 403"), "minecraft_services");
-        assert_eq!(auth_stage("You do not own Minecraft"), "entitlement_profile");
+        assert_eq!(auth_stage("This account doesn't own Minecraft: Java Edition."),
+            "entitlement_profile");
+        assert_eq!(classify_error("This account doesn't own Minecraft: Java Edition."), "auth");
         assert_eq!(auth_stage("refresh token expired"), "token_refresh");
     }
 

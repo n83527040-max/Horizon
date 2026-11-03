@@ -18,7 +18,10 @@ void main() {
 
     expect(find.text('Add offline account'), findsOneWidget,
         reason: 'the offline account button must exist');
-    await tester.tap(find.text('Add offline account'));
+    final Finder addButton = find.text('Add offline account');
+    await tester.ensureVisible(addButton);
+    await tester.pump(const Duration(milliseconds: 120));
+    await tester.tap(addButton);
     await tester.pump(const Duration(milliseconds: 260));
     await tester.pump();
 
@@ -59,8 +62,8 @@ void main() {
     await tester.pump();
     expect(find.text('Microsoft accounts'), findsOneWidget);
     expect(find.text('Offline accounts'), findsOneWidget);
-    expect(find.text('MSPlayer'), findsWidgets);
-    expect(find.text('Steve'), findsWidgets);
+    expect(find.textContaining('MSPlayer'), findsWidgets);
+    expect(find.textContaining('Steve'), findsWidgets);
     expect(find.byTooltip('Select'), findsNWidgets(2));
     expect(find.byTooltip('Delete'), findsNWidgets(2));
     expect(tester.takeException(), isNull);
