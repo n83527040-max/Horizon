@@ -14,9 +14,9 @@ on:
       - 'crates/horizon-client/src/android_main.rs'
       - 'crates/horizon-client/src/android/launcher.rs'
       - 'ci-flutter-apk.trigger'
-    # Documentation-only pushes must not rebuild an 86 MB APK.
-    paths-ignore:
-      - '**/*.md'
+      # Negation inside `paths`: documentation-only pushes must not rebuild
+      # an 86 MB APK (GitHub forbids `paths` + `paths-ignore` together).
+      - '!**/*.md'
   workflow_dispatch:
 
 permissions:
