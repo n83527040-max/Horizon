@@ -6,6 +6,11 @@
 > **[REDESIGN.md](REDESIGN.md)** · صور Portrait لكل الصفحات: `tools/ui-preview/index.html`.
 > الإصدار المبني قابل للتحميل من [Releases](https://github.com/n83527040-max/Horizon/releases/tag/redesign-0.7.6)
 > (الواجهة عمودية بالكامل وتستغل عرض الشاشة).
+>
+> **طلب الانتقال إلى Flutter/Dart:** أُنجز تحليل المشروع كاملاً وجرد كل الوظائف
+> والاعتماديات في **[FLUTTER_MIGRATION_AUDIT.md](FLUTTER_MIGRATION_AUDIT.md)**
+> (فاحص آلي: `tools/verify_flutter_migration_audit.py`). بناء Flutter لم يبدأ
+> قبل حسم تعارضات الهندسة والاتجاه والتحقق الموضحة في القسم 7 من التدقيق.
 
 A native Android port of [Horizon](https://github.com/ludovic111/horizon), the
 Rust engine for Minecraft Java 26.3. Unofficial and in active development.
