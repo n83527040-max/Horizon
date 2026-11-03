@@ -143,6 +143,27 @@ jobs:
             > "$OUT/BUILD_INFO.txt"
           cat "$OUT/MIXED_APK_VERIFICATION.json"
 
+      - name: Publish verification diagnostics
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          OUT=.local/android/releases/mixed-0.7.6
+          {
+            echo "🤖 Mixed APK verification diagnostics $GITHUB_RUN_ID"
+            echo '### packaged entries'
+            echo '```'
+            unzip -l "$OUT/Horizon-Flutter-Rust-0.7.6-arm64-v8a.apk" 2>/dev/null \
+              | grep -E 'lib/|engine-data|flutter_assets' | head -40
+            echo '```'
+            echo '### verification report'
+            echo '```'
+            cat "$OUT/MIXED_APK_VERIFICATION.json" 2>/dev/null || echo 'no report produced'
+            echo '```'
+          } > /tmp/verify-diag.md
+          gh issue comment 1 --body-file /tmp/verify-diag.md
+
       - name: Publish the mixed APK as a GitHub Release asset
         env:
           GH_TOKEN: ${{ github.token }}
