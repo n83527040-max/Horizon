@@ -179,13 +179,13 @@ class _OutlineButton extends StatelessWidget {
           border: Border.all(color: HorizonPalette.border),
           color: HorizonPalette.card,
         ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            Icon(icon, size: 18, color: HorizonPalette.textSecondary),
-            const SizedBox(width: 8),
-            Flexible(child: Text(label, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 14))),
-          ],
+        child: adaptiveIconLabel(
+          text: label,
+          icon: icon,
+          iconSize: 18,
+          iconColor: HorizonPalette.textSecondary,
+          gap: 8,
+          style: const TextStyle(fontSize: 14),
         ),
       ),
     );

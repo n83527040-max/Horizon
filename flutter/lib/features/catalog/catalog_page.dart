@@ -228,13 +228,12 @@ class _SmallAction extends StatelessWidget {
   Widget build(BuildContext context) => HorizonCard(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 11),
         onTap: onTap,
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            Icon(icon, size: 17, color: HorizonPalette.accent),
-            const SizedBox(width: 6),
-            Flexible(child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12))),
-          ],
+        child: adaptiveIconLabel(
+          text: label,
+          icon: icon,
+          iconSize: 17,
+          iconColor: HorizonPalette.accent,
+          style: const TextStyle(fontSize: 12),
         ),
       );
 }

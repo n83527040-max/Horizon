@@ -5,6 +5,43 @@ import '../bridge/models.dart';
 import '../theme/horizon_strings.dart';
 import '../theme/horizon_theme.dart';
 
+/// A label row that only uses [Flexible] when its incoming width is finite.
+/// Rows inside `Wrap`, `EmptyState` or shrink-wrapped columns receive unbounded
+/// width; a flex child there throws "RenderFlex children have non-zero flex but
+/// incoming width constraints are unbounded". This helper shrink-wraps in that
+/// case and ellipsizes when width is bounded, on every screen size.
+Widget adaptiveIconLabel({
+  required String text,
+  required TextStyle style,
+  IconData? icon,
+  Color? iconColor,
+  double iconSize = 18,
+  double gap = 6,
+  int maxLines = 1,
+  MainAxisAlignment alignment = MainAxisAlignment.center,
+  Widget? label,
+}) {
+  return LayoutBuilder(
+    builder: (BuildContext context, BoxConstraints constraints) {
+      final Widget content = label ??
+          Text(text, maxLines: maxLines, overflow: TextOverflow.ellipsis, style: style);
+      final bool bounded = constraints.hasBoundedWidth;
+      return Row(
+        mainAxisSize: bounded ? MainAxisSize.max : MainAxisSize.min,
+        mainAxisAlignment: alignment,
+        children: <Widget>[
+          if (icon != null) Icon(icon, size: iconSize, color: iconColor),
+          if (icon != null) SizedBox(width: gap),
+          if (bounded)
+            Flexible(child: content)
+          else
+            content,
+        ],
+      );
+    },
+  );
+}
+
 /// Rounded, subtly glowing card used by every page.
 class HorizonCard extends StatelessWidget {
   const HorizonCard({
@@ -123,23 +160,18 @@ class GradientButton extends StatelessWidget {
           ],
         ),
         alignment: Alignment.center,
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            if (icon != null) ...<Widget>[Icon(icon, color: Colors.white, size: 20), const SizedBox(width: 8)],
-            Flexible(
-              child: Text(
-                label,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 17,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0.4,
-                ),
-              ),
-            ),
-          ],
+        child: adaptiveIconLabel(
+          text: label,
+          icon: icon,
+          iconColor: Colors.white,
+          iconSize: 20,
+          gap: 8,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 17,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.4,
+          ),
         ),
       ),
     );
@@ -173,22 +205,16 @@ class HorizonChip extends StatelessWidget {
           borderRadius: BorderRadius.circular(HorizonRadii.pill),
           border: Border.all(color: active ? Colors.transparent : HorizonPalette.border),
         ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            if (icon != null) ...<Widget>[Icon(icon, size: 16, color: Colors.white), const SizedBox(width: 6)],
-            Flexible(
-              child: Text(
-                label,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: active ? Colors.white : Theme.of(context).colorScheme.onSurface,
-                  fontWeight: active ? FontWeight.w700 : FontWeight.w500,
-                  fontSize: 13,
-                ),
-              ),
-            ),
-          ],
+        child: adaptiveIconLabel(
+          text: label,
+          icon: icon,
+          iconColor: Colors.white,
+          iconSize: 16,
+          style: TextStyle(
+            color: active ? Colors.white : Theme.of(context).colorScheme.onSurface,
+            fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+            fontSize: 13,
+          ),
         ),
       ),
     );
@@ -240,23 +266,23 @@ class MetricTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: <Widget>[
-        Icon(icon, size: 15, color: HorizonPalette.accent),
-        const SizedBox(width: 6),
-        Flexible(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Text(value, maxLines: 1, overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
-              Text(label, maxLines: 1, overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 10, color: HorizonPalette.textSecondary)),
-            ],
-          ),
-        ),
-      ],
+    return adaptiveIconLabel(
+      text: value,
+      icon: icon,
+      iconSize: 15,
+      iconColor: HorizonPalette.accent,
+      alignment: MainAxisAlignment.start,
+      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+      label: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(value, maxLines: 1, overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+          Text(label, maxLines: 1, overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 10, color: HorizonPalette.textSecondary)),
+        ],
+      ),
     );
   }
 }
