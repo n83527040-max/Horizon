@@ -51,7 +51,7 @@ def main() -> int:
                         and n.endswith((".RSA", ".DSA", ".EC"))]
         report["v1SignerFiles"] = signer_files
         if not signer_files:
-            errors.append("v1 (JAR) signature is missing from the APK")
+            errors.append("v1 (JAR) signature is missing from the APK (OEM installers need it)")
         if len(rust) != 1:
             errors.append(f"expected one libhorizon_android.so, found {rust}")
         if len(flutter) != 1:

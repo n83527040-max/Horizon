@@ -156,6 +156,8 @@ jobs:
           set -euo pipefail
           OUT=.local/android/releases/mixed-0.7.8
           mkdir -p "$OUT"
+          exec > >(tee "$OUT/verify.log") 2>&1
+          mkdir -p "$OUT"
           APK=flutter/build/app/outputs/flutter-apk/app-release.apk
           cp "$APK" "$OUT/CRAFTIX-Flutter-Rust-0.7.8-arm64-v8a.apk"
           BT="$ANDROID_HOME/build-tools/35.0.0"

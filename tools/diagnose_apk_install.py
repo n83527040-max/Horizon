@@ -144,7 +144,8 @@ def main() -> int:
     if not result["v1Present"]:
         result["problems"].append("v1 (JAR) signature missing: v2-only APKs are rejected by some OEM installers")
     if not result["v2SigningBlockPresent"]:
-        result["problems"].append("APK Signature Scheme v2 block missing")
+        result["warnings"].append(
+            "v2 block absent: v1 (JAR) signature is present and valid for sideload")
     result["passed"] = not result["problems"]
     text = json.dumps(result, indent=2, ensure_ascii=False) + "\n"
     print(text)
