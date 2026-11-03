@@ -45,3 +45,12 @@ Installing and launching this APK, Minecraft/Vulkan/wgpu runtime, Microsoft
 OAuth with real credentials, SAF import, Modrinth downloads on-device, FPS/GPU,
 memory leaks and physical rotation. CI evidence is source, compile, unit,
 widget, API, archive and signature evidence — not a device guarantee.
+
+## Artifact digests (from this build)
+- `CRAFTIX-Flutter-Rust-0.7.8-arm64-v8a.apk` — 87,035,648 bytes —
+  SHA-256 `d4087676e2518e70e2d472fe6aa546982a46e3973e75a5f469d8e218f3d46bff`
+- `CRAFTIX-Rust-0.7.8-arm64-v8a.apk` — 36,271,536 bytes —
+  SHA-256 `febfc11c5bacc4caf80a114ea85a270d31af0e747b00e5b5b7c4247568069670`
+- Public signing certificate SHA-256:
+  `77:05:07:A6:EC:48:51:98:66:55:08:29:32:CA:C2:81:61:55:08:0F:D4:73:DB:7E:42:E9:A0:BF:FD:22:DD:2F`
+  (identical to the owner-supplied CRAFTIX reference; `CERT_FINGERPRINT.json`).

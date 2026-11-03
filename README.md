@@ -6,7 +6,10 @@
 > المواصفة: `CRAFTIX_Implementation_Package.zip` · تحليل الهجرة:
 > **[CRAFTIX_MIGRATION_ANALYSIS.md](CRAFTIX_MIGRATION_ANALYSIS.md)** ·
 > بوابة الإصدار: `tools/verify_craftix_release.py`.
-> الإصدار: **[craftix-0.7.8](https://github.com/n83527040-max/Horizon/releases/tag/craftix-0.7.8)**.
+> الإصدار: **[craftix-0.7.8](https://github.com/n83527040-max/Horizon/releases/tag/craftix-0.7.8)**
+> — [`CRAFTIX-Flutter-Rust-0.7.8-arm64-v8a.apk`](https://github.com/n83527040-max/Horizon/releases/download/craftix-0.7.8/CRAFTIX-Flutter-Rust-0.7.8-arm64-v8a.apk)
+> (87,035,648 bytes) و`CRAFTIX-Rust-0.7.8-arm64-v8a.apk`. تقرير الاختبارات:
+> **[CRAFTIX_TEST_REPORT.md](CRAFTIX_TEST_REPORT.md)**.
 > لا توجد ترقية في المكان من تطبيقات HORIZON السابقة (معرّف حزمة ومفتاح مختلفان)؛
 > راجع تحليل الهجرة قبل التثبيت.
 

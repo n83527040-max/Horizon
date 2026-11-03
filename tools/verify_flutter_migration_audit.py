@@ -225,6 +225,11 @@ def main() -> int:
                   "HORIZON 0.7.7 Rust engine APK is published")
             check(current.get("Horizon-Flutter-Rust-0.7.7-arm64-v8a.apk", 0) > 80_000_000,
                   "HORIZON 0.7.7 mixed Flutter + Rust APK is published")
+            craftix = release("craftix-0.7.8")
+            check(craftix.get("CRAFTIX-Rust-0.7.8-arm64-v8a.apk", 0) > 30_000_000,
+                  "CRAFTIX 0.7.8 Rust engine APK is published")
+            check(craftix.get("CRAFTIX-Flutter-Rust-0.7.8-arm64-v8a.apk", 0) > 80_000_000,
+                  "CRAFTIX 0.7.8 mixed Flutter + Rust APK is published")
         except Exception as exc:  # pragma: no cover - network dependent
             check(False, f"live release check failed: {exc}")
 

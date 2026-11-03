@@ -18,7 +18,7 @@
 | 7 | اختبارات/إصلاحات الحسابات | ✅ اختبارات 0.7.7 قائمة + اختبارات جديدة (Microsoft/Offline منفصلان) |
 | 8 | تدقيق الكتالوج/التثبيت | ✅ اختبارات 0.7.7 قائمة + اختبار API حيّ + مصفوفة 49 |
 | 9 | توقيع GitHub Actions بأسرار CRAFTIX | ✅ منفّذ؛ خطوة فكّ المفتاح نجحت في CI |
-| 10 | بناء + اختبارات + تحقق + Release | 🔄 قيد الاكتمال (انظر §5) |
+| 10 | بناء + اختبارات + تحقق + Release | ✅ مكتمل (انظر §5) |
 
 ## 2. ما نُفِّذ فعلياً (ملفات)
 
@@ -79,7 +79,36 @@
 الدوران الفيزيائي، إلغاء التنزيل (لا يملك `install_with_progress` خطاف إلغاء،
 لذلك لا يُعرض زر Cancel)، ونقل بيانات المستخدم بين معرّفي الحزمة.
 
-## 5. الإصدار
+## 5. الإصدار [`craftix-0.7.8`](https://github.com/n83527040-max/Horizon/releases/tag/craftix-0.7.8)
 
-سيُملأ بعد اكتمال الـ workflows: اسم/حجم/SHA-256 لكل APK، بصمة الشهادة العامة،
-ورابط Release. راجع `tools/ci-craftix-078-notes.md` وصفحة الإصدار نفسها.
+| الأصل | الحجم | SHA-256 |
+|---|---|---|
+| `CRAFTIX-Flutter-Rust-0.7.8-arm64-v8a.apk` | 87,035,648 bytes | `d4087676e2518e70e2d472fe6aa546982a46e3973e75a5f469d8e218f3d46bff` |
+| `CRAFTIX-Rust-0.7.8-arm64-v8a.apk` | 36,271,536 bytes | `febfc11c5bacc4caf80a114ea85a270d31af0e747b00e5b5b7c4247568069670` |
+
+- `SHA256SUMS_RUST.txt` و`SHA256SUMS_FLUTTER.txt` منشوران، وتم التحقق من تطابق
+  التنزيل مع الملف المبني داخل CI (`cmp`).
+- **بصمة الشهادة العامة (SHA-256):**
+  `77:05:07:A6:EC:48:51:98:66:55:08:29:32:CA:C2:81:61:55:08:0F:D4:73:DB:7E:42:E9:A0:BF:FD:22:DD:2F`
+  — **مطابقة تماماً** لمرجع المالك في الحزمة (`CERT_FINGERPRINT.json`
+  و`MIXED_CERT_FINGERPRINT.json` كلاهما `matchesOwnerReference: true`).
+  هذا دليل على استخدام نفس مفتاح CRAFTIX Release وليس مفتاحاً جديداً.
+- `MIXED_APK_VERIFICATION.json`: `passed=true`, `errors=[]`،
+  `com.craftix.launcher` / `versionCode=30` / `versionName=0.7.8`،
+  Portrait ثنائي، `:engine` منفصل، `debuggable=false`،
+  توقيع v2 بمُوقّع واحد، وكل من `libhorizon_android.so` و`libflutter.so`
+  و`libapp.so` و`engine-data.zip` وأصول Flutter موجودة.
+- `APK_VERIFICATION.json` و`release-audit.json` و`badging.txt`
+  و`manifest-tree.txt` و`certificate.txt` منشورة للأثر.
+- بوابات الإصدار الخضراء على HEAD `ea7703b5`:
+  `41707815284` (foundation)، `41707815054` (Rust APK)،
+  `41707815327` (mixed APK).
+
+### ملاحظات أمان/بناء صريحة
+- لا ملف `.jks`/`.keystore`/Base64/كلمات مرور داخل المستودع؛ `git ls-files`
+  يثبت ذلك (45/45 في `verify_craftix_release.py`). المفتاح فُكّ إلى
+  `$RUNNER_TEMP/craftix-release.jks` ثم حُذف في خطوة `if: always()`.
+- جداول محرك Minecraft جاءت من مسار `PREPARE=fallback` (جداول الإصدار
+  الرسمي v0.7.6 المولّدة) لأن التحقق الكامل من `26.3.json` أعاد sha1 مختلفاً؛
+  هذا موثّق ولا يُخفى، والـ APK يحتوي `engine-data.zip` الحقيقي.
+- لا يُدعى أي اختبار على جهاز: راجع §4.
