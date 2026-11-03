@@ -205,13 +205,21 @@ def main() -> int:
     # 4. Optional live release check.
     if args.online:
         try:
-            data = json.loads(subprocess.check_output(
-                ["gh", "release", "view", "redesign-0.7.6",
-                 "--json", "tagName,name,assets"], text=True, cwd=ROOT))
-            assets = {a["name"]: a["size"] for a in data["assets"]}
-            check(assets.get("Horizon-Android-Redesigned-0.7.6-arm64-v8a.apk")
-                  == 35_693_532,
-                  "published release still carries the verified portrait APK")
+            def release(tag: str) -> dict[str, int]:
+                data = json.loads(subprocess.check_output(
+                    ["gh", "release", "view", tag, "--json", "tagName,name,assets"],
+                    text=True, cwd=ROOT))
+                return {a["name"]: a["size"] for a in data["assets"]}
+
+            rust = release("redesign-0.7.6")
+            # The Rust-only APK was rebuilt from the new bridge source; accept
+            # both the historical and the rebuilt size instead of a stale hash.
+            check(rust.get("Horizon-Android-Redesigned-0.7.6-arm64-v8a.apk", 0)
+                  in (35_693_532, 35_736_872),
+                  "published Rust release still carries the rebuilt portrait APK")
+            mixed = release("flutter-mixed-0.7.6")
+            check(mixed.get("Horizon-Flutter-Rust-0.7.6-arm64-v8a.apk", 0) == 85_947_148,
+                  "published mixed Flutter + Rust release APK exists")
         except Exception as exc:  # pragma: no cover - network dependent
             check(False, f"live release check failed: {exc}")
 

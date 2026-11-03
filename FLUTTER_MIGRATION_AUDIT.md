@@ -328,9 +328,10 @@ git status                                                    → clean (قبل 
 
 ### 9.4 ما لم يُنجز بعد (بصراحة)
 
-- **المرحلة 13:** APK مختلط Flutter + Rust قيد الإعداد عبر
-  `.github/workflows/flutter-mixed-apk.yml`؛ لا يُعلَن نجاحه قبل اكتمال البناء
-  والتحقق من التوقيع والمانيفست والمكتبات.
+- **المرحلة 13:** APK مختلط Flutter + Rust بُني في run `41651722140` ونُشر على
+  [flutter-mixed-0.7.6](https://github.com/n83527040-max/Horizon/releases/tag/flutter-mixed-0.7.6)
+  مع `MIXED_APK_VERIFICATION.json` (`passed=true`). هذا إثبات أرشيفي/توقيعي/مانيفست
+  فقط، **وليس إثبات تثبيت أو تشغيل على جهاز**.
 - **اختبارات الجهاز:** لم تُجرَ إطلاقاً (تثبيت/تشغيل APK، Minecraft، Vulkan،
   Microsoft، SAF، Modrinth، FPS/GPU، Memory Leaks، الدوران الفيزيائي).
 - **الخيارات الجديدة:** Theme وLanguage وStorage وCache وAbout موصولة بقيم/عمليات
@@ -367,3 +368,27 @@ git status                                                    → clean (قبل 
 - **ما لم يُختبر:** أي تشغيل على جهاز/AVD، Vulkan، تسجيل دخول Microsoft،
   SAF، تثبيت مود، FPS، Memory Leaks، وأي APK مختلط. لا توجد صور شاشة Flutter
   من جهاز حقيقي لأن بيئة العمل لا تملك Flutter SDK ولا جهازاً.
+
+
+---
+
+## 11. نتيجة المرحلتين 9 و13 (بعد التنفيذ)
+
+| البند | النتيجة |
+|---|---|
+| تحليل التأثير قبل تعديل Rust | `FLUTTER_NATIVE_BRIDGE_ANALYSIS.md` |
+| الجسر | 6 رموز JNI/C ABI، 49/49 إجراءً بمنفّذ حقيقي، صفر `enginePending` |
+| حماية المحرك | 0 ملف معدَّل في `game/` أو wgpu أو Vulkan أو `launcher/src/` أو `packaging/android/java/` أو مخطط الإعدادات |
+| اللعبة | `Play` → `:engine` → `Launcher::action()` الأصلي؛ لا منطق لعبة جديد |
+| الحسابات | `SignIn` / `Accounts` / Android Keystore الأصلية |
+| الملفات | SAF → `ContentResolver` → `content_files::validate` الأصلية |
+| `flutter analyze` / `flutter test` | بلا أخطاء / 28 من 28 (run `41644462677`) |
+| `cargo check` + `clippy -D warnings` | نجحا لهدف Android (run `41644462684`) |
+| APK مختلط | 85,947,148 bytes، SHA-256 `73f8de83a7a1b6ab9669390780f92dff6a9676eaa792310653d0404ed666af70` |
+| محتوى APK | `libhorizon_android.so` + `libflutter.so` + `libapp.so` + `engine-data.zip` + أصول Flutter |
+| المانيفست الثنائي | Portrait للمشغّل، `:engine` منفصل، `lib_name`، `debuggable=false` |
+| التوقيع | v2 صحيح، مُوقّع واحد |
+
+**لم يُختبر على جهاز/AVD:** التثبيت، الإقلاع، Minecraft/Vulkan، Microsoft، SAF،
+Modrinth، FPS/GPU، تسريب الذاكرة، الدوران الفيزيائي. لذلك لا يُقال «التطبيق يعمل»
+أو «لا يوجد انحدار»؛ المتاح هو دليل مصدري/ترجمي/أرشيفي فقط.

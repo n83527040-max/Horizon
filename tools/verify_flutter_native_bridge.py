@@ -242,7 +242,15 @@ def main() -> int:
             "  تطابق رموز JNI مع Kotlin، تسليم Play إلى `Launcher::action`،",
             "  عملية `:engine` منفصلة، إيقاف ثريد Rust في `onDestroy`،",
             "  وعدم تعديل ملفات المحرك/الحسابات/الملفات المحمية.",
-            "- `flutter analyze` و`flutter test` في CI؛ `cargo check`/`clippy` لهدف Android في CI.",
+            "- run `41644462677` (أخضر): `flutter analyze` بلا أخطاء، 28/28 اختبار،",
+            "  34/34 تدقيق، 18/18 أساس، 25/25 جسر، 35/35 اختبار Android قديم.",
+            "- run `41644462684` (أخضر): `cargo check` و`clippy -D warnings`",
+            "  لهدف `aarch64-linux-android`، ثم بناء APK Rust مُوقّع.",
+            "- run `41651722140` (أخضر): بناء APK مختلط + `MIXED_APK_VERIFICATION.json`",
+            "  بـ `passed=true` (مانيفست ثنائي، مكتبتان، أصول، توقيع v2، مُوقّع واحد).",
+            "- الإصدار: https://github.com/n83527040-max/Horizon/releases/tag/flutter-mixed-0.7.6",
+            "- `Horizon-Flutter-Rust-0.7.6-arm64-v8a.apk` — 85,947,148 bytes —",
+            "  SHA-256 `73f8de83a7a1b6ab9669390780f92dff6a9676eaa792310653d0404ed666af70`.",
             "",
             "## غير مُختبر على جهاز حقيقي (صريح)",
             "- تشغيل Minecraft وVulkan/wgpu وسطح الرسم بعد تسليم Play.",
@@ -250,7 +258,7 @@ def main() -> int:
             "- منتقي SAF ونسخ المجلدات/الملفات على جهاز.",
             "- تنزيل Modrinth وتثبيت المودات/الحزم/الشيدرات فعلياً.",
             "- FPS/GPU/الذاكرة وتسريب الذاكرة والدوران الفيزيائي.",
-            "- APK مختلط قابل للتثبيت والتشغيل (المرحلة 13).",
+            "- تثبيت وتشغيل APK المختلط فعلياً؛ التحقق أرشيفي/توقيعي فقط.",
         ]
         EVIDENCE.write_text("\n".join(lines) + "\n", encoding="utf-8")
         print(f"wrote {EVIDENCE.relative_to(ROOT)}")

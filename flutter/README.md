@@ -38,19 +38,25 @@ numbers exist in production Dart.
 
 ## Honest status
 
-- **Completed and CI-gated (run 41571959078, all steps green):** phases 3
-  (Flutter architecture) and 4 (design system), plus all-page layouts,
-  navigation, and the typed bridge contract. `flutter analyze` = No issues;
-  23/23 Flutter tests pass, including no-overflow checks on 360x720, 360x800,
+- **Phases 3–4, CI-gated (run 41644462677):** `flutter analyze` = No issues;
+  28/28 Flutter tests pass, including no-overflow checks on 360x720, 360x800,
   393x873, 412x915, 480x960, 800x1280 and 960x540.
-- **Not yet bridged:** engine-domain actions (Modrinth/Horizon search, install,
-  account sign-in, enable/disable, diagnostics, game play). The Kotlin
-  dispatcher returns an explicit, visible failure for those — never fake success.
-  That is phase 9.
-- **Not yet built:** the combined Flutter + `libhorizon_android.so` Release APK
-  and on-device validation. That is phase 13. This tree has no APK.
-- **Device checks** (Minecraft launch, Microsoft sign-in, SAF import, memory,
-  FPS) have **not** been run: no AVD/device is available in this environment.
+- **Phase 9 implemented (run 41644462677 + 41644462684):** real JNI/C ABI bridge
+  `crates/horizon-client/src/android/flutter_bridge.rs` + `HorizonEngine.kt`
+  covers all 49 actions through the original `Catalog`, `Config`, `Accounts`,
+  `SignIn`, `diagnostics`, `performance` and `content_files::validate`. `Play`
+  hands off to the untouched `Launcher::action` in a separate `:engine` process.
+  No `enginePending`, no fake success. See `FLUTTER_NATIVE_BRIDGE_ANALYSIS.md`
+  and `FLUTTER_BRIDGE_EVIDENCE.md`.
+- **Phase 13 built in CI (run 41651722140):** signed mixed APK at
+  https://github.com/n83527040-max/Horizon/releases/tag/flutter-mixed-0.7.6
+  (85,947,148 bytes) with `libhorizon_android.so`, `libflutter.so`, `libapp.so`,
+  `engine-data.zip`, Flutter assets, portrait binary manifest, `:engine`
+  process and v2 signature. `MIXED_APK_VERIFICATION.json` reports `passed=true`.
+- **NOT device-tested:** installing/launching that APK, Minecraft/Vulkan,
+  Microsoft sign-in, SAF import, Modrinth downloads, FPS/GPU, memory leaks and
+  physical rotation. CI checked source, compile, contracts, layout, archive,
+  manifest and signature — not runtime.
 
 ## Verify locally (no Flutter SDK needed)
 
