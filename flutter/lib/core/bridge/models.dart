@@ -204,7 +204,9 @@ class CatalogProject {
   final String? pageUrl;
   final int index;
 
-  factory CatalogProject.fromJson(Map<Object?, Object?> raw) => CatalogProject(
+  factory CatalogProject.fromJson(Map<Object?, Object?> raw) {
+    List<Object?> list(Object? value) => value is List<Object?> ? value : const <Object?>[];
+    return CatalogProject(
         title: raw['title'] is String ? raw['title']! as String : '',
         description: raw['description'] is String ? raw['description']! as String : null,
         version: raw['version'] is String ? raw['version']! as String : null,
@@ -219,7 +221,8 @@ class CatalogProject {
         projectId: raw['projectId'] is String ? raw['projectId']! as String : null,
         pageUrl: raw['pageUrl'] is String ? raw['pageUrl']! as String : null,
         index: raw['index'] is num ? (raw['index']! as num).toInt() : 0,
-      );
+    );
+  }
 }
 
 class BridgeResult {

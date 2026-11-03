@@ -5,6 +5,7 @@ import '../../core/bridge/actions.dart';
 import '../../core/bridge/models.dart';
 import '../../core/state/providers.dart';
 import '../../core/theme/horizon_strings.dart';
+import '../../core/theme/horizon_motion.dart';
 import '../../core/theme/horizon_theme.dart';
 import '../../core/widgets/horizon_widgets.dart';
 import '../dialogs/dialogs.dart';

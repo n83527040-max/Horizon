@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../widgets/horizon_widgets.dart';
 import 'horizon_theme.dart';
 
 /// Premium motion that stays cheap: short, finite, GPU-friendly opacity/offset

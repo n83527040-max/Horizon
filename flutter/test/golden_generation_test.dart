@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:horizon_launcher/core/theme/horizon_motion.dart';
 import 'package:horizon_launcher/core/theme/horizon_theme.dart';
+import 'package:horizon_launcher/core/widgets/horizon_widgets.dart';
 
 /// Pixel golden GENERATION. Run in CI with:
 ///   flutter test --dart-define=GENERATE_GOLDENS=true --update-goldens \
