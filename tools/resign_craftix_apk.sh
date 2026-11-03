@@ -32,6 +32,8 @@ SIGNER=("$JAVA_DIR/bin/java" -jar "$BT/lib/apksigner.jar")
 # 21 forces the v1 (JAR) signature that OEM installers require. apksigner
 # applies v2 as well when possible; v1 alone is still a valid sideload
 # signature on every Android version, so a missing v2 is a warning only.
+python3 "$(dirname "$0")/check_apk_signature_schemes.py" "$APK"
+
 V21="$("${SIGNER[@]}" verify --verbose --min-sdk-version 21 "$APK" 2>&1)" || {
   printf '%s\n' "$V21" >&2
   echo "ERROR: CRAFTIX APK does not verify at minSdk 21" >&2

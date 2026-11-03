@@ -19,6 +19,8 @@ import sys
 import zipfile
 from pathlib import Path
 
+APK_SIG_BLOCK_MAGIC = b"APK Sig Block 42"
+
 
 def run(command: list[str]) -> str:
     return subprocess.check_output(command, text=True, stderr=subprocess.STDOUT)
@@ -36,6 +38,7 @@ def main() -> int:
     report: dict[str, object] = {"apk": str(args.apk), "bytes": args.apk.stat().st_size}
     errors: list[str] = []
 
+    raw = args.apk.read_bytes()
     with zipfile.ZipFile(args.apk) as archive:
         names = archive.namelist()
         report["entries"] = len(names)
@@ -52,6 +55,9 @@ def main() -> int:
         report["v1SignerFiles"] = signer_files
         if not signer_files:
             errors.append("v1 (JAR) signature is missing from the APK (OEM installers need it)")
+        report["v2SigningBlockPresent"] = APK_SIG_BLOCK_MAGIC in raw
+        if not report["v2SigningBlockPresent"]:
+            errors.append("APK Signature Scheme v2 block is missing (required for targetSdk >= 30)")
         if len(rust) != 1:
             errors.append(f"expected one libhorizon_android.so, found {rust}")
         if len(flutter) != 1:
@@ -92,12 +98,12 @@ def main() -> int:
 
     signature = run([*shlex.split(args.apksigner), "verify", "--verbose",
                      "--print-certs", str(args.apk)])
-    report["signature_v1"] = "Verified using v1 scheme (JAR signing): true" in signature
-    report["signature_v2"] = "Verified using v2 scheme (APK Signature Scheme v2): true" in signature
+    report["signature_v1"] = bool(report.get("v1SignerFiles"))
+    report["signature_v2"] = bool(report.get("v2SigningBlockPresent"))
     report["signer_count"] = re.search(r"Number of signers: (\d+)", signature).group(1) \
         if re.search(r"Number of signers: (\d+)", signature) else "0"
-    if not (report["signature_v1"] or report["signature_v2"]):
-        errors.append("APK has no valid v1/v2 signature")
+    if not (report["signature_v1"] and report["signature_v2"]):
+        errors.append("APK must carry BOTH v1 (JAR) and v2 signatures")
     if report["signer_count"] != "1":
         errors.append(f"unexpected signer count: {report['signer_count']}")
 

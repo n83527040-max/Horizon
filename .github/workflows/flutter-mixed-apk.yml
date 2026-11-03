@@ -210,6 +210,18 @@ jobs:
             echo '```'
             cat "$OUT/MIXED_CERT_FINGERPRINT.json" 2>/dev/null || echo 'no fingerprint report'
             echo '```'
+            echo '### apksigner output'
+            echo '```'
+            cat "$OUT/MIXED_signature.txt" 2>/dev/null || echo 'no signature report'
+            echo '```'
+            echo '### install diagnostics'
+            echo '```'
+            cat "$OUT/MIXED_INSTALL_DIAGNOSTICS.json" 2>/dev/null || echo 'no install diagnostics'
+            echo '```'
+            echo '### verify step log'
+            echo '```'
+            tail -c 12000 "$OUT/verify.log" 2>/dev/null || echo 'no verify log'
+            echo '```'
           } > /tmp/verify-diag.md
           gh issue comment 1 --body-file /tmp/verify-diag.md
 
