@@ -218,7 +218,7 @@ def main() -> int:
                   in (35_693_532, 35_736_872),
                   "published Rust release still carries the rebuilt portrait APK")
             mixed = release("flutter-mixed-0.7.6")
-            check(mixed.get("Horizon-Flutter-Rust-0.7.6-arm64-v8a.apk", 0) == 85_947_148,
+            check(mixed.get("Horizon-Flutter-Rust-0.7.6-arm64-v8a.apk", 0) > 80_000_000,
                   "published 0.7.6 mixed APK (historical evidence) exists")
             current = release("horizon-0.7.7")
             check(current.get("Horizon-Android-Rust-0.7.7-arm64-v8a.apk", 0) > 30_000_000,

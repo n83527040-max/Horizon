@@ -387,6 +387,9 @@ git status                                                    → clean (قبل 
 | `cargo check` + `clippy -D warnings` | نجحا لهدف Android (run `41644462684`) |
 | APK مختلط 0.7.6 (تاريخي) | 85,947,148 bytes، SHA-256 `491a5ae4115a76dc97be1caa8155ef5dcc2eab1a6f91254017624e2e3938467f` |
 | إصدار 0.7.7 | Version Code 29، نفس التوقيع، `SHA256SUMS_RUST.txt` + `SHA256SUMS_FLUTTER.txt` |
+| APK Rust 0.7.7 | 35,754,228 bytes، SHA-256 `58c3ec9c92d144c8d65ed2d0dca9e9f7f49ec3a7148b4732ef9ee31c89004828` |
+| APK مختلط 0.7.7 | 86,503,412 bytes، SHA-256 `4e32931b324a905bface8d81908706279a8f7da9d5bc44363e2a46b754d56e64` |
+| بوابات 0.7.7 | `41667665157` / `41667665339` / `41671215363` و`41671214779` كلها خضراء |
 | محتوى APK | `libhorizon_android.so` + `libflutter.so` + `libapp.so` + `engine-data.zip` + أصول Flutter |
 | المانيفست الثنائي | Portrait للمشغّل، `:engine` منفصل، `lib_name`، `debuggable=false` |
 | التوقيع | v2 صحيح، مُوقّع واحد |

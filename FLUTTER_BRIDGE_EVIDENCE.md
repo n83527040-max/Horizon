@@ -67,8 +67,15 @@
 - run `41665698252` (أخضر): `flutter analyze` نظيف، 42/42 اختبار Flutter،
   6/6 اختبارات Rust نقية، 24/24 فحص API حيّ Modrinth/Horizon،
   25/25 عقد جسر، توليد golden baselines.
+- run `41667665339` (أخضر): Rust 0.7.7 — `cargo check` و`clippy -D warnings`
+  ثم APK Rust مُوقّع مُنشور. run `41671215363` (أخضر): APK مختلط مُوقّع.
 - الإصدار 0.7.7: https://github.com/n83527040-max/Horizon/releases/tag/horizon-0.7.7
-  مع `SHA256SUMS_RUST.txt` و`SHA256SUMS_FLUTTER.txt` و`MIXED_APK_VERIFICATION.json`.
+  Version Code 29، نفس التوقيع، `SHA256SUMS_RUST.txt` و`SHA256SUMS_FLUTTER.txt`،
+  `APK_VERIFICATION.json` و`MIXED_APK_VERIFICATION.json` (`passed=true`).
+- `Horizon-Android-Rust-0.7.7-arm64-v8a.apk` — 35,754,228 bytes —
+  SHA-256 `58c3ec9c92d144c8d65ed2d0dca9e9f7f49ec3a7148b4732ef9ee31c89004828`.
+- `Horizon-Flutter-Rust-0.7.7-arm64-v8a.apk` — 86,503,412 bytes —
+  SHA-256 `4e32931b324a905bface8d81908706279a8f7da9d5bc44363e2a46b754d56e64`.
 
 ## غير مُختبر على جهاز حقيقي (صريح)
 - تشغيل Minecraft وVulkan/wgpu وسطح الرسم بعد تسليم Play.
