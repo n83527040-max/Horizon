@@ -64,11 +64,11 @@
   34/34 تدقيق، 18/18 أساس، 25/25 جسر، 35/35 اختبار Android قديم.
 - run `41644462684` (أخضر): `cargo check` و`clippy -D warnings`
   لهدف `aarch64-linux-android`، ثم بناء APK Rust مُوقّع.
-- run `41651722140` (أخضر): بناء APK مختلط + `MIXED_APK_VERIFICATION.json`
+- run `41653704923` (أخضر): بناء APK مختلط + `MIXED_APK_VERIFICATION.json`
   بـ `passed=true` (مانيفست ثنائي، مكتبتان، أصول، توقيع v2، مُوقّع واحد).
 - الإصدار: https://github.com/n83527040-max/Horizon/releases/tag/flutter-mixed-0.7.6
 - `Horizon-Flutter-Rust-0.7.6-arm64-v8a.apk` — 85,947,148 bytes —
-  SHA-256 `73f8de83a7a1b6ab9669390780f92dff6a9676eaa792310653d0404ed666af70`.
+  SHA-256 `491a5ae4115a76dc97be1caa8155ef5dcc2eab1a6f91254017624e2e3938467f`.
 
 ## غير مُختبر على جهاز حقيقي (صريح)
 - تشغيل Minecraft وVulkan/wgpu وسطح الرسم بعد تسليم Play.

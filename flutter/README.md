@@ -48,7 +48,7 @@ numbers exist in production Dart.
   hands off to the untouched `Launcher::action` in a separate `:engine` process.
   No `enginePending`, no fake success. See `FLUTTER_NATIVE_BRIDGE_ANALYSIS.md`
   and `FLUTTER_BRIDGE_EVIDENCE.md`.
-- **Phase 13 built in CI (run 41651722140):** signed mixed APK at
+- **Phase 13 built in CI (run 41653704923):** signed mixed APK at
   https://github.com/n83527040-max/Horizon/releases/tag/flutter-mixed-0.7.6
   (85,947,148 bytes) with `libhorizon_android.so`, `libflutter.so`, `libapp.so`,
   `engine-data.zip`, Flutter assets, portrait binary manifest, `:engine`

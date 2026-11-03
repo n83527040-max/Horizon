@@ -328,7 +328,7 @@ git status                                                    → clean (قبل 
 
 ### 9.4 ما لم يُنجز بعد (بصراحة)
 
-- **المرحلة 13:** APK مختلط Flutter + Rust بُني في run `41651722140` ونُشر على
+- **المرحلة 13:** APK مختلط Flutter + Rust بُني في run `41653704923` ونُشر على
   [flutter-mixed-0.7.6](https://github.com/n83527040-max/Horizon/releases/tag/flutter-mixed-0.7.6)
   مع `MIXED_APK_VERIFICATION.json` (`passed=true`). هذا إثبات أرشيفي/توقيعي/مانيفست
   فقط، **وليس إثبات تثبيت أو تشغيل على جهاز**.
@@ -384,7 +384,7 @@ git status                                                    → clean (قبل 
 | الملفات | SAF → `ContentResolver` → `content_files::validate` الأصلية |
 | `flutter analyze` / `flutter test` | بلا أخطاء / 28 من 28 (run `41644462677`) |
 | `cargo check` + `clippy -D warnings` | نجحا لهدف Android (run `41644462684`) |
-| APK مختلط | 85,947,148 bytes، SHA-256 `73f8de83a7a1b6ab9669390780f92dff6a9676eaa792310653d0404ed666af70` |
+| APK مختلط | 85,947,148 bytes، SHA-256 `491a5ae4115a76dc97be1caa8155ef5dcc2eab1a6f91254017624e2e3938467f` |
 | محتوى APK | `libhorizon_android.so` + `libflutter.so` + `libapp.so` + `engine-data.zip` + أصول Flutter |
 | المانيفست الثنائي | Portrait للمشغّل، `:engine` منفصل، `lib_name`، `debuggable=false` |
 | التوقيع | v2 صحيح، مُوقّع واحد |
