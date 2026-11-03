@@ -7,7 +7,6 @@ import '../../core/state/providers.dart';
 import '../../core/theme/horizon_strings.dart';
 import '../../core/theme/horizon_theme.dart';
 import '../../core/widgets/horizon_widgets.dart';
-import '../dialogs/dialogs.dart';
 
 class SettingsPage extends ConsumerWidget {
   const SettingsPage({super.key});

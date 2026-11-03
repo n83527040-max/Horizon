@@ -1,3 +1,5 @@
+import 'dart:ui' show Locale;
+
 /// A small, real localization catalog for the launcher's own labels.
 /// Language is a persisted, applied setting (en/ar), not a decorative switch.
 class HorizonStrings {

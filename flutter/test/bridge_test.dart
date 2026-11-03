@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:horizon_launcher/core/bridge/actions.dart';
@@ -5,23 +7,29 @@ import 'package:horizon_launcher/core/bridge/launcher_bridge.dart';
 import 'package:horizon_launcher/core/bridge/models.dart';
 
 void main() {
-    final TestWidgetsFlutterBinding binding = TestWidgetsFlutterBinding.ensureInitialized();
+  final TestWidgetsFlutterBinding binding = TestWidgetsFlutterBinding.ensureInitialized();
 
   test('MethodChannel bridge sends the exact native action name', () async {
+    const StandardMethodCodec codec = StandardMethodCodec();
+    const String channel = 'dev.horizon.android/bridge';
     final List<MethodCall> calls = <MethodCall>[];
-    binding.defaultBinaryMessenger
-        .setMockMethodChannelHandler('dev.horizon.android/bridge', (MethodCall call) async {
+
+    binding.defaultBinaryMessenger.setMockMessageHandler(channel, (ByteData? message) async {
+      final MethodCall call = codec.decodeMethodCall(message);
       calls.add(call);
       if (call.method == 'snapshot') {
-        return <String, Object?>{
+        return codec.encodeSuccessEnvelope(<String, Object?>{
           'appVersion': '0.7.6',
           'gameVersion': '26.3',
           'installed': <Object?>[],
           'results': <Object?>[],
-        };
+        });
       }
-      return <String, Object?>{'ok': true, 'message': 'Applied', 'changed': true};
+      return codec.encodeSuccessEnvelope(<String, Object?>{
+        'ok': true, 'message': 'Applied', 'changed': true,
+      });
     });
+    addTearDown(() => binding.defaultBinaryMessenger.setMockMessageHandler(channel, null));
 
     const LauncherBridge bridge = MethodChannelLauncherBridge();
     final LauncherSnapshot snapshot = await bridge.snapshot();

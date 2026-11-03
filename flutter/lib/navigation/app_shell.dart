@@ -62,7 +62,6 @@ class _AppShellState extends ConsumerState<AppShell> with WidgetsBindingObserver
   Widget build(BuildContext context) {
     final int index = ref.watch(navIndexProvider);
     final HorizonStrings s = ref.watch(stringsProvider);
-    final HorizonMetrics m = HorizonMetrics.of(context);
     final List<String> labels = <String>[
       s.t('home'), s.t('mods'), s.t('packs'), s.t('installed'), s.t('settings'),
     ];

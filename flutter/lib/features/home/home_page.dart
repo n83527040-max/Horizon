@@ -38,7 +38,7 @@ class HomePage extends ConsumerWidget {
             const SizedBox(height: 14),
             Row(
               children: <Widget>[
-                Expanded(child: _InfoCard(label: s.t('version'), value: d.gameVersion, icon: Icons.cube_rounded, onTap: () {})),
+                Expanded(child: _InfoCard(label: s.t('version'), value: d.gameVersion, icon: Icons.extension_rounded, onTap: () {})),
                 const SizedBox(width: 12),
                 Expanded(
                   child: _InfoCard(
