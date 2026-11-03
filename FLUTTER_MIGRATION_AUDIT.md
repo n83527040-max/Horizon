@@ -304,21 +304,41 @@ git status                                                    → clean (قبل 
   التدقيق + اختبارات Android الحالية + `flutter pub get` + `flutter analyze` +
   `flutter test` على 7 أحجام شاشة.
 
-### 9.3 ما لم يُنجز بعد (بصراحة)
+### 9.3 المرحلة 9 — الجسر الأصلي (مُنفَّذ ومُختبَر في CI، لكن ليس على جهاز)
 
-- **المرحلة 9 (ربط منطق المحرك):** 41 إجراءً من أصل 49 ما زالت تُعيد فشلاً صريحاً
-  في `HorizonBridge.kt`؛ لم تُبنَ بعد طبقة C ABI/JNI القابلة للاستدعاء دون
-  `winit::EventLoop` و`AndroidApp`. لا يوجد أي ادعاء بأن هذه الأزرار «تعمل».
-- **إطلاق اللعبة:** `Action::Play` يفتح `HorizonActivity` بعلم
-  `horizon.launch_game=true`، لكن `android_main.rs` لم يضِف بعد مسار تخطّي واجهة
-  Rust عند وجود هذا العلم. هذا تغيير طبقة الاستضافة الذي وافقت عليه، ولم يُنفَّذ.
-- **APK مختلط:** لا يوجد APK جديد؛ تغليف Gradle مع `libhorizon_android.so` هو المرحلة 13.
-- **اختبارات الجهاز:** لم تُجرَ (Minecraft، Microsoft، SAF، Modes، FPS،
-  Memory Leaks). أي إعلان اكتمال سيقتصر على ما اجتازه CI فعلياً.
+- **تحليل التأثير أولاً:** `FLUTTER_NATIVE_BRIDGE_ANALYSIS.md` يوثّق قبل أي تعديل
+  أن `winit` يملك `EventLoop` واحداً، وأن `android_main` ينهي العملية، وأن
+  `platform::with_context` يعتمد على `APP`. القرار: **JNI/C ABI** للعمليات عديمة
+  النافذة + **عملية `:engine` منفصلة** للعبة. لا تغيير في `game/` أو wgpu أو
+  Vulkan أو `launcher/src/` أو مخطط الملفات أو `packaging/android/java/`.
+- `crates/horizon-client/src/android/flutter_bridge.rs` — ستة رموز
+  `Java_dev_horizon_android_HorizonEngine_*` تعيد استخدام `Catalog`, `Config`,
+  `Accounts`, `SignIn`, `diagnostics`, `performance`,
+  `content_files::validate` الحقيقية. كل الـ 49 إجراءً لها منفّذ فعلي؛
+  **لا وجود لـ `enginePending` أو نجاح مُفتعل**.
+- `android_main.rs` يقرأ علم `horizon.launch_game` فقط، و`launcher.rs` يستدعي
+  `self.action(events)` الموجود أصلاً (حقل `auto_play` إضافي فقط).
+- `HorizonEngine.kt` / `HorizonBridge.kt` / `MainActivity.kt` — SAF حقيقي عبر
+  `ContentResolver`، فتح روابط/حافظة حقيقية، إيقاف ثريد Rust في `onDestroy`،
+  وحالات تحميل/إلغاء/خطأ واضحة.
+- مصفوفة الإثبات لكل إجراء: `FLUTTER_BRIDGE_EVIDENCE.md`، والفاحص
+  `tools/verify_flutter_native_bridge.py` (25/25).
+- دليل CI: run `41644462677` أخضر، وrun `41644462684` نجح في
+  `cargo check` و`clippy -D warnings` لهدف Android.
+
+### 9.4 ما لم يُنجز بعد (بصراحة)
+
+- **المرحلة 13:** APK مختلط Flutter + Rust قيد الإعداد عبر
+  `.github/workflows/flutter-mixed-apk.yml`؛ لا يُعلَن نجاحه قبل اكتمال البناء
+  والتحقق من التوقيع والمانيفست والمكتبات.
+- **اختبارات الجهاز:** لم تُجرَ إطلاقاً (تثبيت/تشغيل APK، Minecraft، Vulkan،
+  Microsoft، SAF، Modrinth، FPS/GPU، Memory Leaks، الدوران الفيزيائي).
 - **الخيارات الجديدة:** Theme وLanguage وStorage وCache وAbout موصولة بقيم/عمليات
-  حقيقية؛ «صورة اللاعب» تبقى مخفية لأن المضيف لا يوفّر جلداً حقيقياً بعد،
-  و«إدارة إصدارات Minecraft» لم تُضف لأنها تتطلب تغييراً في المحرك يحتاج موافقة
-  إضافية (كما نُصّ في خيارك).
+  حقيقية؛ «صورة اللاعب» مخفية لأن المضيف لا يوفّر جلداً حقيقياً؛
+  «إدارة إصدارات Minecraft» لم تُضف لأنها تتطلب تغييراً في المحرك.
+- **حد الإلغاء:** إلغاء تسجيل الدخول والبحث حقيقي (`SignIn::cancel()` و
+  `cancel_interest`)؛ التنزيلات الجارية لا يوقفها واجهة `Catalog` الأصلية،
+  ولذلك لا يُدعى أنها أُلغيت.
 
 
 ---

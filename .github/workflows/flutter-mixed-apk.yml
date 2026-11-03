@@ -1,0 +1,174 @@
+# Phase 13: one signed APK containing Flutter (Dart/Kotlin) AND the real Rust
+# engine. The Rust payload is extracted from the already verified, signed
+# `redesign-0.7.6` release APK built from this exact source tree.
+name: Flutter + Rust mixed release APK
+on:
+  push:
+    branches: [arena/92db30ff-horizon]
+    paths:
+      - '.github/workflows/flutter-mixed-apk.yml'
+      - 'tools/prepare_mixed_flutter.py'
+      - 'tools/verify_mixed_apk.py'
+      - 'flutter/**'
+      - 'crates/horizon-client/src/android/flutter_bridge.rs'
+      - 'crates/horizon-client/src/android_main.rs'
+      - 'crates/horizon-client/src/android/launcher.rs'
+      - 'ci-flutter-apk.trigger'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+  actions: read
+
+concurrency:
+  group: horizon-flutter-mixed-apk
+  cancel-in-progress: true
+
+env:
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Pin the Android SDK
+        run: bash tools/ci_android_setup.sh 2>&1 | tee /tmp/mixed-setup.txt
+
+      - name: Source and contract checks
+        run: |
+          set -o pipefail
+          {
+            flutter --version
+            python3 tools/verify_flutter_foundation.py
+            python3 tools/verify_flutter_native_bridge.py --write-evidence
+            python3 -m unittest discover -s tests -p 'test_android*.py'
+            git diff --check
+          } 2>&1 | tee /tmp/mixed-contracts.txt
+
+      - name: Flutter analyze and test
+        working-directory: flutter
+        run: |
+          set -o pipefail
+          flutter pub get 2>&1 | tee /tmp/mixed-pubget.txt
+          flutter analyze --no-fatal-infos 2>&1 | tee /tmp/mixed-analyze.txt
+          flutter test --reporter expanded 2>&1 | tee /tmp/mixed-test.txt
+
+      - name: Extract the real Rust payload from the verified release APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p .local/android/gradle-jni/arm64-v8a .local/android/gradle-assets
+          gh release download redesign-0.7.6 \
+            --pattern 'Horizon-Android-Redesigned-0.7.6-arm64-v8a.apk' \
+            --dir /tmp/rust-apk --clobber
+          python3 - <<'PY'
+          import zipfile, pathlib
+          apk = next(pathlib.Path('/tmp/rust-apk').glob('*.apk'))
+          root = pathlib.Path('/home/runner/work/Horizon/Horizon')
+          with zipfile.ZipFile(apk) as z:
+              so = next(n for n in z.namelist() if n.endswith('libhorizon_android.so'))
+              engine = next(n for n in z.namelist() if n.endswith('engine-data.zip'))
+              (root / '.local/android/gradle-jni/arm64-v8a/libhorizon_android.so').write_bytes(z.read(so))
+              (root / '.local/android/gradle-assets/engine-data.zip').write_bytes(z.read(engine))
+              print('rust .so:', so, len(z.read(so)))
+              print('engine data:', engine, len(z.read(engine)))
+          PY
+          sha256sum .local/android/gradle-jni/arm64-v8a/libhorizon_android.so \
+                    .local/android/gradle-assets/engine-data.zip
+          # Prove this is the rebuilt binary with the real JNI bridge, not the
+          # older Rust-only launcher that had no C ABI exports.
+          grep -a -c 'Java_dev_horizon_android_HorizonEngine_nativeDispatch' \
+            .local/android/gradle-jni/arm64-v8a/libhorizon_android.so
+
+      - name: Generate Flutter Android scaffolding and stage the Rust payload
+        run: python3 tools/prepare_mixed_flutter.py 2>&1 | tee /tmp/mixed-stage.txt
+
+      - name: Build the mixed release APK
+        working-directory: flutter
+        run: |
+          set -o pipefail
+          flutter build apk --release --target-platform android-arm64 2>&1 | tee /tmp/mixed-build.txt
+          ls -lh build/app/outputs/flutter-apk/
+
+      - name: Verify the mixed APK (manifest, libraries, signature)
+        run: |
+          set -euo pipefail
+          OUT=.local/android/releases/mixed-0.7.6
+          mkdir -p "$OUT"
+          APK=flutter/build/app/outputs/flutter-apk/app-release.apk
+          cp "$APK" "$OUT/Horizon-Flutter-Rust-0.7.6-arm64-v8a.apk"
+          BT="$ANDROID_HOME/build-tools/35.0.0"
+          JAVA="$JAVA_HOME/bin/java"
+          "$BT/aapt2" dump xmltree --file AndroidManifest.xml "$OUT/Horizon-Flutter-Rust-0.7.6-arm64-v8a.apk" \
+            > "$OUT/manifest-tree.txt" || true
+          grep -n -E 'screenOrientation|:engine|lib_name' "$OUT/manifest-tree.txt" || true
+          "$BT/aapt2" dump badging "$OUT/Horizon-Flutter-Rust-0.7.6-arm64-v8a.apk" \
+            > "$OUT/badging.txt"
+          "$JAVA" -jar "$BT/lib/apksigner.jar" verify --verbose "$OUT/Horizon-Flutter-Rust-0.7.6-arm64-v8a.apk" \
+            > "$OUT/signature.txt"
+          python3 tools/verify_mixed_apk.py "$OUT/Horizon-Flutter-Rust-0.7.6-arm64-v8a.apk" \
+            --aapt2 "$BT/aapt2" --apksigner "$JAVA_HOME/bin/java -jar $BT/lib/apksigner.jar" \
+            --report "$OUT/MIXED_APK_VERIFICATION.json"
+          ( cd "$OUT" && sha256sum Horizon-Flutter-Rust-0.7.6-arm64-v8a.apk > SHA256SUMS.txt )
+          printf 'BUILD_COMMIT=%s\nSOURCE=redesign-0.7.6 release APK + Flutter build\n' "$GITHUB_SHA" \
+            > "$OUT/BUILD_INFO.txt"
+          cat "$OUT/MIXED_APK_VERIFICATION.json"
+
+      - name: Publish the mixed APK as a GitHub Release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG=flutter-mixed-0.7.6
+          OUT=.local/android/releases/mixed-0.7.6
+          ASSETS=("$OUT/Horizon-Flutter-Rust-0.7.6-arm64-v8a.apk" "$OUT/SHA256SUMS.txt" \
+                  "$OUT/MIXED_APK_VERIFICATION.json" "$OUT/badging.txt" \
+                  "$OUT/manifest-tree.txt" "$OUT/signature.txt" "$OUT/BUILD_INFO.txt")
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "${ASSETS[@]}" --clobber
+          else
+            gh release create "$TAG" --title 'Horizon Android – Flutter + Rust (CI build)' \
+              --notes-file tools/ci-flutter-mixed-notes.md --target "$GITHUB_SHA" "${ASSETS[@]}"
+          fi
+          gh release view "$TAG" --json url,tagName,assets --jq '.url, (.assets[].name)'
+
+      - name: Upload the mixed APK as an Actions artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Horizon-Flutter-Rust-0.7.6-arm64-v8a
+          path: .local/android/releases/mixed-0.7.6/Horizon-Flutter-Rust-0.7.6-arm64-v8a.apk
+
+      - name: Report results
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          touch /tmp/mixed-contracts.txt /tmp/mixed-analyze.txt /tmp/mixed-test.txt /tmp/mixed-build.txt /tmp/mixed-stage.txt
+          {
+            echo "🤖 Mixed APK run $GITHUB_RUN_ID ($GITHUB_SHA)"
+            echo '### contracts'; echo '```'; tail -n 40 /tmp/mixed-contracts.txt; echo '```'
+            echo '### analyze'; echo '```'; tail -n 40 /tmp/mixed-analyze.txt; echo '```'
+            echo '### test'; echo '```'; tail -n 30 /tmp/mixed-test.txt; echo '```'
+            echo '### staging'; echo '```'; tail -n 40 /tmp/mixed-stage.txt; echo '```'
+            echo '### build'; echo '```'; tail -n 80 /tmp/mixed-build.txt; echo '```'
+          } > /tmp/mixed-report.md
+          head -c 60000 /tmp/mixed-report.md > /tmp/mixed-report-trim.md
+          gh api "repos/${GITHUB_REPOSITORY}/issues/1/comments" -F body=@/tmp/mixed-report-trim.md

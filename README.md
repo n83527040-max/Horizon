@@ -10,9 +10,10 @@
 > **طلب الانتقال إلى Flutter/Dart:** أُنجز تحليل المشروع كاملاً وجرد كل الوظائف
 > والاعتماديات في **[FLUTTER_MIGRATION_AUDIT.md](FLUTTER_MIGRATION_AUDIT.md)**
 > (فاحص آلي: `tools/verify_flutter_migration_audit.py`). بعد حسم التعارضات،
-> نُفِّذت بنية Flutter ونظام التصميم في `flutter/` واجتازت بوابة CI
-> (`flutter analyze` نظيف + 23/23 اختبار + لا Overflow على 7 أحجام شاشة)؛
-> جسر منطق المحرك وAPK المختلط ما زالا في المراحل التالية.
+> نُفِّذت بنية Flutter ونظام التصميم في `flutter/` واجتازت بوابة CI، ثم أُضيف
+> جسر JNI/C ABI حقيقي لكل الـ 49 إجراءً (`FLUTTER_NATIVE_BRIDGE_ANALYSIS.md`
+> و`FLUTTER_BRIDGE_EVIDENCE.md`) مع تحليل أثر قبل تعديل Rust. APK مختلط
+> Flutter + Rust واختبارات الجهاز ما زالت غير مكتملة.
 
 A native Android port of [Horizon](https://github.com/ludovic111/horizon), the
 Rust engine for Minecraft Java 26.3. Unofficial and in active development.
