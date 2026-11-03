@@ -29,6 +29,14 @@ class MainActivity : FlutterActivity() {
         bridge?.onActivityResult(requestCode, resultCode, data)
     }
 
+    override fun onDestroy() {
+        // Rust owns one poller thread and the sign-in task. Stop both before the
+        // Activity dies so neither leaks a JNI reference or a detached thread.
+        bridge?.shutdown()
+        bridge = null
+        super.onDestroy()
+    }
+
     companion object {
         const val CHANNEL: String = "dev.horizon.android/bridge"
     }

@@ -29,6 +29,12 @@ class FakeBridge implements LauncherBridge {
     dispatches.add(<String, Object?>{'action': action.name, 'args': args});
     return const BridgeResult(true, 'Applied', changed: true);
   }
+
+  @override
+  Future<BridgeResult> cancel() async => const BridgeResult(true, 'Cancelled');
+
+  @override
+  Stream<Map<String, Object?>> get events => Stream<Map<String, Object?>>.empty();
 }
 
 LauncherSnapshot fixture({

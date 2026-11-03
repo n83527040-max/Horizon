@@ -8,7 +8,14 @@ on:
       - 'flutter/**'
       - 'tools/verify_flutter_foundation.py'
       - 'tools/verify_flutter_migration_audit.py'
+      - 'tools/verify_flutter_native_bridge.py'
       - 'FLUTTER_MIGRATION_AUDIT.md'
+      - 'FLUTTER_NATIVE_BRIDGE_ANALYSIS.md'
+      - 'FLUTTER_BRIDGE_EVIDENCE.md'
+      - 'flutter/android/**'
+      - 'crates/horizon-client/src/android/flutter_bridge.rs'
+      - 'crates/horizon-client/src/android_main.rs'
+      - 'crates/horizon-client/src/android/launcher.rs'
       - 'crates/horizon-client/src/android/launcher_pages.rs'
       - 'research-lock.json'
       - 'packaging/android/build.gradle'
@@ -54,6 +61,8 @@ jobs:
             python3 tools/verify_flutter_migration_audit.py
             echo "\$ python3 tools/verify_flutter_foundation.py"
             python3 tools/verify_flutter_foundation.py
+            echo "\$ python3 tools/verify_flutter_native_bridge.py --write-evidence"
+            python3 tools/verify_flutter_native_bridge.py --write-evidence
             echo "\$ python3 -m unittest discover -s tests -p 'test_android*.py'"
             python3 -m unittest discover -s tests -p 'test_android*.py'
           } 2>&1 | tee /tmp/contract.txt

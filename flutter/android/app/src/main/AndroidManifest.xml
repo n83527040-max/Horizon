@@ -38,10 +38,14 @@
         </activity-alias>
 
         <!-- The game keeps its stock NativeActivity, Rust wgpu/Vulkan surface
-             and its own rotation policy (landscape allowed while playing). -->
+             and its own rotation policy (landscape allowed while playing).
+             It lives in a separate process because android_main ends with
+             std::process::exit(0); that must never kill the Flutter host. -->
         <activity
             android:name="dev.horizon.android.HorizonActivity"
             android:exported="false"
+            android:process=":engine"
+            android:screenOrientation="unspecified"
             android:configChanges="orientation|screenSize|keyboardHidden|keyboard|density|screenLayout"
             android:windowSoftInputMode="adjustResize"
             android:theme="@style/HorizonGameTheme">

@@ -4,7 +4,8 @@
 Checks performed without a local Flutter SDK:
 
   * host-info.json is generated from the REAL research-lock.json / Gradle version
-  * all 49 Rust `Action` variants are handled by the Kotlin dispatcher
+  * all 49 Rust `Action` variants are handled by Kotlin or the real JNI/C ABI
+    Rust dispatcher (phase 9)
   * all 49 variants are represented in Dart's `HorizonAction` enum
   * every snapshot key produced by Kotlin is parsed by Dart's model
   * no fake/demo performance numbers are present in production Dart code
@@ -23,6 +24,7 @@ RUST_ACTIONS = ROOT / "crates/horizon-client/src/android/launcher_pages.rs"
 DART_ACTIONS = ROOT / "flutter/lib/core/bridge/actions.dart"
 DART_MODELS = ROOT / "flutter/lib/core/bridge/models.dart"
 KOTLIN_BRIDGE = ROOT / "flutter/android/app/src/main/kotlin/dev/horizon/android/HorizonBridge.kt"
+RUST_BRIDGE = ROOT / "crates/horizon-client/src/android/flutter_bridge.rs"
 HOST_INFO = ROOT / "flutter/assets/host-info.json"
 RESEARCH_LOCK = ROOT / "research-lock.json"
 BUILD_GRADLE = ROOT / "packaging/android/build.gradle"
@@ -53,12 +55,11 @@ def dart_actions() -> list[str]:
             if line.strip() and not line.strip().startswith("//")]
 
 
-def kotlin_actions() -> set[str]:
-    text = KOTLIN_BRIDGE.read_text()
-    body = re.search(r"fun dispatch\(action: String.*?\n    \}", text, re.S)
-    if not body:
-        return set()
-    return set(re.findall(r'"([A-Z][A-Za-z]+)"', body.group(0)))
+def native_actions() -> set[str]:
+    """Kotlin handles Android-only actions; everything else reaches Rust JNI."""
+    kotlin = set(re.findall(r'"([A-Z][A-Za-z0-9_]*)"\s*->', KOTLIN_BRIDGE.read_text()))
+    rust = set(re.findall(r'"([A-Z][A-Za-z0-9_]*)"\s*(?:=>|\|)', RUST_BRIDGE.read_text()))
+    return kotlin | rust
 
 
 def expected_host_info() -> dict[str, str]:
@@ -91,16 +92,18 @@ def main() -> int:
     dart = dart_actions()
     check(set(dart) == set(variants) and len(dart) == 49,
           "Dart HorizonAction mirrors the Rust Action enum exactly")
-    kotlin = kotlin_actions()
-    missing = sorted(set(variants) - kotlin)
-    check(not missing, "Kotlin dispatcher handles all 49 actions"
+    native = native_actions()
+    missing = sorted(set(variants) - native)
+    check(not missing, "native dispatcher (Kotlin + Rust JNI) handles all 49 actions"
           + ("" if not missing else f" (missing: {missing})"))
 
     # Snapshot model parity: every key Kotlin emits must be read by Dart.
+    rust_keys = set(re.findall(r'"([a-zA-Z][a-zA-Z0-9]*)"\s*:', RUST_BRIDGE.read_text()))
     kotlin_keys = set(re.findall(r'"([a-zA-Z][a-zA-Z0-9]*)"\s+to', KOTLIN_BRIDGE.read_text()))
     dart_keys = set(re.findall(r"raw\['([a-zA-Z][a-zA-Z0-9]*)'\]", DART_MODELS.read_text()))
     required = required_keys
-    check(required <= kotlin_keys, "Kotlin emits the real snapshot keys")
+    check(required <= rust_keys | kotlin_keys,
+          "native host (Rust snapshot + Kotlin) emits the real snapshot keys")
     check(required <= dart_keys, "Dart parses the real snapshot keys")
 
     production = list((ROOT / "flutter/lib").rglob("*.dart"))

@@ -17,6 +17,8 @@ mod account;
 #[allow(dead_code)]
 #[path = "../../../launcher/src/browser.rs"]
 mod browser;
+#[path = "android/flutter_bridge.rs"]
+mod flutter_bridge;
 #[path = "android/dns.rs"]
 mod android_dns;
 #[path = "android/catalog.rs"]
@@ -296,7 +298,11 @@ fn android_main(app: AndroidApp) {
             log::error!("Cannot unpack engine data: {error}");
         }
     }
-    let mut launcher = launcher::Launcher::new(home.clone());
+    // A Flutter "Play" hands over to this NativeActivity. The flag only sets
+    // the existing Launcher's auto-play hop; the game, Vulkan surface and
+    // event loop below are unchanged.
+    let auto_play = flutter_bridge::launch_game_requested();
+    let mut launcher = launcher::Launcher::new(home.clone(), auto_play);
     let result = android_event_loop()
         .map_err(|e| -> Box<dyn std::error::Error> { e.into() })
         .and_then(|events| events.run_app(&mut launcher).map_err(Into::into));

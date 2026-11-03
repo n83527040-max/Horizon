@@ -26,6 +26,9 @@ class _AccountsSheet extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef _) {
     final HorizonStrings s = ref.watch(stringsProvider);
+    // The Microsoft device code arrives asynchronously from the real Rust
+    // SignIn task; watch the live snapshot instead of freezing the opening one.
+    final LauncherSnapshot current = ref.watch(snapshotProvider).valueOrNull ?? d;
     return Padding(
       padding: EdgeInsets.only(
         left: 18, right: 18, top: 8, bottom: MediaQuery.of(context).viewInsets.bottom + 20),
@@ -51,6 +54,41 @@ class _AccountsSheet extends ConsumerWidget {
                 ],
               ),
             ),
+            if (current.loginCode != null || current.loginMessage != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: HorizonCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Text(s.t('deviceCode'), style: const TextStyle(fontSize: 11, color: HorizonPalette.textSecondary)),
+                      const SizedBox(height: 6),
+                      if (current.loginCode != null)
+                        Text(current.loginCode!, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, letterSpacing: 2)),
+                      if (current.loginUri != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Text(current.loginUri!, style: const TextStyle(fontSize: 11)),
+                        ),
+                      if (current.loginMessage != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Text(current.loginMessage!, style: const TextStyle(fontSize: 11)),
+                        ),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: <Widget>[
+                          Expanded(child: _OutlineButton('Copy code', Icons.copy_rounded,
+                              () => ActionRunner(ref, context).run(HorizonAction.CopyLoginCode))),
+                          const SizedBox(width: 8),
+                          Expanded(child: _OutlineButton('Open link', Icons.open_in_new_rounded,
+                              () => ActionRunner(ref, context).run(HorizonAction.LoginLink))),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             const SizedBox(height: 12),
             GradientButton(label: s.t('browserLogin'), icon: Icons.public_rounded,
                 onTap: () => ActionRunner(ref, context).run(HorizonAction.SignIn)),
@@ -75,6 +113,19 @@ class _AccountsSheet extends ConsumerWidget {
     );
   }
 }
+
+/// A chooser opens a real value list; applying a value uses the matching
+/// `Choose*` Rust action, never the display-only opener.
+HorizonAction _applyAction(HorizonAction action) => switch (action) {
+      HorizonAction.Renderer => HorizonAction.ChooseRenderer,
+      HorizonAction.RenderScale => HorizonAction.ChooseRenderScale,
+      HorizonAction.Orientation => HorizonAction.ChooseOrientation,
+      HorizonAction.Aspect => HorizonAction.ChooseAspect,
+      HorizonAction.DisplayHz => HorizonAction.ChooseDisplayHz,
+      HorizonAction.Profile => HorizonAction.ChooseProfile,
+      HorizonAction.InputHost => HorizonAction.ChooseInputHost,
+      _ => action,
+    };
 
 void showChooserSheet(BuildContext context, WidgetRef ref, HorizonAction action) {
   showModalBottomSheet<void>(
@@ -115,7 +166,8 @@ class _ChooserSheet extends ConsumerWidget {
                   child: HorizonCard(
                     onTap: () {
                       Navigator.of(context).pop();
-                      ActionRunner(ref, context).run(action, args: <String, Object?>{'value': option});
+                      ActionRunner(ref, context).run(_applyAction(action),
+                          args: <String, Object?>{'value': option});
                     },
                     padding: const EdgeInsets.all(14),
                     child: Text(option, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),

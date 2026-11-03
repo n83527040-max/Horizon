@@ -1,343 +1,290 @@
 package dev.horizon.android
 
 import android.app.Activity
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 import android.provider.DocumentsContract
+import android.provider.OpenableColumns
+import android.util.Log
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * The native side of `dev.horizon.android/bridge`.
+ * `dev.horizon.android/bridge`: Flutter UI <-> JNI/C ABI <-> real Rust engine.
  *
- * `snapshot()` reads ONLY real device/launcher state:
- *  - the Rust launcher's own config file `android-launcher.json`,
- *  - the real content folders (`horizon-mods`, `resourcepacks`, `shaderpacks`),
- *  - `/proc/self/status` and `/proc/meminfo` (the engine's own memory source),
- *  - `flutter_assets/host-info.json` generated from research-lock.json / Gradle.
- *
- * Nothing is invented. Engine-domain actions that are not bridged yet return an
- * explicit failure; they never report fake success or demo data.
+ * All stateful work is delegated to HorizonEngine (Rust). This class only
+ * supplies what Rust cannot have outside a NativeActivity: an Android Context,
+ * SAF document picking, link opening, the clipboard and the game Activity
+ * hand-off. Every result is a real outcome; no placeholder remains.
  */
 class HorizonBridge(private val activity: Activity, private val channel: MethodChannel) {
 
-    private val prefsFile: File get() = File(activity.filesDir, "flutter-preferences.json")
-    private val configFile: File get() = File(activity.filesDir, "android-launcher.json")
+    private val executor = Executors.newSingleThreadExecutor { Thread(it, "horizon-bridge") }
+    private val main = Handler(Looper.getMainLooper())
+    private val stopped = AtomicBoolean(false)
+    private var pendingKind: String = "Mods"
+
+    init {
+        val reply = HorizonEngine.nativeInit(
+            activity.filesDir.absolutePath,
+            activity.cacheDir.absolutePath,
+        )
+        Log.i(TAG, "HorizonEngine nativeInit: $reply")
+    }
 
     fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
-        try {
-            when (call.method) {
-                "snapshot" -> result.success(snapshot())
-                "dispatch" -> {
-                    val arguments = call.arguments as? Map<*, *>
-                    val action = arguments?.get("action") as? String
-                    val args = (arguments?.get("args") as? Map<*, *>) ?: emptyMap<Any?, Any?>()
-                    if (action == null) {
-                        result.success(failure("Missing action name"))
-                    } else {
-                        result.success(dispatch(action, args))
-                    }
+        when (call.method) {
+            "snapshot" -> async(result) { parse(HorizonEngine.nativeSnapshot()) }
+            "cancel" -> async(result) { parse(HorizonEngine.nativeCancel()) }
+            "dispatch" -> {
+                val arguments = call.arguments as? Map<*, *>
+                val action = arguments?.get("action") as? String
+                val args = (arguments?.get("args") as? Map<*, *>) ?: emptyMap<Any?, Any?>()
+                if (action == null) {
+                    result.success(failure("Missing action name"))
+                } else {
+                    dispatch(action, args, result)
                 }
-                else -> result.notImplemented()
             }
+            else -> result.notImplemented()
+        }
+    }
+
+    private fun dispatch(action: String, args: Map<*, *>, result: MethodChannel.Result) {
+        when (action) {
+            "Play" -> {
+                startGame()
+                result.success(success("Starting Minecraft in the native engine", pending = true))
+            }
+            "Repository" -> result.success(openUrl(REPOSITORY))
+            "ReviewApp" -> result.success(openUrl(REVIEW_URL))
+            "OpenFolder" -> result.success(openFolder(args["kind"] as? String))
+            "Import" -> result.success(openPicker(args["kind"] as? String))
+            else -> async(result) {
+                val reply = parse(HorizonEngine.nativeDispatch(action, toJson(args).toString()))
+                applyReply(reply)
+                reply
+            }
+        }
+    }
+
+    /** Rust may ask the Android host to open a real link or copy a real code. */
+    private fun applyReply(reply: Map<String, Any?>) {
+        (reply["url"] as? String)?.let { url -> main.post { openUrl(url) } }
+        (reply["code"] as? String)?.let { code -> main.post { copyCode(code) } }
+    }
+
+    private fun async(result: MethodChannel.Result, block: () -> Map<String, Any?>) {
+        executor.execute {
+            val value = try {
+                block()
+            } catch (error: Throwable) {
+                failure(error.message ?: "Native bridge error")
+            }
+            if (!stopped.get()) main.post { result.success(value) }
+        }
+    }
+
+    // ------------------------------------------------------------- engine hand-off
+
+    private fun startGame() {
+        try {
+            val intent = Intent().setClassName(activity.packageName, "dev.horizon.android.HorizonActivity")
+            intent.putExtra("horizon.launch_game", true)
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            activity.startActivity(intent)
         } catch (error: Exception) {
-            result.success(failure(error.message ?: "Native bridge error"))
+            emit("gameLaunch", failure("Cannot start the native game Activity: ${error.message}"))
         }
-    }
-
-    // ---------------------------------------------------------------- snapshot
-
-    private fun snapshot(): Map<String, Any?> = mapOf(
-        "appVersion" to hostInfo().optString("appVersion", ""),
-        "gameVersion" to hostInfo().optString("gameVersion", ""),
-        "profileName" to config().optString("name").ifEmpty { null },
-        "accountStatus" to accountStatus(),
-        "avatarPath" to null, // hidden until a real skin file is available
-        "graphicsApi" to config().optString("renderer").ifEmpty { null },
-        "renderScalePercent" to config().opt("render_scale")?.let { percent(it) },
-        "ramUsedMb" to procValue("/proc/self/status", "VmRSS:"),
-        "ramPeakMb" to procValue("/proc/self/status", "VmHWM:"),
-        "ramTotalMb" to procValue("/proc/meminfo", "MemTotal:"),
-        "installed" to installedItems(),
-        "results" to emptyList<Map<String, Any?>>(), // real catalog results appear via the engine bridge
-        "status" to null,
-        "settings" to settings(),
-        "choices" to choices(),
-        "storageBytes" to contentBytes().values.sum(),
-        "cacheBytes" to dirSize(activity.cacheDir),
-        "contentBytes" to contentBytes(),
-        "engineBridgeReady" to false,
-    )
-
-    private fun hostInfo(): JSONObject = try {
-        JSONObject(activity.assets.open("flutter_assets/host-info.json").bufferedReader().use { it.readText() })
-    } catch (_: Exception) {
-        JSONObject()
-    }
-
-    private fun config(): JSONObject = try {
-        JSONObject(configFile.readText())
-    } catch (_: Exception) {
-        JSONObject()
-    }
-
-    private fun preferences(): JSONObject = try {
-        JSONObject(prefsFile.readText())
-    } catch (_: Exception) {
-        JSONObject()
-    }
-
-    private fun accountStatus(): String? {
-        val name = config().optString("name")
-        val secrets = File(activity.filesDir, "account-secrets")
-        val signedIn = secrets.isDirectory && (secrets.listFiles()?.isNotEmpty() == true)
-        return when {
-            signedIn -> "Microsoft account"
-            name.isNotEmpty() -> "Offline: $name"
-            else -> "Offline"
-        }
-    }
-
-    private fun settings(): Map<String, Any?> {
-        val c = config()
-        val p = preferences()
-        return mapOf(
-            "renderer" to rendererLabel(c.optString("renderer")),
-            "renderScale" to (c.opt("render_scale")?.let { percent(it) } ?: 100),
-            "orientation" to c.optString("orientation", "portrait"),
-            "immersive" to c.optBoolean("immersive", false),
-            "avoidCutout" to c.optBoolean("avoid_cutout", false),
-            "aspect" to c.optString("aspect", "native"),
-            "displayHz" to c.optInt("display_hz", 0).takeIf { it > 0 }?.toString() ?: "System default",
-            "performanceHints" to c.optBoolean("performance_hints", false),
-            "gpuProfile" to c.optBoolean("gpu_profile", false),
-            "recordPerformance" to c.optBoolean("record_performance", false),
-            "profile" to c.optInt("profile", 0).toString(),
-            "server" to c.optString("server", ""),
-            "modSource" to c.optString("mod_source", "Horizon"),
-            "shaderSource" to c.optString("shader_source", "Horizon"),
-            "theme" to p.optString("theme", "dark"),
-            "language" to p.optString("language", "en"),
-        )
-    }
-
-    private fun choices(): Map<String, List<String>> = mapOf(
-        "Renderer" to listOf("Vulkan / batching", "Vulkan / compatibility", "OpenGL ES / experimental"),
-        "RenderScale" to listOf("100%", "85%", "75%", "67%", "50%", "25%"),
-        "Orientation" to listOf("Portrait", "Landscape", "Reverse portrait", "Reverse landscape", "Automatic rotation"),
-        "Aspect" to listOf("Native", "16:9", "4:3", "1:1"),
-        "DisplayHz" to listOf("System default", "60 Hz", "90 Hz", "120 Hz"),
-        "InputHost" to listOf("Automatic", "Touch & Android keyboard", "Keyboard & mouse"),
-    )
-
-    private fun installedItems(): List<Map<String, Any?>> {
-        val out = mutableListOf<Map<String, Any?>>()
-        var index = 0
-        for ((folder, kind) in CONTENT_FOLDERS) {
-            val dir = File(activity.filesDir, folder)
-            val files = dir.listFiles()?.filter { it.isFile && !it.name.startsWith(".") }?.sortedBy { it.name }
-                ?: emptyList()
-            for (file in files) {
-                out.add(
-                    mapOf(
-                        "file" to file.name,
-                        "title" to file.nameWithoutExtension,
-                        "folder" to folder,
-                        "kind" to kind,
-                        "enabled" to null, // the engine owns enable/disable state
-                        "index" to index++,
-                    )
-                )
-            }
-        }
-        return out
-    }
-
-    private fun contentBytes(): Map<String, Int> = CONTENT_FOLDERS.associate { (folder, kind) ->
-        kind to dirSize(File(activity.filesDir, folder)).toInt()
-    }
-
-    private fun dirSize(dir: File): Long {
-        if (!dir.exists()) return 0
-        if (dir.isFile) return dir.length()
-        return dir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
-    }
-
-    private fun procValue(path: String, key: String): Int? = try {
-        File(path).useLines { lines ->
-            val value = lines.firstOrNull { it.startsWith(key) }
-                ?.split(Regex("\\s+"))?.getOrNull(1)?.toLongOrNull()
-            value?.div(1024)?.toInt()
-        }
-    } catch (_: Exception) {
-        null
-    }
-
-    private fun percent(value: Any?): Int = when (value) {
-        is Number -> value.toInt()
-        is JSONObject -> value.optInt("0", 100)
-        else -> 100
-    }
-
-    private fun rendererLabel(raw: String): String? = when (raw.lowercase()) {
-        "vulkan" -> "Vulkan / batching"
-        "vulkancompatibility" -> "Vulkan / compatibility"
-        "opengl" -> "OpenGL ES / experimental"
-        else -> raw.ifEmpty { null }
-    }
-
-    // ---------------------------------------------------------------- actions
-
-    /** Every name below covers one of the 49 Rust `Action` variants. */
-    fun dispatch(action: String, args: Map<*, *>): Map<String, Any?> {
-        return when (action) {
-            "Play" -> launchGame()
-            "Repository" -> openUrl("https://github.com/n83527040-max/Horizon")
-            "OpenFolder" -> openFolder(args["kind"] as? String)
-            "Import" -> openPicker(args["kind"] as? String)
-            "LoginLink", "ReviewApp" -> enginePending(action)
-            "SignIn", "DeviceSignIn", "SignOut", "CloseLogin", "CopyLoginCode",
-            "CancelLogin", "Account" -> enginePending(action)
-            "Field" -> setPreference(args)
-            "Immersive", "Cutout" -> setConfigBoolean(action, args)
-            "Renderer", "RenderScale", "Aspect", "DisplayHz", "Orientation",
-            "InputHost", "Profile" -> enginePending(action)
-            "ChooseRenderer", "ChooseRenderScale", "ChooseAspect", "ChooseDisplayHz",
-            "ChooseOrientation", "ChooseInputHost", "ChooseProfile" -> enginePending(action)
-            "Page", "Dismiss" -> success("Navigation handled in Dart", changed = false)
-            "Search", "ShaderSource", "ModSource", "Install", "ToggleSection",
-            "ToggleLocal", "DeleteLocal", "ConfirmDeleteLocal", "Next", "Previous",
-            "FinishNameEdit", "Logs", "RecordPerformance", "ExportPerformance",
-            "ExportDiagnostics", "PerformanceHints", "GpuProfile" -> enginePending(action)
-            else -> failure("Unknown action: $action")
-        }
-    }
-
-    private fun launchGame(): Map<String, Any?> = try {
-        val intent = Intent().setClassName(activity.packageName, "dev.horizon.android.HorizonActivity")
-        intent.putExtra("horizon.launch_game", true)
-        activity.startActivity(intent)
-        success("Starting Horizon game Activity")
-    } catch (error: Exception) {
-        failure("Game Activity is not packaged yet: ${error.message}")
     }
 
     private fun openUrl(url: String): Map<String, Any?> = try {
         activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         success("Opened $url")
     } catch (error: Exception) {
-        failure(error.message ?: "Could not open link")
+        failure(error.message ?: "Could not open the link")
+    }
+
+    private fun copyCode(code: String) {
+        try {
+            val manager = activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            manager.setPrimaryClip(ClipData.newPlainText("Horizon sign-in code", code))
+            emit("loginCode", success("Sign-in code copied: $code"))
+        } catch (error: Exception) {
+            emit("loginCode", failure(error.message ?: "Could not copy the code"))
+        }
     }
 
     private fun openFolder(kind: String?): Map<String, Any?> {
-        val folder = CONTENT_FOLDERS.keys.firstOrNull { it.contains(kind ?: "", true) }
-            ?: CONTENT_FOLDERS.keys.first()
+        val folder = folderName(kind)
         return try {
-            val authority = "${activity.packageName}.documents"
-            val uri = DocumentsContract.buildRootUri(authority, folder)
-            activity.startActivity(Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
-            success("Opened ${CONTENT_FOLDERS[folder]} folder")
+            val uri = DocumentsContract.buildRootUri("${activity.packageName}.documents", folder)
+            activity.startActivity(
+                Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            )
+            success("Opened the real $folder folder")
         } catch (error: Exception) {
-            failure(error.message ?: "Could not open folder")
+            failure(error.message ?: "Could not open the content folder")
         }
     }
 
+    // ------------------------------------------------------------- real SAF import
+
     private fun openPicker(kind: String?): Map<String, Any?> = try {
+        pendingKind = normalizeKind(kind)
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
             type = "*/*"
-            putExtra(Intent.EXTRA_MIME_TYPES, mimeTypes(kind))
+            putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("application/zip", "application/octet-stream", "*/*"))
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
-        pendingKind = kind ?: "Mods"
         activity.startActivityForResult(intent, REQUEST_IMPORT)
-        success("Choose a file to import")
+        success("Choose a .zip / .hshader / .hmod file", pending = true)
     } catch (error: Exception) {
-        failure(error.message ?: "Could not open the file picker")
+        failure(error.message ?: "Could not open the document picker")
     }
 
     fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         if (requestCode != REQUEST_IMPORT) return
         val uri: Uri? = data?.data
         if (resultCode != Activity.RESULT_OK || uri == null) {
-            channel.invokeMethod("importResult", mapOf("ok" to false, "message" to "Import cancelled"))
+            emit("import", failure("Import cancelled"))
             return
         }
-        // The real file copy/validation stays in the native Rust documents layer.
-        channel.invokeMethod(
-            "importResult",
-            mapOf("ok" to false, "message" to "SAF URI received; native importer is bridged in phase 9", "uri" to uri.toString())
-        )
-    }
-
-    private fun setPreference(args: Map<*, *>): Map<String, Any?> {
-        val name = args["name"] as? String ?: return failure("Missing preference name")
-        val value = args["value"]
-        return try {
-            when (name) {
-                "theme", "language" -> {
-                    val json = preferences()
-                    if (value == null) json.remove(name) else json.put(name, value.toString())
-                    save(prefsFile, json)
-                    success("Saved $name", changed = true)
-                }
-                "clearCache" -> {
-                    val cleared = activity.cacheDir.deleteRecursively()
-                    success(if (cleared) "App cache cleared" else "Cache is already empty", changed = true)
-                }
-                else -> enginePending("Field($name)")
+        val kind = pendingKind
+        executor.execute {
+            val reply = try {
+                importDocument(kind, uri)
+            } catch (error: Throwable) {
+                failure(error.message ?: "Import failed")
             }
-        } catch (error: Exception) {
-            failure(error.message ?: "Could not save preference")
+            main.post { emit("import", reply) }
         }
     }
 
-    private fun setConfigBoolean(action: String, args: Map<*, *>): Map<String, Any?> {
-        val key = if (action == "Immersive") "immersive" else "avoid_cutout"
-        return try {
-            val json = config()
-            val current = json.optBoolean(key, false)
-            json.put(key, args["value"] as? Boolean ?: !current)
-            save(configFile, json)
-            success("Updated $key", changed = true)
-        } catch (error: Exception) {
-            failure(error.message ?: "Could not update setting")
+    /** Copies the granted document through ContentResolver; no path is inferred
+     *  from its URI. Rust then reuses the engine's own validation and rename. */
+    private fun importDocument(kind: String, uri: Uri): Map<String, Any?> {
+        val resolver = activity.contentResolver
+        var name = "import.bin"
+        resolver.query(uri, null, null, null, null)?.use { cursor ->
+            val column = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+            if (column >= 0 && cursor.moveToFirst()) {
+                name = cursor.getString(column) ?: name
+            }
         }
+        val staged = File(activity.cacheDir, "content-imports/.import-${System.nanoTime()}.part")
+        staged.parentFile?.mkdirs()
+        val input = resolver.openInputStream(uri)
+            ?: throw IllegalArgumentException("Cannot read the selected document")
+        input.use { source ->
+            staged.outputStream().use { output ->
+                val buffer = ByteArray(65536)
+                var total = 0L
+                while (true) {
+                    val read = source.read(buffer)
+                    if (read < 0) break
+                    total += read
+                    if (total > MAX_IMPORT_BYTES) throw IllegalArgumentException("Import exceeds 256 MiB")
+                    output.write(buffer, 0, read)
+                }
+            }
+        }
+        return parse(HorizonEngine.nativeImportStaged(kind, staged.absolutePath, name))
     }
 
-    private fun save(file: File, json: JSONObject) {
-        val partial = File(file.parentFile, "${file.name}.partial")
-        partial.writeText(json.toString(2))
-        if (!partial.renameTo(file)) file.writeText(json.toString(2))
+    private fun emit(type: String, reply: Map<String, Any?>) {
+        if (stopped.get()) return
+        val event = HashMap<String, Any?>(reply)
+        event["type"] = type
+        channel.invokeMethod("nativeEvent", event)
     }
 
-    private fun enginePending(action: String): Map<String, Any?> = failure(
-        "Action $action requires the native engine bridge (phase 9). " +
-            "The Rust launcher logic is preserved, not replaced by a dummy."
-    )
-
-    private fun success(message: String, changed: Boolean = false): Map<String, Any?> =
-        mapOf("ok" to true, "message" to message, "changed" to changed)
-
-    private fun failure(message: String): Map<String, Any?> =
-        mapOf("ok" to false, "message" to message, "changed" to false)
-
-    private fun mimeTypes(kind: String?): Array<String> = when (kind) {
-        "Packs" -> arrayOf("application/zip", "application/octet-stream")
-        "Shaders" -> arrayOf("application/zip", "application/octet-stream")
-        else -> arrayOf("application/octet-stream")
+    /** Stops the Rust poller and the executor before the Activity is destroyed. */
+    fun shutdown() {
+        if (!stopped.compareAndSet(false, true)) return
+        try {
+            HorizonEngine.nativeShutdown()
+        } catch (error: Throwable) {
+            Log.w(TAG, "nativeShutdown: ${error.message}")
+        }
+        executor.shutdownNow()
     }
 
-    private var pendingKind: String = "Mods"
+    // ------------------------------------------------------------- JSON plumbing
+
+    private fun parse(raw: String): Map<String, Any?> = try {
+        when (val value = fromJson(JSONObject(raw))) {
+            is Map<*, *> -> value as Map<String, Any?>
+            else -> failure("Malformed native reply")
+        }
+    } catch (error: Throwable) {
+        failure("Malformed native reply: ${error.message}")
+    }
+
+    private fun fromJson(value: Any?): Any? = when (value) {
+        JSONObject.NULL -> null
+        is JSONObject -> {
+            val map = HashMap<String, Any?>()
+            val keys = value.keys()
+            while (keys.hasNext()) {
+                val key = keys.next()
+                map[key] = fromJson(value.get(key))
+            }
+            map
+        }
+        is JSONArray -> (0 until value.length()).map { fromJson(value.get(it)) }
+        else -> value
+    }
+
+    private fun toJson(map: Map<*, *>): JSONObject {
+        val json = JSONObject()
+        for ((key, value) in map) {
+            if (key is String) json.put(key, jsonValue(value))
+        }
+        return json
+    }
+
+    private fun jsonValue(value: Any?): Any = when (value) {
+        null -> JSONObject.NULL
+        is Map<*, *> -> toJson(value)
+        is List<*> -> JSONArray(value.map { jsonValue(it) })
+        else -> value
+    }
+
+    private fun success(message: String, changed: Boolean = false, pending: Boolean = false) =
+        mapOf("ok" to true, "message" to message, "changed" to changed, "pending" to pending)
+
+    private fun failure(message: String) =
+        mapOf("ok" to false, "message" to message, "changed" to false, "pending" to false)
+
+    private fun normalizeKind(kind: String?): String = when (kind) {
+        "Packs", "resourcepacks" -> "Packs"
+        "Shaders", "shaderpacks" -> "Shaders"
+        else -> "Mods"
+    }
+
+    private fun folderName(kind: String?): String = when (normalizeKind(kind)) {
+        "Packs" -> "resourcepacks"
+        "Shaders" -> "shaderpacks"
+        else -> "horizon-mods"
+    }
 
     companion object {
-        private const val REQUEST_IMPORT: Int = 4101
-        private val CONTENT_FOLDERS: Map<String, String> = linkedMapOf(
-            "horizon-mods" to "Mods",
-            "resourcepacks" to "Packs",
-            "shaderpacks" to "Shaders",
-        )
+        private const val TAG = "HorizonBridge"
+        private const val REQUEST_IMPORT = 4101
+        private const val MAX_IMPORT_BYTES = 256L * 1024 * 1024
+        private const val REPOSITORY = "https://github.com/n83527040-max/Horizon"
+        private const val REVIEW_URL = "https://aka.ms/mce-reviewappid"
     }
 }

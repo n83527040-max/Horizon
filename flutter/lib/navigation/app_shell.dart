@@ -62,6 +62,26 @@ class _AppShellState extends ConsumerState<AppShell> with WidgetsBindingObserver
   Widget build(BuildContext context) {
     final int index = ref.watch(navIndexProvider);
     final HorizonStrings s = ref.watch(stringsProvider);
+    // Asynchronous real results (SAF import, game hand-off failure, sign-in
+    // code) arrive after the method call returned. Show their real outcome.
+    ref.listen<AsyncValue<Map<String, Object?>>>(nativeEventsProvider,
+        (AsyncValue<Map<String, Object?>>? previous, AsyncValue<Map<String, Object?>> next) {
+      next.whenData((Map<String, Object?> value) {
+        final bool ok = value['ok'] == true;
+        final String message = value['message'] is String
+            ? value['message']! as String
+            : 'Native operation finished';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(message),
+            backgroundColor: ok ? HorizonPalette.card : HorizonPalette.danger,
+          ),
+        );
+        ref.invalidate(snapshotProvider);
+      });
+    });
+    final snapshot = ref.watch(snapshotProvider);
+    final bool pending = snapshot.valueOrNull?.pending ?? false;
     final List<String> labels = <String>[
       s.t('home'), s.t('mods'), s.t('packs'), s.t('installed'), s.t('settings'),
     ];
@@ -71,6 +91,7 @@ class _AppShellState extends ConsumerState<AppShell> with WidgetsBindingObserver
         bottom: false,
         child: Column(
           children: <Widget>[
+            if (pending) const LinearProgressIndicator(minHeight: 2),
             Expanded(
               child: IndexedStack(
                 index: index.clamp(0, _pages.length - 1),

@@ -24,6 +24,10 @@ class LauncherSnapshot {
     this.cacheBytes,
     this.contentBytes = const <String, int>{},
     this.engineBridgeReady = false,
+    this.pending = false,
+    this.loginCode,
+    this.loginUri,
+    this.loginMessage,
   });
 
   final String appVersion;
@@ -45,6 +49,12 @@ class LauncherSnapshot {
   final int? cacheBytes;
   final Map<String, int> contentBytes;
   final bool engineBridgeReady;
+  /// True while a real download, search or Microsoft sign-in is running.
+  final bool pending;
+  /// Microsoft device-code values, only present while sign-in is running.
+  final String? loginCode;
+  final String? loginUri;
+  final String? loginMessage;
 
   int count(ContentKind kind) => installed.where((i) => i.kind == kind).length;
   int get totalInstalled => installed.length;
@@ -92,6 +102,10 @@ class LauncherSnapshot {
         (Object? k, Object? v) => MapEntry<String, int>('$k', v is num ? v.toInt() : 0),
       ),
       engineBridgeReady: raw['engineBridgeReady'] == true,
+      pending: raw['pending'] == true,
+      loginCode: text(raw['loginCode']),
+      loginUri: text(raw['loginUri']),
+      loginMessage: text(raw['loginMessage']),
     );
   }
 }
@@ -153,10 +167,21 @@ class CatalogProject {
 }
 
 class BridgeResult {
-  const BridgeResult(this.ok, this.message, {this.changed = false});
+  const BridgeResult(
+    this.ok,
+    this.message, {
+    this.changed = false,
+    this.pending = false,
+    this.needsActivity = false,
+  });
   final bool ok;
   final String message;
   final bool changed;
+  /// A real long-running operation has started; the UI shows a cancellable
+  /// loading state and polls the snapshot until the native worker finishes.
+  final bool pending;
+  /// The native host handed off to the real game Activity.
+  final bool needsActivity;
 
   factory BridgeResult.fromJson(Object? raw) {
     if (raw is Map<Object?, Object?>) {
@@ -164,6 +189,8 @@ class BridgeResult {
         raw['ok'] == true,
         raw['message'] is String ? raw['message']! as String : '',
         changed: raw['changed'] == true,
+        pending: raw['pending'] == true,
+        needsActivity: raw['needsActivity'] == true,
       );
     }
     return const BridgeResult(false, 'Malformed native reply');

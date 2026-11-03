@@ -29,7 +29,7 @@ void main() {
     });
     addTearDown(() => binding.defaultBinaryMessenger.setMockMessageHandler(channel, null));
 
-    const LauncherBridge bridge = MethodChannelLauncherBridge();
+    final LauncherBridge bridge = MethodChannelLauncherBridge();
     final LauncherSnapshot snapshot = await bridge.snapshot();
     expect(snapshot.appVersion, '0.7.6');
     expect(snapshot.gameVersion, '26.3');

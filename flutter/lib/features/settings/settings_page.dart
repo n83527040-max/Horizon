@@ -7,6 +7,7 @@ import '../../core/state/providers.dart';
 import '../../core/theme/horizon_strings.dart';
 import '../../core/theme/horizon_theme.dart';
 import '../../core/widgets/horizon_widgets.dart';
+import '../dialogs/dialogs.dart';
 
 class SettingsPage extends ConsumerWidget {
   const SettingsPage({super.key});
@@ -178,8 +179,15 @@ class _Row extends StatelessWidget {
             ? null
             : () {
                 final WidgetRef ref = _refOf(context);
-                ActionRunner(ref, context).run(action!,
-                    args: <String, Object?>{'name': label});
+                final List<String> options =
+                    ref.read(snapshotProvider).valueOrNull?.choices[action!.name] ??
+                        const <String>[];
+                if (options.isNotEmpty) {
+                  showChooserSheet(context, ref, action!);
+                } else {
+                  ActionRunner(ref, context).run(action!,
+                      args: <String, Object?>{'name': label});
+                }
               },
       );
 

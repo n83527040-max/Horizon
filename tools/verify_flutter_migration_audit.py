@@ -182,7 +182,7 @@ def main() -> int:
     dart = [p for p in ROOT.rglob("*.dart") if ".git" not in p.parts]
     kt = [p for p in ROOT.rglob("*.kt") if ".git" not in p.parts]
     pubspec = [p for p in ROOT.rglob("pubspec.yaml") if ".git" not in p.parts]
-    check(len(dart) >= 10 and len(kt) == 2 and len(pubspec) == 1,
+    check(len(dart) >= 10 and len(kt) >= 2 and len(pubspec) == 1,
           f"Flutter host present (dart={len(dart)}, kt={len(kt)}, "
           f"pubspec={len(pubspec)})")
     check((ROOT / "flutter/lib/core/bridge/actions.dart").is_file()

@@ -74,6 +74,9 @@ pub(super) struct Launcher {
     session_ready: bool,
     focus: Option<usize>,
     diagnostic_export: Option<mpsc::Receiver<std::result::Result<String, String>>>,
+    /// Set by the Flutter host's "Play" hand-off. It only schedules the
+    /// existing `action()` once; the game path itself is untouched.
+    auto_play: bool,
     /// Presentation-only state. None of these fields is read by the game,
     /// the installer, the account code or the content managers.
     hero_patch: Option<horizon_client::font::Patch>,
@@ -82,7 +85,7 @@ pub(super) struct Launcher {
 }
 
 impl Launcher {
-    pub(super) fn new(home: PathBuf) -> Self {
+    pub(super) fn new(home: PathBuf, auto_play: bool) -> Self {
         // Upgrade existing installations that retained the old download cache.
         let cleanup_home = home.clone();
         std::thread::spawn(move || {
@@ -108,6 +111,7 @@ impl Launcher {
         crate::device_runtime::configure(catalog.config.device);
         Self {
             home,
+            auto_play,
             controller_edges: Default::default(),
             controller_repeat: None,
             window: None,
@@ -391,6 +395,14 @@ impl ApplicationHandler for Launcher {
         if let Err(error) = self.open(events) {
             self.fail(error);
             events.exit();
+            return;
+        }
+        if self.auto_play {
+            self.auto_play = false;
+            if let Err(error) = self.action(events) {
+                self.fail(error);
+                events.exit();
+            }
         }
     }
     fn suspended(&mut self, events: &ActiveEventLoop) {
