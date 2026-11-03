@@ -1,4 +1,15 @@
-# Horizon Android
+# CRAFTIX — Minecraft Java Launcher for Android
+
+> **CRAFTIX 0.7.8** (`com.craftix.launcher`): نسخة موسَّعة بالعلامة التجارية
+> الجديدة، أيقونة adaptive، شاشة رئيسية بحالات Download/تقدّم حقيقي/Play،
+> وتوقيع دائم بمفتاح CRAFTIX Release من أسرار GitHub Actions.
+> المواصفة: `CRAFTIX_Implementation_Package.zip` · تحليل الهجرة:
+> **[CRAFTIX_MIGRATION_ANALYSIS.md](CRAFTIX_MIGRATION_ANALYSIS.md)** ·
+> بوابة الإصدار: `tools/verify_craftix_release.py`.
+> الإصدار: **[craftix-0.7.8](https://github.com/n83527040-max/Horizon/releases/tag/craftix-0.7.8)**.
+> لا توجد ترقية في المكان من تطبيقات HORIZON السابقة (معرّف حزمة ومفتاح مختلفان)؛
+> راجع تحليل الهجرة قبل التثبيت.
+
 
 > **واجهة جديدة 0.7.6 / Redesigned 0.7.6 UI** — تمت إعادة تصميم واجهة Android
 > بالكامل (Mobile-first، هوية داكنة بنفسجية، شريط تنقل سفلي، بطاقات، Hero banner)

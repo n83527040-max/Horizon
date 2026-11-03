@@ -65,18 +65,18 @@ def patch_gradle() -> None:
         if not path.is_file():
             continue
         text = path.read_text(encoding="utf-8")
-        text = re.sub(r'applicationId\s*=\s*"[^"]+"', 'applicationId = "dev.horizon.android"', text)
-        text = re.sub(r'applicationId\s+"[^"]+"', 'applicationId "dev.horizon.android"', text)
-        text = re.sub(r'namespace\s*=\s*"[^"]+"', 'namespace = "dev.horizon.android"', text)
-        text = re.sub(r'namespace\s+"[^"]+"', 'namespace "dev.horizon.android"', text)
+        text = re.sub(r'applicationId\s*=\s*"[^"]+"', 'applicationId = "com.craftix.launcher"', text)
+        text = re.sub(r'applicationId\s+"[^"]+"', 'applicationId "com.craftix.launcher"', text)
+        text = re.sub(r'namespace\s*=\s*"[^"]+"', 'namespace = "com.craftix.launcher"', text)
+        text = re.sub(r'namespace\s+"[^"]+"', 'namespace "com.craftix.launcher"', text)
         text = re.sub(r'minSdk\s*=\s*flutter\.minSdkVersion', 'minSdk = 28', text)
         text = re.sub(r'minSdkVersion\s+flutter\.minSdkVersion', 'minSdkVersion 28', text)
         text = re.sub(r'minSdk\s*=\s*\d+', 'minSdk = 28', text)
         text = re.sub(r'minSdkVersion\s+\d+', 'minSdkVersion 28', text)
-        text = re.sub(r'versionCode\s*=\s*\d+', 'versionCode = 29', text)
-        text = re.sub(r'versionCode\s+flutter\.versionCode', 'versionCode 29', text)
-        text = re.sub(r'versionName\s*=\s*"[^"]+"', 'versionName = "0.7.7"', text)
-        text = re.sub(r'versionName\s+"[^"]+"', 'versionName "0.7.7"', text)
+        text = re.sub(r'versionCode\s*=\s*\d+', 'versionCode = 30', text)
+        text = re.sub(r'versionCode\s+flutter\.versionCode', 'versionCode 30', text)
+        text = re.sub(r'versionName\s*=\s*"[^"]+"', 'versionName = "0.7.8"', text)
+        text = re.sub(r'versionName\s+"[^"]+"', 'versionName "0.7.8"', text)
         # Make sure the real Rust payload folders are part of the merged APK
         # assets/libs even when the Flutter Gradle plugin adds its own dirs.
         if name.endswith(".kts"):
@@ -84,15 +84,50 @@ def patch_gradle() -> None:
 // Phase 13: real Rust engine data + native library.
 android.sourceSets.getByName("main").assets.srcDirs("src/main/assets")
 android.sourceSets.getByName("main").jniLibs.srcDirs("src/main/jniLibs")
+
+// CRAFTIX permanent release key, decoded from GitHub Secrets into RUNNER_TEMP.
+// No key material is stored in the repository and no value is ever printed.
+val craftixKeystore = System.getenv("CRAFTIX_KEYSTORE_FILE")
+val craftixStorePassword = System.getenv("CRAFTIX_STORE_PASSWORD")
+val craftixKeyAlias = System.getenv("CRAFTIX_KEY_ALIAS")
+val craftixKeyPassword = System.getenv("CRAFTIX_KEY_PASSWORD")
+if (listOf(craftixKeystore, craftixStorePassword, craftixKeyAlias, craftixKeyPassword).any { it.isNullOrBlank() }) {
+    throw GradleException("CRAFTIX release secrets are required; no debug/new key fallback is allowed")
+}
+android.signingConfigs.create("craftix") {
+    storeFile = file(craftixKeystore!!)
+    storePassword = craftixStorePassword
+    keyAlias = craftixKeyAlias
+    keyPassword = craftixKeyPassword
+}
+android.buildTypes.getByName("release").signingConfig = android.signingConfigs.getByName("craftix")
 """
         else:
             text += """
 // Phase 13: real Rust engine data + native library.
 android.sourceSets.main.assets.srcDirs += ['src/main/assets']
 android.sourceSets.main.jniLibs.srcDirs += ['src/main/jniLibs']
+
+// CRAFTIX permanent release key, decoded from GitHub Secrets into RUNNER_TEMP.
+def craftixKeystore = System.getenv('CRAFTIX_KEYSTORE_FILE')
+def craftixStorePassword = System.getenv('CRAFTIX_STORE_PASSWORD')
+def craftixKeyAlias = System.getenv('CRAFTIX_KEY_ALIAS')
+def craftixKeyPassword = System.getenv('CRAFTIX_KEY_PASSWORD')
+if ([craftixKeystore, craftixStorePassword, craftixKeyAlias, craftixKeyPassword].any { !it }) {
+    throw new GradleException('CRAFTIX release secrets are required; no debug/new key fallback is allowed')
+}
+android.signingConfigs {
+    craftix {
+        storeFile file(craftixKeystore)
+        storePassword craftixStorePassword
+        keyAlias craftixKeyAlias
+        keyPassword craftixKeyPassword
+    }
+}
+android.buildTypes.release.signingConfig = android.signingConfigs.craftix
 """
         path.write_text(text, encoding="utf-8")
-        print(f"patched {name}: applicationId=dev.horizon.android, minSdk=28, version 0.7.7/29", flush=True)
+        print(f"patched {name}: applicationId=com.craftix.launcher, minSdk=28, version 0.7.8/30", flush=True)
 
 
 def stage() -> None:

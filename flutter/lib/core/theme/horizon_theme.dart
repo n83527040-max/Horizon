@@ -4,14 +4,14 @@ import 'package:flutter/services.dart';
 /// Centralized design system. The palette follows the supplied reference:
 /// dark navy, neon purple, electric blue, cyan, dark blue cards.
 abstract final class HorizonPalette {
-  static const Color background = Color(0xFF080B1D);
-  static const Color primary = Color(0xFF8B35FF);
-  static const Color secondary = Color(0xFF3565FF);
-  static const Color accent = Color(0xFF20DDF5);
+  static const Color background = Color(0xFF070B1D);
+  static const Color primary = Color(0xFF8B35F5);
+  static const Color secondary = Color(0xFF315BFF);
+  static const Color accent = Color(0xFF22D3EE);
   static const Color card = Color(0xFF111B38);
   static const Color border = Color(0xFF2A3565);
-  static const Color textPrimary = Color(0xFFFFFFFF);
-  static const Color textSecondary = Color(0xFFAAB6D3);
+  static const Color textPrimary = Color(0xFFF7F8FF);
+  static const Color textSecondary = Color(0xFFA8B1CC);
   static const Color danger = Color(0xFFFF5C7A);
   static const Color success = Color(0xFF35E0A1);
 
@@ -23,7 +23,7 @@ abstract final class HorizonPalette {
   static const LinearGradient heroGradient = LinearGradient(
     begin: Alignment.topCenter,
     end: Alignment.bottomCenter,
-    colors: <Color>[Color(0x00080B1D), Color(0xCC080B1D)],
+    colors: <Color>[Color(0x00070B1D), Color(0xCC070B1D)],
   );
 }
 

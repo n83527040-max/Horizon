@@ -62,10 +62,12 @@ def main() -> int:
 
     badging = run([args.aapt2, "dump", "badging", str(args.apk)])
     report["badging"] = badging.strip().splitlines()[:4]
-    if "name='dev.horizon.android'" not in badging:
-        errors.append("package name is not dev.horizon.android")
-    if "versionCode='29'" not in badging or "versionName='0.7.7'" not in badging:
-        errors.append("versionCode/versionName are not 29 / 0.7.7")
+    if "name='com.craftix.launcher'" not in badging:
+        errors.append("package name is not com.craftix.launcher")
+    if "versionCode='30'" not in badging or "versionName='0.7.8'" not in badging:
+        errors.append("versionCode/versionName are not 30 / 0.7.8")
+    if "application-label:'CRAFTIX'" not in badging:
+        errors.append("CRAFTIX app label is missing from the binary manifest")
     if not re.search(r"(?:sdkVersion|minSdkVersion):'28'", badging):
         errors.append("minSdk is not 28")
 
@@ -91,6 +93,11 @@ def main() -> int:
         errors.append("APK is not signed with v2")
     if report["signer_count"] != "1":
         errors.append(f"unexpected signer count: {report['signer_count']}")
+
+    public_cert = re.search(r"Signer #1 certificate SHA-256 digest: ([0-9a-f]{64})", signature)
+    report["signerCertificateSha256"] = public_cert.group(1) if public_cert else None
+    if not public_cert:
+        errors.append("public signer certificate fingerprint could not be read")
 
     report["sha256"] = hashlib.sha256(args.apk.read_bytes()).hexdigest()
     report["passed"] = not errors

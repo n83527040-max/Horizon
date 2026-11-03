@@ -110,7 +110,7 @@ def main() -> int:
 
     if args.write and passed == len(checks):
         lines = [
-            "# مصفوفة اختبارات الإجراءات الـ49 — HORIZON 0.7.7",
+            "# مصفوفة اختبارات الإجراءات الـ49 — CRAFTIX 0.7.8",
             "",
             "المصدر: `tools/verify_action_matrix.py`. **العمود `device` دائماً `NOT TESTED`**؛",
             "نجاح CI يعني فحصاً مصدرياً/وحدوياً/Widget/API/ثنائياً، لا ضغطة زر على هاتف.",

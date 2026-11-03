@@ -5,10 +5,10 @@ import 'package:horizon_launcher/core/theme/horizon_theme.dart';
 
 void main() {
   test('palette matches the supplied reference identity', () {
-    expect(HorizonPalette.background, const Color(0xFF080B1D));
-    expect(HorizonPalette.primary, const Color(0xFF8B35FF));
-    expect(HorizonPalette.secondary, const Color(0xFF3565FF));
-    expect(HorizonPalette.accent, const Color(0xFF20DDF5));
+    expect(HorizonPalette.background, const Color(0xFF070B1D));
+    expect(HorizonPalette.primary, const Color(0xFF8B35F5));
+    expect(HorizonPalette.secondary, const Color(0xFF315BFF));
+    expect(HorizonPalette.accent, const Color(0xFF22D3EE));
     expect(HorizonPalette.card, const Color(0xFF111B38));
   });
 
@@ -43,6 +43,13 @@ void main() {
       expect(m.heroHeight, inInclusiveRange(150.0, 260.0));
       expect(m.fontScale, inInclusiveRange(0.88, 1.18));
     }
+  });
+
+  test('CRAFTIX identity is applied in both languages', () {
+    expect(HorizonStrings.of('en').t('appName'), 'CRAFTIX');
+    expect(HorizonStrings.of('ar').t('appName'), 'CRAFTIX');
+    expect(HorizonStrings.of('en').t('appSubtitle'), 'Minecraft Java • Android');
+    expect(HorizonStrings.of('en').t('tagline'), 'BUILD • PLAY • EXPLORE');
   });
 
   test('language is a real applied setting', () {

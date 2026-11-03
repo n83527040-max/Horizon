@@ -42,6 +42,9 @@
 *.aab
 *.keystore
 *.jks
+*.base64
+signing.properties
+craftix-release.*
 .env
 .env.*
 !.env.example

@@ -34,6 +34,9 @@ class FakeBridge implements LauncherBridge {
   Future<BridgeResult> cancel() async => const BridgeResult(true, 'Cancelled');
 
   @override
+  Future<BridgeResult> installStart() async => const BridgeResult(true, 'Download started');
+
+  @override
   Stream<Map<String, Object?>> get events => Stream<Map<String, Object?>>.empty();
 }
 
@@ -47,9 +50,19 @@ LauncherSnapshot fixture({
   double? progress,
   List<LauncherAccount> accounts = const <LauncherAccount>[],
   List<CatalogProject>? results,
+  bool? installReady,
+  bool installActive = false,
+  String? installStage,
+  int installDone = 0,
+  int installTotal = 0,
+  int? installPercent,
+  int? installSpeedBps,
+  int? installEtaSeconds,
+  int installMilestone = 0,
+  String? installError,
 }) {
   return LauncherSnapshot(
-    appVersion: '0.7.6',
+    appVersion: '0.7.8',
     gameVersion: '26.3',
     profileName: rich ? 'Player' : null,
     accountStatus: rich ? 'Offline: Player' : null,
@@ -111,6 +124,16 @@ LauncherSnapshot fixture({
     pending: pending,
     progress: progress,
     accounts: accounts,
+    installReady: installReady ?? rich,
+    installActive: installActive,
+    installStage: installStage,
+    installDone: installDone,
+    installTotal: installTotal,
+    installPercent: installPercent,
+    installSpeedBps: installSpeedBps,
+    installEtaSeconds: installEtaSeconds,
+    installMilestone: installMilestone,
+    installError: installError,
     activePage: 'Mods',
     storageBytes: rich ? 123456789 : null,
     cacheBytes: rich ? 45678901 : null,

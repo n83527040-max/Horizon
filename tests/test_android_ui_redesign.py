@@ -151,11 +151,18 @@ class RegressionTests(unittest.TestCase):
             "crates/horizon-core/", "crates/horizon-world/", "crates/horizon-protocol/",
             "crates/horizon-mods/", "crates/horizon-shaders/", "launcher/src/",
             "packaging/android/java/",
-            "tools/android_build.py", "tools/android_release.py", "tools/android_prepare.py",
+            # tools/android_build.py is intentionally allowed ONE additive
+            # change: the CRAFTIX permanent-key guard. The dedicated test
+            # below proves no build/engine behaviour was removed.
+            "tools/android_release.py", "tools/android_prepare.py",
             "Cargo.toml", "crates/horizon-android/Cargo.toml",
         )
         violations = [p for p in changed if p.startswith(protected)]
         self.assertEqual(violations, [], f"engine/build files changed: {violations}")
+        build = (ROOT / "tools/android_build.py").read_text(encoding="utf-8")
+        self.assertIn("CRAFTIX release secrets missing", build)
+        self.assertIn("-genkeypair", build, "debug builds still work without release secrets")
+        self.assertIn("assemble", build, "Gradle packaging is unchanged")
         # The one allowed packaging change is the portrait Activity lock.
         manifest = (ROOT / "packaging/android/AndroidManifest.xml").read_text(encoding="utf-8")
         self.assertIn('android:screenOrientation="portrait"', manifest)

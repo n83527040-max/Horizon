@@ -6,6 +6,7 @@ import '../../core/bridge/models.dart';
 import '../../core/state/providers.dart';
 import '../../core/theme/horizon_strings.dart';
 import '../../core/theme/horizon_motion.dart';
+import '../../core/theme/craftix_runner_progress.dart';
 import '../../core/theme/horizon_theme.dart';
 import '../../core/widgets/horizon_widgets.dart';
 import '../dialogs/dialogs.dart';
@@ -33,11 +34,7 @@ class HomePage extends ConsumerWidget {
               child: _Hero(height: m.heroHeight, gameVersion: d.gameVersion),
             ),
             const SizedBox(height: 14),
-            GradientButton(
-              label: s.t('play'),
-              icon: Icons.play_arrow_rounded,
-              onTap: () => ActionRunner(ref, context).run(HorizonAction.Play),
-            ),
+            _ActionSlot(d: d, s: s),
             const SizedBox(height: 14),
             Row(
               children: <Widget>[
@@ -151,7 +148,7 @@ class _Hero extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: <Widget>[
-                  const Text('HORIZON', style: TextStyle(fontSize: 26, fontWeight: FontWeight.w900, color: Colors.white, letterSpacing: 1)),
+                  const Text('CRAFTIX', style: TextStyle(fontSize: 26, fontWeight: FontWeight.w900, color: Colors.white, letterSpacing: 1)),
                   Text('Minecraft Java Edition${gameVersion.isEmpty ? '' : ' • $gameVersion'}',
                       maxLines: 1, overflow: TextOverflow.ellipsis,
                       style: const TextStyle(fontSize: 12, color: Colors.white70)),
@@ -295,4 +292,163 @@ class _PerformanceCard extends StatelessWidget {
   }
 
   static String _gib(int mb) => mb >= 1024 ? '${(mb / 1024).toStringAsFixed(1)} GB' : '$mb MB';
+}
+
+
+/// One STABLE action slot: Download -> real progress -> Play. No route change,
+/// no resize, no orientation change. Fixed height keeps the rest of Home still.
+class _ActionSlot extends ConsumerWidget {
+  const _ActionSlot({required this.d, required this.s});
+
+  final LauncherSnapshot d;
+  final HorizonStrings s;
+
+  static const double _slotHeight = 178;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) => SizedBox(
+        height: _slotHeight,
+        width: double.infinity,
+        child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 220),
+          switchInCurve: Curves.easeOut,
+          switchOutCurve: Curves.easeIn,
+          child: _child(context, ref),
+        ),
+      );
+
+  Widget _child(BuildContext context, WidgetRef ref) {
+    if (d.installError != null && !d.installActive) {
+      return KeyedSubtree(
+        key: const ValueKey<String>('download-error'),
+        child: _MessageCard(
+          title: s.t('downloadFailed'),
+          message: s.native(d.installError!),
+          icon: Icons.error_outline_rounded,
+          action: s.t('retry'),
+          onTap: () => _start(context, ref),
+        ),
+      );
+    }
+    if (d.installActive) {
+      return KeyedSubtree(
+        key: const ValueKey<String>('downloading'),
+        child: CraftixRunnerProgress(
+          progress: d.installFraction,
+          stage: d.installStage == null ? null : s.native(d.installStage!),
+          doneBytes: d.installDone,
+          totalBytes: d.installTotal,
+          speedBytesPerSecond: d.installSpeedBps,
+          etaSeconds: d.installEtaSeconds,
+          milestone: d.installMilestone,
+          label: s.t('downloading'),
+        ),
+      );
+    }
+    if (!d.installReady) {
+      return KeyedSubtree(
+        key: const ValueKey<String>('download'),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: <Widget>[
+            Text(
+              s.t('downloadHint').replaceAll('{version}', d.gameVersion),
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 11.5, color: HorizonPalette.textSecondary),
+            ),
+            const SizedBox(height: 12),
+            GradientButton(
+              label: s.t('download'),
+              icon: Icons.download_rounded,
+              onTap: () => _start(context, ref),
+            ),
+            const SizedBox(height: 8),
+            Text(s.t('tagline'), textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 10, letterSpacing: 1.6, color: HorizonPalette.textSecondary)),
+          ],
+        ),
+      );
+    }
+    return KeyedSubtree(
+      key: const ValueKey<String>('ready'),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: <Widget>[
+          GradientButton(
+            label: s.t('play'),
+            icon: Icons.play_arrow_rounded,
+            onTap: () => ActionRunner(ref, context).run(HorizonAction.Play),
+          ),
+          const SizedBox(height: 10),
+          Text(s.t('downloadComplete'), textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 11, color: HorizonPalette.success)),
+          const SizedBox(height: 4),
+          Text(s.t('tagline'), textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 10, letterSpacing: 1.6, color: HorizonPalette.textSecondary)),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _start(BuildContext context, WidgetRef ref) async {
+    Object? error;
+    try {
+      final BridgeResult result = await ref.read(bridgeProvider).installStart();
+      error = result.ok ? null : result.message;
+      ref.invalidate(snapshotProvider);
+    } on Object catch (e) {
+      error = e;
+    }
+    if (error != null && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('$error'),
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.fromLTRB(16, 0, 16, 82),
+          backgroundColor: HorizonPalette.danger,
+        ),
+      );
+    }
+  }
+}
+
+class _MessageCard extends StatelessWidget {
+  const _MessageCard({
+    required this.title,
+    required this.message,
+    required this.icon,
+    required this.action,
+    required this.onTap,
+  });
+
+  final String title;
+  final String message;
+  final IconData icon;
+  final String action;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => HorizonCard(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: <Widget>[
+            Icon(icon, color: HorizonPalette.danger, size: 26),
+            const SizedBox(height: 8),
+            Text(title, textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800)),
+            const SizedBox(height: 4),
+            Text(message, textAlign: TextAlign.center, maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 11, color: HorizonPalette.textSecondary)),
+            const SizedBox(height: 10),
+            Align(
+              alignment: Alignment.center,
+              child: HorizonChip(label: action, icon: Icons.refresh_rounded, onTap: onTap),
+            ),
+          ],
+        ),
+      );
 }

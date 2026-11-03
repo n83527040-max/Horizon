@@ -20,6 +20,7 @@ EXPECTED = (
     "Java_dev_horizon_android_HorizonEngine_nativeCancel",
     "Java_dev_horizon_android_HorizonEngine_nativeShutdown",
     "Java_dev_horizon_android_HorizonEngine_nativeImportStaged",
+    "Java_dev_horizon_android_HorizonEngine_nativeInstallStart",
     "Java_dev_horizon_android_HorizonActivity_nativeDocumentResult",
     "Java_dev_horizon_android_HorizonDocumentsProvider_nativeCall",
     "Java_dev_horizon_android_HorizonDocumentsProvider_nativeOpen",

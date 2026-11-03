@@ -18,6 +18,8 @@ abstract interface class LauncherBridge {
     Map<String, Object?> args = const <String, Object?>{},
   });
   Future<BridgeResult> cancel();
+  /// Starts the real Rust `official_install::install_with_progress` worker.
+  Future<BridgeResult> installStart();
   Stream<Map<String, Object?>> get events;
 }
 
@@ -54,6 +56,12 @@ class MethodChannelLauncherBridge implements LauncherBridge {
   @override
   Future<BridgeResult> cancel() async {
     final Object? reply = await channel.invokeMethod<Object?>('cancel');
+    return BridgeResult.fromJson(reply);
+  }
+
+  @override
+  Future<BridgeResult> installStart() async {
+    final Object? reply = await channel.invokeMethod<Object?>('installStart');
     return BridgeResult.fromJson(reply);
   }
 

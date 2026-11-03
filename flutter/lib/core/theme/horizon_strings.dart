@@ -1,7 +1,7 @@
 import 'dart:ui' show Locale;
 
 /// Complete real localization catalog for the launcher. Brand/product names
-/// (HORIZON, Minecraft Java, Modrinth) stay as proper nouns; every UI sentence
+/// (CRAFTIX, Minecraft Java, Modrinth) stay as proper nouns; every UI sentence
 /// has an Arabic counterpart. `native()` maps REAL native status messages only;
 /// unknown native text is returned verbatim, never invented.
 class HorizonStrings {
@@ -42,13 +42,23 @@ class HorizonStrings {
       'Offline name saved': 'تم حفظ الاسم دون اتصال',
       'Signed out. Offline play is available.': 'تم تسجيل الخروج؛ اللعب دون اتصال متاح',
       'Real Rust engine bridge ready': 'جسر المحرك الحقيقي جاهز',
+      'Download started': 'بدأ التنزيل',
+      'Already installed': 'الملفات مثبّتة بالفعل',
+      'Download already running': 'التنزيل جارٍ بالفعل',
+      'Checking Minecraft version': 'جارٍ التحقق من إصدار Minecraft',
+      'Downloading game resources and sound': 'جارٍ تنزيل موارد اللعبة والصوت',
+      'Unpacking verified files': 'جارٍ فك الملفات المتحقّق منها',
+      'Preparing worlds and registries': 'جارٍ تجهيز العوالم والسجلات',
+      'Downloading touch controls': 'جارٍ تنزيل أدوات التحكم باللمس',
+      'Finishing installation': 'جارٍ إنهاء التثبيت',
     },
   };
 
   static const Map<String, Map<String, String>> _catalog = <String, Map<String, String>>{
     'en': <String, String>{
-      'appName': 'HORIZON',
+      'appName': 'CRAFTIX',
       'appSubtitle': 'Minecraft Java • Android',
+      'tagline': 'BUILD • PLAY • EXPLORE',
       'home': 'Home',
       'mods': 'Mods',
       'packs': 'Packs',
@@ -56,6 +66,18 @@ class HorizonStrings {
       'installed': 'Installed',
       'settings': 'Settings',
       'shaders': 'Shaders',
+      'download': 'Download',
+      'downloadHint': 'Minecraft runtime, game files and assets for {version}',
+      'downloading': 'Downloading Minecraft…',
+      'downloadComplete': 'Ready to play',
+      'downloadFailed': 'Download failed',
+      'downloadPhase': 'Phase',
+      'downloadedOf': '{done} / {total}',
+      'downloadSpeed': '{speed}/s',
+      'downloadEta': '~ {eta} left',
+      'unknownSize': 'Size unknown',
+      'checkResources': 'Checking installed resources…',
+      'launchError': 'The game could not be launched',
       'play': 'Play',
       'version': 'Minecraft',
       'profile': 'Profile',
@@ -114,7 +136,7 @@ class HorizonStrings {
       'storage': 'Storage',
       'cache': 'Cache management',
       'clearCache': 'Clear app cache',
-      'about': 'About HORIZON',
+      'about': 'About CRAFTIX',
       'appVersion': 'App version',
       'orientation': 'Orientation',
       'server': 'Server',
@@ -159,11 +181,12 @@ class HorizonStrings {
       'installedState': 'Installed',
       'projectDetails': 'Project details',
       'notInstallable': 'Not compatible',
-      'footerNote': 'Flutter host · engine, Vulkan, accounts, mods and files stay native.',
+      'footerNote': 'CRAFTIX · engine, Vulkan, accounts, mods and files stay native.',
     },
     'ar': <String, String>{
-      'appName': 'HORIZON',
+      'appName': 'CRAFTIX',
       'appSubtitle': 'Minecraft Java • Android',
+      'tagline': 'ابنِ • العب • استكشف',
       'home': 'الرئيسية',
       'mods': 'المودات',
       'packs': 'الحزم',
@@ -171,6 +194,18 @@ class HorizonStrings {
       'installed': 'المثبّت',
       'settings': 'الإعدادات',
       'shaders': 'الشيدرات',
+      'download': 'تنزيل',
+      'downloadHint': 'ملفات وقت تشغيل Minecraft والأصول للإصدار {version}',
+      'downloading': 'جارٍ تنزيل Minecraft…',
+      'downloadComplete': 'جاهز للعب',
+      'downloadFailed': 'فشل التنزيل',
+      'downloadPhase': 'المرحلة',
+      'downloadedOf': '{done} / {total}',
+      'downloadSpeed': '{speed}/ث',
+      'downloadEta': '~ {eta} متبقٍ',
+      'unknownSize': 'الحجم غير معروف',
+      'checkResources': 'جارٍ فحص الموارد المثبّتة…',
+      'launchError': 'تعذّر تشغيل اللعبة',
       'play': 'تشغيل',
       'version': 'Minecraft',
       'profile': 'الملف الشخصي',
@@ -229,7 +264,7 @@ class HorizonStrings {
       'storage': 'التخزين',
       'cache': 'إدارة الذاكرة المؤقتة',
       'clearCache': 'مسح ذاكرة التطبيق المؤقتة',
-      'about': 'عن HORIZON',
+      'about': 'عن CRAFTIX',
       'appVersion': 'إصدار التطبيق',
       'orientation': 'الاتجاه',
       'server': 'الخادم',
@@ -274,7 +309,7 @@ class HorizonStrings {
       'installedState': 'مثبّت',
       'projectDetails': 'تفاصيل المشروع',
       'notInstallable': 'غير متوافق',
-      'footerNote': 'واجهة Flutter · المحرك وVulkan والحسابات والملفات تبقى أصلية.',
+      'footerNote': 'CRAFTIX · المحرك وVulkan والحسابات والملفات تبقى أصلية.',
     },
   };
 }

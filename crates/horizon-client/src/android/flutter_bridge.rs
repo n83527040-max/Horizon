@@ -26,7 +26,7 @@ use std::{
         Arc, Mutex, OnceLock,
         atomic::{AtomicBool, Ordering},
     },
-    time::Duration,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 struct Engine {
@@ -47,6 +47,47 @@ struct Engine {
 
 static STATE: OnceLock<Mutex<Option<Engine>>> = OnceLock::new();
 static POLLER: AtomicBool = AtomicBool::new(false);
+
+/// Real state of the engine's OWN Minecraft resource installer. No synthetic
+/// progress: every value comes from `official_install::install_with_progress`.
+struct InstallState {
+    active: bool,
+    stage: String,
+    done: u64,
+    total: u64,
+    error: String,
+    speed_bps: u64,
+    eta_seconds: u64,
+    last_done: u64,
+    last_ms: u64,
+    finished_ready: bool,
+}
+
+static INSTALL: OnceLock<Mutex<InstallState>> = OnceLock::new();
+
+fn install() -> &'static Mutex<InstallState> {
+    INSTALL.get_or_init(|| {
+        Mutex::new(InstallState {
+            active: false,
+            stage: String::new(),
+            done: 0,
+            total: 0,
+            error: String::new(),
+            speed_bps: 0,
+            eta_seconds: 0,
+            last_done: 0,
+            last_ms: 0,
+            finished_ready: false,
+        })
+    })
+}
+
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
 
 fn state() -> &'static Mutex<Option<Engine>> {
     STATE.get_or_init(|| Mutex::new(None))
@@ -335,6 +376,16 @@ fn snapshot(e: &Engine) -> Value {
         "storageBytes": content_bytes.values().filter_map(|v| v.as_u64()).sum::<u64>(),
         "cacheBytes": dir_size(&e.cache),
         "contentBytes": content_bytes,
+        "installReady": install_ready(&e.home),
+        "installActive": install_active(),
+        "installStage": install_stage(),
+        "installDone": install_done(),
+        "installTotal": install_total(),
+        "installPercent": install_percent(),
+        "installSpeedBps": install_speed(),
+        "installEtaSeconds": install_eta(),
+        "installMilestone": install_milestone(),
+        "installError": install_error(),
         "engineBridgeReady": true,
         "pending": e.catalog.busy() || e.catalog.searching() || e.sign_in.is_some(),
         "loginCode": e.login_code,
@@ -345,6 +396,36 @@ fn snapshot(e: &Engine) -> Value {
 
 /// Drain the real workers. Runs on a Rust-owned thread, never on the JNI caller,
 /// so `flutter pub` snapshot polling can never be blocked by a download.
+fn install_field<T>(f: impl FnOnce(&InstallState) -> T) -> T {
+    let s = install().lock().unwrap_or_else(|e| e.into_inner());
+    f(&s)
+}
+fn install_ready(home: &Path) -> bool {
+    horizon_client::official_install::ready(home)
+        || install_field(|s| s.finished_ready)
+}
+fn install_active() -> bool { install_field(|s| s.active) }
+fn install_stage() -> Option<String> {
+    install_field(|s| if s.stage.is_empty() { None } else { Some(s.stage.clone()) })
+}
+fn install_done() -> u64 { install_field(|s| s.done) }
+fn install_total() -> u64 { install_field(|s| s.total) }
+fn install_percent() -> Option<u8> {
+    install_field(|s| rules::download_percent(s.done, s.total))
+}
+fn install_speed() -> Option<u64> {
+    install_field(|s| (s.speed_bps > 0).then_some(s.speed_bps))
+}
+fn install_eta() -> Option<u64> {
+    install_field(|s| (s.eta_seconds > 0).then_some(s.eta_seconds))
+}
+fn install_milestone() -> u8 {
+    install_field(|s| rules::milestone(s.done, s.total))
+}
+fn install_error() -> Option<String> {
+    install_field(|s| if s.error.is_empty() { None } else { Some(s.error.clone()) })
+}
+
 fn poll_loop(shutdown: Arc<AtomicBool>) {
     while !shutdown.load(Ordering::Relaxed) {
         {
@@ -1023,6 +1104,88 @@ extern "system" fn Java_dev_horizon_android_HorizonEngine_nativeInit(
             Err(error) => failure(error),
         },
     )
+}
+
+#[unsafe(no_mangle)]
+extern "system" fn Java_dev_horizon_android_HorizonEngine_nativeInstallStart(
+    mut env: JNIEnv<'_>,
+    _class: JClass<'_>,
+) -> jstring {
+    let value = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Value {
+        let home = {
+            let slot = state().lock().unwrap_or_else(|e| e.into_inner());
+            match slot.as_ref() {
+                Some(e) => e.home.clone(),
+                None => return failure("Engine bridge is not initialized"),
+            }
+        };
+        if horizon_client::official_install::ready(&home) {
+            let mut s = install().lock().unwrap_or_else(|e| e.into_inner());
+            s.error.clear();
+            s.finished_ready = true;
+            return success("Already installed", false);
+        }
+        {
+            let mut s = install().lock().unwrap_or_else(|e| e.into_inner());
+            if s.active {
+                return failure("Download already running");
+            }
+            s.active = true;
+            s.error.clear();
+            s.done = 0;
+            s.total = 0;
+            s.speed_bps = 0;
+            s.eta_seconds = 0;
+            s.last_done = 0;
+            s.last_ms = now_ms();
+            s.stage = horizon_client::official_install::InstallStage::Metadata
+                .label()
+                .to_string();
+            s.finished_ready = false;
+        }
+        let worker_home = home.clone();
+        let spawned = std::thread::Builder::new()
+            .name("craftix-installer".into())
+            .spawn(move || {
+                let result = horizon_client::official_install::install_with_progress(
+                    &worker_home,
+                    |p: horizon_client::official_install::InstallProgress| {
+                        let mut s = install().lock().unwrap_or_else(|e| e.into_inner());
+                        s.stage = p.stage.label().to_string();
+                        s.done = p.done;
+                        s.total = p.total;
+                        let now = now_ms();
+                        let delta_ms = now.saturating_sub(s.last_ms);
+                        let delta_bytes = p.done.saturating_sub(s.last_done);
+                        if let Some(speed) = rules::transfer_speed(delta_bytes, delta_ms) {
+                            s.speed_bps = speed;
+                            s.eta_seconds = rules::eta_seconds(
+                                p.total.saturating_sub(p.done),
+                                speed,
+                            )
+                            .unwrap_or(0);
+                        }
+                        if delta_ms >= 500 {
+                            s.last_ms = now;
+                            s.last_done = p.done;
+                        }
+                    },
+                );
+                let mut s = install().lock().unwrap_or_else(|e| e.into_inner());
+                s.active = false;
+                s.error = result.err().map(|e| e.to_string()).unwrap_or_default();
+                s.finished_ready = horizon_client::official_install::ready(&worker_home);
+            });
+        if spawned.is_err() {
+            let mut s = install().lock().unwrap_or_else(|e| e.into_inner());
+            s.active = false;
+            s.error = "Could not start the installer thread".into();
+            return failure(s.error.clone());
+        }
+        success("Download started", true)
+    }))
+    .unwrap_or_else(|_| failure("Installer panicked"));
+    answer(&mut env, value)
 }
 
 #[unsafe(no_mangle)]

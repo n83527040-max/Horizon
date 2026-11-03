@@ -37,6 +37,16 @@ class LauncherSnapshot {
     this.filterVersion,
     this.filterLoader,
     this.accounts = const <LauncherAccount>[],
+    this.installReady = false,
+    this.installActive = false,
+    this.installStage,
+    this.installDone = 0,
+    this.installTotal = 0,
+    this.installPercent,
+    this.installSpeedBps,
+    this.installEtaSeconds,
+    this.installMilestone = 0,
+    this.installError,
   });
 
   final String appVersion;
@@ -76,6 +86,23 @@ class LauncherSnapshot {
   final String? filterVersion;
   final String? filterLoader;
   final List<LauncherAccount> accounts;
+
+  /// REAL Minecraft resource installer state. Nullable values are genuinely
+  /// unknown (total size, speed, ETA), never fabricated.
+  final bool installReady;
+  final bool installActive;
+  final String? installStage;
+  final int installDone;
+  final int installTotal;
+  final int? installPercent;
+  final int? installSpeedBps;
+  final int? installEtaSeconds;
+  final int installMilestone;
+  final String? installError;
+
+  /// null when the downloader has not supplied a total size yet.
+  double? get installFraction =>
+      installPercent == null ? null : installPercent! / 100.0;
 
   bool get hasError => errorKind != 'none' && errorKind != 'other';
 
@@ -137,6 +164,16 @@ class LauncherSnapshot {
       activePage: text(raw['activePage']),
       filterVersion: text(raw['filterVersion']),
       filterLoader: text(raw['filterLoader']),
+      installReady: raw['installReady'] == true,
+      installActive: raw['installActive'] == true,
+      installStage: text(raw['installStage']),
+      installDone: integer(raw['installDone']) ?? 0,
+      installTotal: integer(raw['installTotal']) ?? 0,
+      installPercent: integer(raw['installPercent']),
+      installSpeedBps: integer(raw['installSpeedBps']),
+      installEtaSeconds: integer(raw['installEtaSeconds']),
+      installMilestone: integer(raw['installMilestone']) ?? 0,
+      installError: text(raw['installError']),
       accounts: list(raw['accounts'])
           .whereType<Map<Object?, Object?>>()
           .map(LauncherAccount.fromJson)

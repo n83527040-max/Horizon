@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- CRAFTIX splash: deep navy with the real launcher icon, no fake artwork. -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:drawable="@android:color/black" />
+    <item android:drawable="@color/ic_launcher_background" />
     <item>
-        <bitmap android:gravity="center" android:src="@drawable/launcher_icon" />
+        <bitmap android:gravity="center" android:src="@mipmap/ic_launcher" />
     </item>
 </layer-list>

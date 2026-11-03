@@ -1,14 +1,32 @@
+// CRAFTIX release build. Signing material NEVER lives in the repository:
+// the four CRAFTIX_* values are injected by GitHub Actions from repository
+// secrets into environment variables, decoded to $RUNNER_TEMP, and removed
+// after the build. Debug builds still work without any release secret.
 plugins { id 'com.android.application' version '8.11.1' }
 
+def craftixKeystore = System.getenv('CRAFTIX_KEYSTORE_FILE')
+def craftixStorePassword = System.getenv('CRAFTIX_STORE_PASSWORD')
+def craftixKeyAlias = System.getenv('CRAFTIX_KEY_ALIAS')
+def craftixKeyPassword = System.getenv('CRAFTIX_KEY_PASSWORD')
+def releaseRequested = gradle.startParameter.taskNames.any {
+    it.toLowerCase().contains('release')
+}
+if (releaseRequested && !(craftixKeystore && craftixStorePassword && craftixKeyAlias && craftixKeyPassword)) {
+    throw new GradleException(
+        'CRAFTIX release secrets are required for a Release build: ' +
+        'CRAFTIX_KEYSTORE_FILE / CRAFTIX_STORE_PASSWORD / CRAFTIX_KEY_ALIAS / CRAFTIX_KEY_PASSWORD. ' +
+        'No fallback debug or newly generated key is allowed.')
+}
+
 android {
-    namespace 'dev.horizon.android'
+    namespace 'com.craftix.launcher'
     compileSdk 35
     defaultConfig {
-        applicationId providers.gradleProperty('appId').getOrElse('dev.horizon.android')
+        applicationId providers.gradleProperty('appId').getOrElse('com.craftix.launcher')
         minSdk providers.gradleProperty('minSdk').getOrElse('28').toInteger()
         targetSdk 35
-        versionCode 29
-        versionName '0.7.7'
+        versionCode 30
+        versionName '0.7.8'
         ndk { abiFilters providers.gradleProperty('abi').get() }
     }
     signingConfigs {
@@ -17,6 +35,14 @@ android {
             storePassword 'android'
             keyAlias 'androiddebugkey'
             keyPassword 'android'
+        }
+        if (craftixKeystore) {
+            craftix {
+                storeFile file(craftixKeystore)
+                storePassword craftixStorePassword
+                keyAlias craftixKeyAlias
+                keyPassword craftixKeyPassword
+            }
         }
     }
     buildTypes {
@@ -29,9 +55,8 @@ android {
             debuggable false
             jniDebuggable false
             minifyEnabled false
-            // Retain the existing installation's signing identity for upgrades.
-            // Only the public certificate enters the APK; the key stays in .local/.
-            signingConfig signingConfigs.development
+            // Permanent key policy: only the owner's CRAFTIX keystore.
+            signingConfig craftixKeystore ? signingConfigs.craftix : null
         }
     }
     sourceSets.main {

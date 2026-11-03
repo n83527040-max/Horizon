@@ -195,9 +195,22 @@ def main():
         (assets / 'bedrock-controls.zip').unlink(missing_ok=True)
     else:
         shutil.copyfile(controls, assets / 'bedrock-controls.zip')
-    key = ROOT / '.local/android/debug.keystore'
-    if not key.exists():
-        run([args.java_home / 'bin' / ('keytool' + suffix), '-genkeypair', '-keystore', key, '-storepass', 'android', '-keypass', 'android', '-alias', 'androiddebugkey', '-keyalg', 'RSA', '-validity', '3650', '-dname', 'CN=Horizon Android Development'])
+    # Release builds MUST use the owner's permanent CRAFTIX keystore, injected
+    # from GitHub Secrets via CRAFTIX_KEYSTORE_FILE. Never generate a key for a
+    # release and never fall back to the debug key.
+    if args.release_candidate:
+        missing = [name for name in (
+            'CRAFTIX_KEYSTORE_FILE', 'CRAFTIX_STORE_PASSWORD',
+            'CRAFTIX_KEY_ALIAS', 'CRAFTIX_KEY_PASSWORD',
+        ) if not environment.get(name)]
+        if missing:
+            raise RuntimeError('CRAFTIX release secrets missing: ' + ', '.join(missing))
+        if not Path(environment['CRAFTIX_KEYSTORE_FILE']).is_file():
+            raise RuntimeError('CRAFTIX_KEYSTORE_FILE does not exist (decode the secret in CI first)')
+    else:
+        key = ROOT / '.local/android/debug.keystore'
+        if not key.exists():
+            run([args.java_home / 'bin' / ('keytool' + suffix), '-genkeypair', '-keystore', key, '-storepass', 'android', '-keypass', 'android', '-alias', 'androiddebugkey', '-keyalg', 'RSA', '-validity', '3650', '-dname', 'CN=CRAFTIX Android Development'])
     gradle = args.gradle
     if gradle is None:
         candidates = list((Path.home() / '.gradle/wrapper/dists/gradle-8.14-all').glob('*/gradle-8.14/bin/gradle' + ('.bat' if os.name == 'nt' else '')))

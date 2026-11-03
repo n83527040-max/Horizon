@@ -37,7 +37,7 @@ void main() {
 
   test('snapshot surfaces real pending state and Microsoft device code', () {
     final LauncherSnapshot s = LauncherSnapshot.fromJson(const <Object?, Object?>{
-      'appVersion': '0.7.6',
+      'appVersion': '0.7.8',
       'gameVersion': '26.3',
       'engineBridgeReady': true,
       'pending': true,

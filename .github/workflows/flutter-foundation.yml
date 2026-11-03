@@ -9,6 +9,10 @@ on:
       - 'tools/verify_flutter_foundation.py'
       - 'tools/verify_flutter_migration_audit.py'
       - 'tools/verify_flutter_native_bridge.py'
+      - 'tools/verify_craftix_release.py'
+      - 'tools/ci_craftix_signing.sh'
+      - 'tools/ci_record_certificate.py'
+      - 'CRAFTIX_MIGRATION_ANALYSIS.md'
       - 'tools/test_live_catalog_api.py'
       - 'tools/check_jni_symbols.py'
       - 'tools/verify_action_matrix.py'
@@ -68,6 +72,8 @@ jobs:
             python3 tools/verify_flutter_foundation.py
             echo "\$ python3 tools/verify_flutter_native_bridge.py --write-evidence"
             python3 tools/verify_flutter_native_bridge.py --write-evidence
+            echo "\$ python3 tools/verify_craftix_release.py"
+            python3 tools/verify_craftix_release.py
             echo "\$ REAL Rust unit tests (rustc --test bridge_rules.rs)"
             rustc --test crates/horizon-client/src/android/bridge_rules.rs -o /tmp/bridge_rules_test
             /tmp/bridge_rules_test

@@ -20,7 +20,7 @@ from pathlib import Path
 
 API = "https://api.modrinth.com/v2"
 INDEX = "https://horizon-rust.github.io/horizon-mods/index.json"
-UA = "horizon-launcher/0.7.7 (github.com/n83527040-max/Horizon integration-test)"
+UA = "craftix/0.7.8 (github.com/n83527040-max/Horizon integration-test)"
 GAME = "26.3"
 results: list[tuple[bool, str]] = []
 

@@ -35,6 +35,10 @@ class HorizonBridge(private val activity: Activity, private val channel: MethodC
     private var pendingKind: String = "Mods"
 
     init {
+        // official_install::install_with_progress reads filesDir/engine-data.zip.
+        // android_main copies it from assets only inside the :engine process, so
+        // the Flutter host must do the same before Download can ever work.
+        ensureEngineData()
         val reply = HorizonEngine.nativeInit(
             activity.filesDir.absolutePath,
             activity.cacheDir.absolutePath,
@@ -42,10 +46,29 @@ class HorizonBridge(private val activity: Activity, private val channel: MethodC
         Log.i(TAG, "HorizonEngine nativeInit: $reply")
     }
 
+    private fun ensureEngineData() {
+        val target = java.io.File(activity.filesDir, "engine-data.zip")
+        if (target.isFile && target.length() > 0) return
+        val partial = java.io.File(activity.filesDir, "engine-data.partial")
+        try {
+            activity.assets.open("engine-data.zip").use { input ->
+                partial.outputStream().use { output -> input.copyTo(output, 65536) }
+            }
+            if (!partial.renameTo(target)) {
+                partial.copyTo(target, overwrite = true)
+                partial.delete()
+            }
+            Log.i(TAG, "engine-data.zip staged: ${target.length()} bytes")
+        } catch (error: Exception) {
+            Log.w(TAG, "engine-data.zip staging failed: ${error.message}")
+        }
+    }
+
     fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
         when (call.method) {
             "snapshot" -> async(result) { parse(HorizonEngine.nativeSnapshot()) }
             "cancel" -> async(result) { parse(HorizonEngine.nativeCancel()) }
+            "installStart" -> async(result) { parse(HorizonEngine.nativeInstallStart()) }
             "dispatch" -> {
                 val arguments = call.arguments as? Map<*, *>
                 val action = arguments?.get("action") as? String

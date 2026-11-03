@@ -25,6 +25,9 @@ object HorizonEngine {
     /** Cancels sign-in and detaches pending catalog interest. */
     external fun nativeCancel(): String
 
+    /** Starts the REAL `official_install::install_with_progress` worker. */
+    external fun nativeInstallStart(): String
+
     /** Stops the Rust poller thread before the Activity dies. */
     external fun nativeShutdown(): String
 

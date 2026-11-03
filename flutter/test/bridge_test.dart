@@ -17,7 +17,7 @@ void main() {
       calls.add(call);
       if (call.method == 'snapshot') {
         return codec.encodeSuccessEnvelope(<String, Object?>{
-          'appVersion': '0.7.7',
+          'appVersion': '0.7.8',
           'gameVersion': '26.3',
           'installed': <Object?>[],
           'results': <Object?>[],
@@ -31,7 +31,7 @@ void main() {
 
     final LauncherBridge bridge = MethodChannelLauncherBridge();
     final LauncherSnapshot snapshot = await bridge.snapshot();
-    expect(snapshot.appVersion, '0.7.7');
+    expect(snapshot.appVersion, '0.7.8');
     expect(snapshot.gameVersion, '26.3');
     expect(snapshot.ramUsedMb, isNull, reason: 'no fake RAM when the host omits it');
     expect(snapshot.installed, isEmpty);
@@ -48,7 +48,7 @@ void main() {
 
   test('snapshot parsing keeps every field nullable/empty by default', () {
     final LauncherSnapshot s = LauncherSnapshot.fromJson(const <Object?, Object?>{
-      'appVersion': '0.7.7',
+      'appVersion': '0.7.8',
       'gameVersion': '26.3',
     });
     expect(s.graphicsApi, isNull);
@@ -63,7 +63,7 @@ void main() {
 
   test('snapshot parsing maps real installed items and catalog projects', () {
     final LauncherSnapshot s = LauncherSnapshot.fromJson(<Object?, Object?>{
-      'appVersion': '0.7.7',
+      'appVersion': '0.7.8',
       'gameVersion': '26.3',
       'installed': <Object?>[
         <Object?, Object?>{

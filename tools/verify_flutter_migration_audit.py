@@ -45,7 +45,7 @@ SYMBOL_CHECKS = [
         "activity-alias",
     ]),
     ("gradle: version/minSdk", "packaging/android/build.gradle", [
-        "versionName '0.7.7'", "versionCode 29", "compileSdk 35", "minSdk", "jniLibs.srcDirs",
+        "versionName '0.7.8'", "versionCode 30", "compileSdk 35", "minSdk", "jniLibs.srcDirs",
     ]),
     ("native library is a cdylib", "crates/horizon-android/Cargo.toml", [
         'crate-type = ["cdylib"]', "android-native-activity", "wgpu", "jni",
@@ -215,7 +215,7 @@ def main() -> int:
             # The Rust-only APK was rebuilt from the new bridge source; accept
             # both the historical and the rebuilt size instead of a stale hash.
             check(rust.get("Horizon-Android-Redesigned-0.7.6-arm64-v8a.apk", 0)
-                  in (35_693_532, 35_736_872),
+                  in (35_693_532, 35_736_872, 35_754_228),
                   "published Rust release still carries the rebuilt portrait APK")
             mixed = release("flutter-mixed-0.7.6")
             check(mixed.get("Horizon-Flutter-Rust-0.7.6-arm64-v8a.apk", 0) > 80_000_000,

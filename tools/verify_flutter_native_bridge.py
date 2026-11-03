@@ -171,6 +171,8 @@ def main() -> int:
     check(symbols == externals and len(symbols) >= 6,
           f"JNI C ABI symbols match Kotlin externals ({sorted(symbols)})")
     check("nativeImportStaged" in symbols, "SAF import ends in real Rust archive validation")
+    check("nativeInstallStart" in symbols, "real installer has a JNI/C ABI start entry")
+    check("install_with_progress" in rust, "Home Download calls the real engine installer")
     check("content_files::validate" in rust, "import reuses the engine's own validator")
 
     # Game hand-off to the untouched engine path.

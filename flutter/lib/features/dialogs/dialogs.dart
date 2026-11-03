@@ -115,7 +115,7 @@ class _AccountsSheet extends ConsumerWidget {
             const SizedBox(height: 8),
             Text(
               s.arabic
-                  ? 'لا تُخزَّن كلمات مرور Microsoft في HORIZON؛ المصادقة وAndroid Keystore تبقى أصلية.'
+                  ? 'لا تُخزَّن كلمات مرور Microsoft في CRAFTIX؛ المصادقة وAndroid Keystore تبقى أصلية.'
                   : 'Microsoft passwords are never stored by Horizon; browser/device-code authentication and the Android Keystore stay native.',
               style: TextStyle(fontSize: 11,
                   color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6)),

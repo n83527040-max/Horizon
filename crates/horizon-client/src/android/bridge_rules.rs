@@ -174,6 +174,44 @@ pub fn verifiable_success(action: &str, name: Option<&str>, value: Option<&str>)
     true
 }
 
+/// Progress is only reportable when the downloader supplied a real total.
+/// Never invent a percentage for an indeterminate download.
+pub fn download_percent(done: u64, total: u64) -> Option<u8> {
+    if total == 0 {
+        return None;
+    }
+    let value = done.saturating_mul(100) / total;
+    Some(value.min(100) as u8)
+}
+
+/// Transfer speed derived from TWO real samples (delta bytes / delta time).
+/// Returns None when the sample is too small or too fast to be meaningful.
+pub fn transfer_speed(delta_bytes: u64, delta_ms: u64) -> Option<u64> {
+    if delta_ms < 250 || delta_bytes == 0 {
+        return None;
+    }
+    Some(delta_bytes.saturating_mul(1000) / delta_ms)
+}
+
+/// ETA is only shown when both remaining bytes and a real speed are known.
+pub fn eta_seconds(remaining: u64, speed_bytes_per_second: u64) -> Option<u64> {
+    if speed_bytes_per_second == 0 || remaining == 0 {
+        return None;
+    }
+    Some(remaining / speed_bytes_per_second)
+}
+
+/// Decorative milestone blocks at 25/50/75/100%. Driven by real progress only.
+pub fn milestone(done: u64, total: u64) -> u8 {
+    match download_percent(done, total) {
+        Some(p) if p >= 100 => 4,
+        Some(p) if p >= 75 => 3,
+        Some(p) if p >= 50 => 2,
+        Some(p) if p >= 25 => 1,
+        _ => 0,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -243,5 +281,23 @@ mod tests {
         assert_eq!(normalize_version("1.21.1"), Some("1.21.1".into()));
         assert_eq!(normalize_version("../../etc"), None);
         assert_eq!(normalize_version("all"), None);
+    }
+
+    #[test]
+    fn download_progress_never_invents_numbers() {
+        assert_eq!(download_percent(0, 0), None);
+        assert_eq!(download_percent(50, 100), Some(50));
+        assert_eq!(download_percent(200, 100), Some(100));
+        assert_eq!(transfer_speed(0, 1000), None);
+        assert_eq!(transfer_speed(1000, 100), None); // too fast to be reliable
+        assert_eq!(transfer_speed(1_000_000, 1000), Some(1_000_000));
+        assert_eq!(eta_seconds(2_000_000, 1_000_000), Some(2));
+        assert_eq!(eta_seconds(2_000_000, 0), None);
+        assert_eq!(milestone(0, 100), 0);
+        assert_eq!(milestone(25, 100), 1);
+        assert_eq!(milestone(50, 100), 2);
+        assert_eq!(milestone(75, 100), 3);
+        assert_eq!(milestone(100, 100), 4);
+        assert_eq!(milestone(10, 0), 0);
     }
 }

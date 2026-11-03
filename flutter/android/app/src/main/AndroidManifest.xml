@@ -10,9 +10,10 @@
 
     <application
         android:name="${applicationName}"
-        android:label="Horizon Android"
+        android:label="CRAFTIX"
         android:appCategory="game"
-        android:icon="@drawable/launcher_icon"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:usesCleartextTraffic="false">
         <!-- Flutter's Android embedding v2; required by `flutter build apk`. -->
         <meta-data android:name="flutterEmbedding" android:value="2" />
