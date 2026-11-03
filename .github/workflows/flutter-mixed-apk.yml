@@ -1,6 +1,6 @@
 # Phase 13: one signed APK containing Flutter (Dart/Kotlin) AND the real Rust
 # engine. The Rust payload is extracted from the already verified, signed
-# `redesign-0.7.6` release APK built from this exact source tree.
+# `horizon-0.7.7` Rust release built from this exact source tree.
 name: Flutter + Rust mixed release APK
 on:
   push:
@@ -83,8 +83,17 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p .local/android/gradle-jni/arm64-v8a .local/android/gradle-assets
-          gh release download redesign-0.7.6 \
-            --pattern 'Horizon-Android-Redesigned-0.7.6-arm64-v8a.apk' \
+          for i in $(seq 1 70); do
+            if gh release view horizon-0.7.7 --json assets --jq '.assets[].name' 2>/dev/null \
+                | grep -q 'Horizon-Android-Rust-0.7.7-arm64-v8a.apk'; then
+              echo "Rust 0.7.7 release is ready"; break
+            fi
+            echo "waiting for Rust 0.7.7 release ($i/70)"; sleep 30
+          done
+          gh release view horizon-0.7.7 --json assets --jq '.assets[].name' \
+            | grep -q 'Horizon-Android-Rust-0.7.7-arm64-v8a.apk'
+          gh release download horizon-0.7.7 \
+            --pattern 'Horizon-Android-Rust-0.7.7-arm64-v8a.apk' \
             --dir /tmp/rust-apk --clobber
           python3 - <<'PY'
           import zipfile, pathlib
@@ -132,24 +141,24 @@ jobs:
       - name: Verify the mixed APK (manifest, libraries, signature)
         run: |
           set -euo pipefail
-          OUT=.local/android/releases/mixed-0.7.6
+          OUT=.local/android/releases/mixed-0.7.7
           mkdir -p "$OUT"
           APK=flutter/build/app/outputs/flutter-apk/app-release.apk
-          cp "$APK" "$OUT/Horizon-Flutter-Rust-0.7.6-arm64-v8a.apk"
+          cp "$APK" "$OUT/Horizon-Flutter-Rust-0.7.7-arm64-v8a.apk"
           BT="$ANDROID_HOME/build-tools/35.0.0"
           JAVA="$JAVA_HOME/bin/java"
-          "$BT/aapt2" dump xmltree --file AndroidManifest.xml "$OUT/Horizon-Flutter-Rust-0.7.6-arm64-v8a.apk" \
-            > "$OUT/manifest-tree.txt" || true
-          grep -n -E 'screenOrientation|:engine|lib_name' "$OUT/manifest-tree.txt" || true
-          "$BT/aapt2" dump badging "$OUT/Horizon-Flutter-Rust-0.7.6-arm64-v8a.apk" \
-            > "$OUT/badging.txt"
-          "$JAVA" -jar "$BT/lib/apksigner.jar" verify --verbose "$OUT/Horizon-Flutter-Rust-0.7.6-arm64-v8a.apk" \
-            > "$OUT/signature.txt"
-          python3 tools/verify_mixed_apk.py "$OUT/Horizon-Flutter-Rust-0.7.6-arm64-v8a.apk" \
+          "$BT/aapt2" dump xmltree --file AndroidManifest.xml "$OUT/Horizon-Flutter-Rust-0.7.7-arm64-v8a.apk" \
+            > "$OUT/MIXED_manifest-tree.txt" || true
+          grep -n -E 'screenOrientation|:engine|lib_name' "$OUT/MIXED_manifest-tree.txt" || true
+          "$BT/aapt2" dump badging "$OUT/Horizon-Flutter-Rust-0.7.7-arm64-v8a.apk" \
+            > "$OUT/MIXED_badging.txt"
+          "$JAVA" -jar "$BT/lib/apksigner.jar" verify --verbose "$OUT/Horizon-Flutter-Rust-0.7.7-arm64-v8a.apk" \
+            > "$OUT/MIXED_signature.txt"
+          python3 tools/verify_mixed_apk.py "$OUT/Horizon-Flutter-Rust-0.7.7-arm64-v8a.apk" \
             --aapt2 "$BT/aapt2" --apksigner "$JAVA_HOME/bin/java -jar $BT/lib/apksigner.jar" \
             --report "$OUT/MIXED_APK_VERIFICATION.json"
-          ( cd "$OUT" && sha256sum Horizon-Flutter-Rust-0.7.6-arm64-v8a.apk > SHA256SUMS.txt )
-          printf 'BUILD_COMMIT=%s\nSOURCE=redesign-0.7.6 release APK + Flutter build\n' "$GITHUB_SHA" \
+          ( cd "$OUT" && sha256sum Horizon-Flutter-Rust-0.7.7-arm64-v8a.apk > SHA256SUMS_FLUTTER.txt )
+          printf 'BUILD_COMMIT=%s\nSOURCE=horizon-0.7.7 Rust APK + Flutter build\n' "$GITHUB_SHA" \
             > "$OUT/BUILD_INFO.txt"
           cat "$OUT/MIXED_APK_VERIFICATION.json"
 
@@ -159,12 +168,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set +e
-          OUT=.local/android/releases/mixed-0.7.6
+          OUT=.local/android/releases/mixed-0.7.7
           {
             echo "🤖 Mixed APK verification diagnostics $GITHUB_RUN_ID"
             echo '### packaged entries'
             echo '```'
-            unzip -l "$OUT/Horizon-Flutter-Rust-0.7.6-arm64-v8a.apk" 2>/dev/null \
+            unzip -l "$OUT/Horizon-Flutter-Rust-0.7.7-arm64-v8a.apk" 2>/dev/null \
               | grep -E 'lib/|engine-data|flutter_assets' | head -40
             echo '```'
             echo '### verification report'
@@ -179,24 +188,24 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          TAG=flutter-mixed-0.7.6
-          OUT=.local/android/releases/mixed-0.7.6
-          ASSETS=("$OUT/Horizon-Flutter-Rust-0.7.6-arm64-v8a.apk" "$OUT/SHA256SUMS.txt" \
-                  "$OUT/MIXED_APK_VERIFICATION.json" "$OUT/badging.txt" \
-                  "$OUT/manifest-tree.txt" "$OUT/signature.txt" "$OUT/BUILD_INFO.txt")
+          TAG=horizon-0.7.7
+          OUT=.local/android/releases/mixed-0.7.7
+          ASSETS=("$OUT/Horizon-Flutter-Rust-0.7.7-arm64-v8a.apk" "$OUT/SHA256SUMS_FLUTTER.txt" \
+                  "$OUT/MIXED_APK_VERIFICATION.json" "$OUT/MIXED_badging.txt" \
+                  "$OUT/MIXED_manifest-tree.txt" "$OUT/MIXED_signature.txt" "$OUT/BUILD_INFO.txt")
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "${ASSETS[@]}" --clobber
           else
-            gh release create "$TAG" --title 'Horizon Android – Flutter + Rust (CI build)' \
-              --notes-file tools/ci-flutter-mixed-notes.md --target "$GITHUB_SHA" "${ASSETS[@]}"
+            gh release create "$TAG" --title 'HORIZON 0.7.7 – Flutter + Rust (CI build)' \
+              --notes-file tools/ci-horizon-077-notes.md --target "$GITHUB_SHA" "${ASSETS[@]}"
           fi
           gh release view "$TAG" --json url,tagName,assets --jq '.url, (.assets[].name)'
 
       - name: Upload the mixed APK as an Actions artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Horizon-Flutter-Rust-0.7.6-arm64-v8a
-          path: .local/android/releases/mixed-0.7.6/Horizon-Flutter-Rust-0.7.6-arm64-v8a.apk
+          name: Horizon-Flutter-Rust-0.7.7-arm64-v8a
+          path: .local/android/releases/mixed-0.7.7/Horizon-Flutter-Rust-0.7.7-arm64-v8a.apk
 
       - name: Report results
         if: always()

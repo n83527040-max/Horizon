@@ -64,8 +64,8 @@ def main() -> int:
     report["badging"] = badging.strip().splitlines()[:4]
     if "name='dev.horizon.android'" not in badging:
         errors.append("package name is not dev.horizon.android")
-    if "versionCode='28'" not in badging or "versionName='0.7.6'" not in badging:
-        errors.append("versionCode/versionName are not 28 / 0.7.6")
+    if "versionCode='29'" not in badging or "versionName='0.7.7'" not in badging:
+        errors.append("versionCode/versionName are not 29 / 0.7.7")
     if not re.search(r"(?:sdkVersion|minSdkVersion):'28'", badging):
         errors.append("minSdk is not 28")
 

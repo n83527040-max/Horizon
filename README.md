@@ -13,8 +13,9 @@
 > نُفِّذت بنية Flutter ونظام التصميم في `flutter/` واجتازت بوابة CI، ثم أُضيف
 > جسر JNI/C ABI حقيقي لكل الـ 49 إجراءً (`FLUTTER_NATIVE_BRIDGE_ANALYSIS.md`
 > و`FLUTTER_BRIDGE_EVIDENCE.md`) مع تحليل أثر قبل تعديل Rust. APK مختلط
-> Flutter + Rust مُوقّع منشور على [flutter-mixed-0.7.6](https://github.com/n83527040-max/Horizon/releases/tag/flutter-mixed-0.7.6)
-> (تحقق أرشيفي فقط)؛ اختبارات الجهاز ما زالت غير مُجراة.
+> Flutter + Rust مُوقّع منشور على [HORIZON 0.7.7](https://github.com/n83527040-max/Horizon/releases/tag/horizon-0.7.7)
+> (تحقق أرشيفي فقط)؛ اختبارات الجهاز ما زالت غير مُجراة. التشخيص:
+> `HORIZON_077_DIAGNOSIS.md`، مصفوفة الاختبارات: `ACTION_TEST_MATRIX.md`.
 
 A native Android port of [Horizon](https://github.com/ludovic111/horizon), the
 Rust engine for Minecraft Java 26.3. Unofficial and in active development.

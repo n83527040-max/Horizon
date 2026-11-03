@@ -45,7 +45,7 @@ SYMBOL_CHECKS = [
         "activity-alias",
     ]),
     ("gradle: version/minSdk", "packaging/android/build.gradle", [
-        "versionName '0.7.6'", "compileSdk 35", "minSdk", "jniLibs.srcDirs",
+        "versionName '0.7.7'", "versionCode 29", "compileSdk 35", "minSdk", "jniLibs.srcDirs",
     ]),
     ("native library is a cdylib", "crates/horizon-android/Cargo.toml", [
         'crate-type = ["cdylib"]', "android-native-activity", "wgpu", "jni",
@@ -219,7 +219,12 @@ def main() -> int:
                   "published Rust release still carries the rebuilt portrait APK")
             mixed = release("flutter-mixed-0.7.6")
             check(mixed.get("Horizon-Flutter-Rust-0.7.6-arm64-v8a.apk", 0) == 85_947_148,
-                  "published mixed Flutter + Rust release APK exists")
+                  "published 0.7.6 mixed APK (historical evidence) exists")
+            current = release("horizon-0.7.7")
+            check(current.get("Horizon-Android-Rust-0.7.7-arm64-v8a.apk", 0) > 30_000_000,
+                  "HORIZON 0.7.7 Rust engine APK is published")
+            check(current.get("Horizon-Flutter-Rust-0.7.7-arm64-v8a.apk", 0) > 80_000_000,
+                  "HORIZON 0.7.7 mixed Flutter + Rust APK is published")
         except Exception as exc:  # pragma: no cover - network dependent
             check(False, f"live release check failed: {exc}")
 

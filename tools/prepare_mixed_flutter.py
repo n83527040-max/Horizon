@@ -73,10 +73,10 @@ def patch_gradle() -> None:
         text = re.sub(r'minSdkVersion\s+flutter\.minSdkVersion', 'minSdkVersion 28', text)
         text = re.sub(r'minSdk\s*=\s*\d+', 'minSdk = 28', text)
         text = re.sub(r'minSdkVersion\s+\d+', 'minSdkVersion 28', text)
-        text = re.sub(r'versionCode\s*=\s*\d+', 'versionCode = 28', text)
-        text = re.sub(r'versionCode\s+flutter\.versionCode', 'versionCode 28', text)
-        text = re.sub(r'versionName\s*=\s*"[^"]+"', 'versionName = "0.7.6"', text)
-        text = re.sub(r'versionName\s+"[^"]+"', 'versionName "0.7.6"', text)
+        text = re.sub(r'versionCode\s*=\s*\d+', 'versionCode = 29', text)
+        text = re.sub(r'versionCode\s+flutter\.versionCode', 'versionCode 29', text)
+        text = re.sub(r'versionName\s*=\s*"[^"]+"', 'versionName = "0.7.7"', text)
+        text = re.sub(r'versionName\s+"[^"]+"', 'versionName "0.7.7"', text)
         # Make sure the real Rust payload folders are part of the merged APK
         # assets/libs even when the Flutter Gradle plugin adds its own dirs.
         if name.endswith(".kts"):
@@ -92,7 +92,7 @@ android.sourceSets.main.assets.srcDirs += ['src/main/assets']
 android.sourceSets.main.jniLibs.srcDirs += ['src/main/jniLibs']
 """
         path.write_text(text, encoding="utf-8")
-        print(f"patched {name}: applicationId=dev.horizon.android, minSdk=28, version 0.7.6/28", flush=True)
+        print(f"patched {name}: applicationId=dev.horizon.android, minSdk=28, version 0.7.7/29", flush=True)
 
 
 def stage() -> None:

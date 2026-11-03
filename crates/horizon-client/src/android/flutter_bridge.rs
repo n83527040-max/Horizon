@@ -449,7 +449,7 @@ fn account_operation(e: &mut Engine, name: &str, input: &str, args: &Value) -> O
         match name {
             "name" | "offlineName" | "offline/add" | "offline/select" => {
                 let player = input.trim();
-                if !crate::account::valid_offline_name(player) {
+                if !rules::valid_offline_name(player) {
                     return Err("Offline names must be 3-16 ASCII letters, digits or _".into());
                 }
                 accounts.play_as_with(store, Player::Offline(player.to_string()), true)?;
@@ -517,6 +517,9 @@ fn dispatch(e: &mut Engine, action: &str, args: &Value) -> Value {
         // early, which is why every page used to show "No results".
         "Page" => {
             let kind = arg(args, "kind").or_else(|| arg(args, "page")).unwrap_or("");
+            if rules::catalog_page(kind).is_none() {
+                return success("Navigation handled in Dart", false);
+            }
             let Some(page) = page_of(kind) else {
                 return success("Navigation handled in Dart", false);
             };
@@ -579,7 +582,7 @@ fn dispatch(e: &mut Engine, action: &str, args: &Value) -> Value {
         "Field" => {
             let name = arg(args, "name").unwrap_or("");
             let input = value.unwrap_or("");
-            if rules::empty_name_save(name, Some(input)) {
+            if !rules::verifiable_success("Field", Some(name), Some(input)) {
                 return failure("Enter a player name first (3-16 letters, digits or _)");
             }
             if let Some(reply) = account_operation(e, name, input, args) {

@@ -1,7 +1,7 @@
-# Builds the redesigned Horizon Android 0.7.6 launcher as a real, signed,
+# Builds the HORIZON 0.7.7 Rust engine APK as a real, signed,
 # public release APK and publishes it as a downloadable GitHub Release asset.
 # Push-triggered because the Arena GitHub App token cannot dispatch workflows.
-name: Horizon Android 0.7.6 redesigned release APK
+name: HORIZON 0.7.7 Rust engine APK
 on:
   push:
     branches: [arena/92db30ff-horizon]
@@ -192,15 +192,15 @@ jobs:
             export HORIZON_CLIPPY=0
             export HORIZON_JOBS=2
             bash tools/build_release_apk.sh
-            ls -lh .local/android/releases/0.7.6/
+            ls -lh .local/android/releases/0.7.7/
           } 2>&1 | tee -a "$RUNNER_TEMP/horizon-build.log"
       - name: Verify APK contents, signature and installability
         shell: bash
         run: |
           set -euo pipefail
           {
-            OUT=.local/android/releases/0.7.6
-            APK="$OUT/Horizon-Android-0.7.6-arm64-v8a.apk"
+            OUT=.local/android/releases/0.7.7
+            APK="$OUT/Horizon-Android-0.7.7-arm64-v8a.apk"
             BT="$ANDROID_HOME/build-tools/35.0.0"
             JAVA="$JAVA_HOME_17_X64/bin/java"
             if [[ ! -f /tmp/upstream-v076.apk ]]; then
@@ -218,11 +218,11 @@ jobs:
             python3 tools/check_android_release.py "$APK" --aapt2 "$BT/aapt2" --public \
               --report "$OUT/release-audit.json"
             # Assemble the final, clearly named deliverable and its checksums.
-            mv "$APK" "$OUT/Horizon-Android-Redesigned-0.7.6-arm64-v8a.apk"
-            ( cd "$OUT" && sha256sum Horizon-Android-Redesigned-0.7.6-arm64-v8a.apk > SHA256SUMS.txt )
+            mv "$APK" "$OUT/Horizon-Android-Rust-0.7.7-arm64-v8a.apk"
+            ( cd "$OUT" && sha256sum Horizon-Android-Rust-0.7.7-arm64-v8a.apk > SHA256SUMS_RUST.txt )
             printf 'PREPARE_MODE=%s\nBUILD_COMMIT=%s\n' "${PREPARE_MODE:-unknown}" "$GITHUB_SHA" > "$OUT/BUILD_INFO.txt"
             ls -lh "$OUT"
-            cat "$OUT/SHA256SUMS.txt"
+            cat "$OUT/SHA256SUMS_RUST.txt"
           } 2>&1 | tee -a "$RUNNER_TEMP/horizon-build.log"
       - name: Publish the APK as a GitHub Release asset
         env:
@@ -231,33 +231,33 @@ jobs:
         run: |
           set -euo pipefail
           {
-            TAG=redesign-0.7.6
-            OUT=.local/android/releases/0.7.6
-            APK="$OUT/Horizon-Android-Redesigned-0.7.6-arm64-v8a.apk"
+            TAG=horizon-0.7.7
+            OUT=.local/android/releases/0.7.7
+            APK="$OUT/Horizon-Android-Rust-0.7.7-arm64-v8a.apk"
             NOTES=tools/ci-release-notes.md
-            ASSETS=("$APK" "$OUT/SHA256SUMS.txt" "$OUT/APK_VERIFICATION.json" \
+            ASSETS=("$APK" "$OUT/SHA256SUMS_RUST.txt" "$OUT/APK_VERIFICATION.json" \
               "$OUT/release-audit.json" "$OUT/badging.txt" "$OUT/manifest-tree.txt" \
               "$OUT/BUILD_INFO.txt" "$OUT/LICENSE.txt" "$OUT/THIRD_PARTY_NOTICES.md")
             if gh release view "$TAG" >/dev/null 2>&1; then
               gh release upload "$TAG" "${ASSETS[@]}" --clobber
             else
               gh release create "$TAG" \
-                --title 'Horizon Android – Redesigned Edition 0.7.6 (APK)' \
+                --title 'HORIZON 0.7.7 – Rust engine APK' \
                 --notes-file "$NOTES" --target "$GITHUB_SHA" \
                 "${ASSETS[@]}"
             fi
             # Prove the asset is downloadable and byte-identical to the built APK.
             mkdir -p /tmp/release-download
-            gh release download "$TAG" --pattern 'Horizon-Android-Redesigned-*.apk' --dir /tmp/release-download
-            cmp "$APK" /tmp/release-download/Horizon-Android-Redesigned-0.7.6-arm64-v8a.apk
+            gh release download "$TAG" --pattern 'Horizon-Android-Rust-*.apk' --dir /tmp/release-download
+            cmp "$APK" /tmp/release-download/Horizon-Android-Rust-0.7.7-arm64-v8a.apk
             sha256sum /tmp/release-download/*.apk
             gh release view "$TAG" --json url,tagName,assets --jq '.url, (.assets[].name)'
           } 2>&1 | tee -a "$RUNNER_TEMP/horizon-build.log"
       - name: Upload the APK as a downloadable Actions artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Horizon-Android-Redesigned-0.7.6-arm64-v8a
-          path: .local/android/releases/0.7.6/Horizon-Android-Redesigned-0.7.6-arm64-v8a.apk
+          name: Horizon-Android-Rust-0.7.7-arm64-v8a
+          path: .local/android/releases/0.7.7/Horizon-Android-Rust-0.7.7-arm64-v8a.apk
           if-no-files-found: error
           retention-days: 90
       - name: Report build log
