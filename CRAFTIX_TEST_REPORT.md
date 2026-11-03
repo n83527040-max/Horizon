@@ -83,8 +83,8 @@
 
 | الأصل | الحجم | SHA-256 |
 |---|---|---|
-| `CRAFTIX-Flutter-Rust-0.7.8-arm64-v8a.apk` | 87,035,648 bytes | `d4087676e2518e70e2d472fe6aa546982a46e3973e75a5f469d8e218f3d46bff` |
-| `CRAFTIX-Rust-0.7.8-arm64-v8a.apk` | 36,271,520 bytes | `ea8495e05b7e140cb5678c5551365e2da9ea9019d4c4f6ff0bed1ec981bf3f48` |
+| `CRAFTIX-Flutter-Rust-0.7.8-arm64-v8a.apk` | 87,046,381 bytes | `873cf57b0333053f8202d15f24068fb1fcc10d13e3f1b0b23eef51c7bcc6781e` |
+| `CRAFTIX-Rust-0.7.8-arm64-v8a.apk` | 36,284,309 bytes | `19c874f9cef26af75b4517d5594ab05f098cf08b12f4335a1f7f44fa86747088` |
 
 - `SHA256SUMS_RUST.txt` و`SHA256SUMS_FLUTTER.txt` منشوران، وتم التحقق من تطابق
   التنزيل مع الملف المبني داخل CI (`cmp`). مصدر الحقيقة لأي إعادة بناء لاحقة هو
@@ -94,7 +94,9 @@
   — **مطابقة تماماً** لمرجع المالك في الحزمة (`CERT_FINGERPRINT.json`
   و`MIXED_CERT_FINGERPRINT.json` كلاهما `matchesOwnerReference: true`).
   هذا دليل على استخدام نفس مفتاح CRAFTIX Release وليس مفتاحاً جديداً.
-- `MIXED_APK_VERIFICATION.json`: `passed=true`, `errors=[]`،
+- `MIXED_APK_VERIFICATION.json`: `passed=true`, `errors=[]`**،
+  `signature_v1=true`, `signature_v2=true`، `v1SignerFiles=[META-INF/CRAFTIX.RSA]`،
+  `v2SigningBlockPresent=true`، و`INSTALL_DIAGNOSTICS` بلا مشاكل.
   `com.craftix.launcher` / `versionCode=30` / `versionName=0.7.8`،
   Portrait ثنائي، `:engine` منفصل، `debuggable=false`،
   توقيع v2 بمُوقّع واحد، وكل من `libhorizon_android.so` و`libflutter.so`
@@ -114,3 +116,33 @@
   الرسمي v0.7.6 المولّدة) لأن التحقق الكامل من `26.3.json` أعاد sha1 مختلفاً؛
   هذا موثّق ولا يُخفى، والـ APK يحتوي `engine-data.zip` الحقيقي.
 - لا يُدعى أي اختبار على جهاز: راجع §4.
+
+
+## 6. إصلاح «الحزمة تبدو غير صالحة» على الجهاز (تقرير لاحق)
+
+**الدليل:** لقطة شاشة من هاتف حقيقي تُظهر فشل تثبيت
+`CRAFTIX-Flutter-Rust-0.7.8-...apk` مع ظهور أيقونة CRAFTIX، أي أن الـ Manifest
+قُرئ بنجاح والفشل في مرحلة التحقق من التوقيع.
+
+**التشخيص (`tools/diagnose_apk_install.py` على الـ APK المنشور نفسه، run `41718389434`):**
+- ZIP سليم، `AndroidManifest.xml`/`classes.dex`/`resources.arsc` موجودة،
+  المكتبات الأصلية STORED ومحاذاة 4096 بايت، `aapt2 dump badging` ناجح.
+- **`v1Present=false`** و`v2SigningBlockPresent=true`، أي توقيع **v2 فقط**.
+- `apksigner verify --min-sdk-version 21` يفشل: `Missing META-INF/MANIFEST.MF`.
+  AGP يعطّل توقيع JAR v1 когда `minSdk >= 24`؛ ومثبّتات بعض الشركات ترفض
+  الحزم الموقّعة بـ v2 فقط بهذه الرسالة بالضبط.
+
+**الإصلاح:** `tools/resign_craftix_apk.sh` يعيد توقيع كلا الـ APK بـ **نفس مفتاح
+CRAFTIX Release** (من الأسرار الأربعة، دون مفتاح جديد) مع
+`--v1-signing-enabled true --v2-signing-enabled true`؛ و`apksigner sign` يستبدل
+التوقيعات السابقة افتراضياً. أضفتُ فحصاً ثنائياً
+`tools/check_apk_signature_schemes.py` يلزم وجود `META-INF/*.RSA` **و** كتلة
+`APK Sig Block 42` معاً، وفاحص `verify_mixed_apk.py` يفشل إن غاب أحدهما،
+و`diagnose_apk_install.py` أصبح بوابة في كلا الـ workflows.
+
+**النتيجة المُختبَرة في CI (ليس على الجهاز):** كلا الـ APK الآن
+`v1Present=true`, `v2SigningBlockPresent=true`، و`apksigner verify` ينجح عند
+minSdk 21 و24 و28، والبصمة العامة ما زالت مطابقة لمرجع المالك.
+**لم أُثبت التثبيت على هاتفك** — أعد تنزيل الملف بعد حذف القديم، وقارن SHA-256
+أعلاه؛ إن استمر الفشل فالسبب على الأرجح ملف تنزيل ناقص أو سياسة مثبّت الشركة،
+وليس بنية الحزمة.
