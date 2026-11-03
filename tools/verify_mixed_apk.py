@@ -66,7 +66,7 @@ def main() -> int:
         errors.append("package name is not dev.horizon.android")
     if "versionCode='28'" not in badging or "versionName='0.7.6'" not in badging:
         errors.append("versionCode/versionName are not 28 / 0.7.6")
-    if not re.search(r"sdkVersion:'28'", badging):
+    if not re.search(r"(?:sdkVersion|minSdkVersion):'28'", badging):
         errors.append("minSdk is not 28")
 
     tree = run([args.aapt2, "dump", "xmltree", "--file", "AndroidManifest.xml", str(args.apk)])
