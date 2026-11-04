@@ -43,7 +43,7 @@ jobs:
         working-directory: flutter
         run: |
           set -euo pipefail
-          trap 'python3 -c "from pathlib import Path; p=Path("/tmp/flutter-ui.log"); print("::error::" + (p.read_text(errors="replace")[-12000:] if p.exists() else "No Flutter log").replace("%", "%25").replace("\n", "%0A").replace("\r", "%0D"))"' ERR
+          trap 'echo "::error::$(tail -c 12000 /tmp/flutter-ui.log | base64 -w0)"' ERR
           flutter pub get 2>&1 | tee /tmp/flutter-ui.log
           flutter analyze --no-fatal-infos 2>&1 | tee /tmp/flutter-ui.log
           flutter test --reporter expanded 2>&1 | tee /tmp/flutter-ui.log
