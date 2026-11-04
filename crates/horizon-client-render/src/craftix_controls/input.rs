@@ -146,7 +146,7 @@ mod tests {
         let mut l = Layout::default();
         for i in 0..2 { l.buttons.push(Button { id: Id::Custom(i), action: Some(Action::Key("key.keyboard.m".into())),
             circle: Circle { center: [0.65 + i as f32 * 0.1, 0.25], radius: 0.04 }, opacity: 1.0,
-            behavior: Behavior::Hold, enabled: true, label: "Map".into() }); }
+            behavior: Behavior::Hold, icon: super::super::layout::Icon::Map, enabled: true, label: "Map".into() }); }
         let mut r = Router::default();
         r.begin(&l,1,center(&l,Id::Custom(0)),16.0/9.0,0);
         r.begin(&l,2,center(&l,Id::Custom(1)),16.0/9.0,0);

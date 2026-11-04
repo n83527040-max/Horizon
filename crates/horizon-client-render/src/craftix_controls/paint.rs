@@ -1,5 +1,5 @@
 //! Vector-only round glass HUD artwork; no legacy square button sprites.
-use super::{input::Router, layout::{Id, Layout}};
+use super::{input::Router, layout::{Icon, Id, Layout}};
 use crate::hud::{HudAtlas, HudBatch, rgba};
 use std::f32::consts::TAU;
 
@@ -69,11 +69,23 @@ pub fn paint(b: &mut HudBatch, a: &HudAtlas, layout: &Layout, router: &Router) {
             let knob=[center[0]+m[0]*radius*0.47,center[1]-m[1]*radius*0.47];
             disk(b,a,knob,radius*0.32,rgba(105,49,157,alpha));
             ring(b,a,knob,radius*0.32,(radius*0.025).max(0.8),rgba(225,178,255,alpha));
-        } else if matches!(button.id,Id::Custom(_)) && !button.label.is_empty() {
-            let width=HudBatch::text_width(a,&button.label); let start=b.vertices.len();
-            b.text(a,&button.label,center[0]-width/2.0,center[1]-4.0,rgba(255,255,255,alpha),false);
-            let scale=((radius*1.5)/width.max(1.0)).min(1.0);
-            b.scale_since(start,center[0],center[1],scale,scale);
+        } else if matches!(button.id,Id::Custom(_)) {
+            let icon_id = match button.icon {
+                Icon::Sword => Some(Id::Attack), Icon::Use => Some(Id::Use), Icon::Jump => Some(Id::Jump),
+                Icon::Sneak => Some(Id::Sneak), Icon::Sprint => Some(Id::Sprint), _ => None,
+            };
+            if let Some(id) = icon_id { icon(b,a,id,[center[0],center[1]-radius*0.18],radius*0.65,alpha); }
+            if button.icon == Icon::Map {
+                let c=rgba(255,255,255,alpha); let x=center[0]; let y=center[1]-radius*0.16; let r=radius*0.38;
+                for (from,to) in [([x-r,y-r],[x+r,y-r]),([x+r,y-r],[x+r,y+r]),([x+r,y+r],[x-r,y+r]),([x-r,y+r],[x-r,y-r]),([x-r*0.33,y-r],[x-r*0.33,y+r]),([x+r*0.33,y-r],[x+r*0.33,y+r])] { stroke(b,a,from,to,(radius*0.06).max(0.8),c); }
+            }
+            if !button.label.is_empty() {
+                let width=HudBatch::text_width(a,&button.label); let start=b.vertices.len();
+                let y=if button.icon==Icon::Text { center[1]-4.0 } else { center[1]+radius*0.43-4.0 };
+                b.text(a,&button.label,center[0]-width/2.0,y,rgba(255,255,255,alpha),false);
+                let scale=((radius*1.5)/width.max(1.0)).min(1.0);
+                b.scale_since(start,center[0],y+4.0,scale,scale);
+            }
         } else { icon(b,a,button.id,center,radius*0.95,alpha); }
     }
 }

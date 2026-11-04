@@ -18,6 +18,9 @@ pub enum Action {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Behavior { #[default] Hold, Toggle, Single }
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Icon { #[default] Text, Map, Sword, Use, Jump, Sneak, Sprint }
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Circle {
     /// Center in surface fractions; radius is a fraction of surface height.
@@ -42,6 +45,7 @@ pub struct Button {
     pub circle: Circle,
     pub opacity: f32,
     pub behavior: Behavior,
+    pub icon: Icon,
     pub enabled: bool,
     pub label: String,
 }
@@ -98,7 +102,7 @@ impl Default for Layout {
         Self { name: "Standard".into(), joystick_dead_zone: 0.12, joystick_sensitivity: 1.0,
             camera_sensitivity: 1.0, buttons: defs.into_iter().map(|(id, action, x,y,r,behavior)| Button {
                 id, action, circle: Circle { center: [x,y], radius: r }, opacity: 0.85,
-                behavior, enabled: true, label: String::new(),
+                behavior, icon: Icon::Text, enabled: true, label: String::new(),
             }).collect() }
     }
 }
