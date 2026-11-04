@@ -119,6 +119,7 @@ jobs:
           set -o pipefail
           trap 'printf "::error::"; tail -c 4000 /tmp/check.log | base64 -w0; echo' ERR
           cargo test -p horizon-client-render --lib touch:: -- --nocapture 2>&1 | tee /tmp/check.log
+          cargo test -p horizon-client-render --lib craftix_controls:: -- --nocapture 2>&1 | tee /tmp/check.log
   controls-android-check:
     if: ${{ !inputs.native_checks && !inputs.build_apk }}
     runs-on: ubuntu-latest
