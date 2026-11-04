@@ -163,6 +163,8 @@ impl Game<'_> {
             || self.pad.touch_ui.owns_key(POINTER)
             || (!self.pad_in_menu() && horizon_client::touch::more_at(batch.width, batch.height, point,
                 self.touch_more_avoid_left()))
+            || (!self.pad_in_menu() && self.remote.is_some()
+                && horizon_client::touch::players_at(batch.width, batch.height, point))
             || self.pad.touch.owns_pointer(POINTER)
             || (!self.pad_in_menu() && self.pad.touch.auxiliary_at(normalized));
         if !utility {
@@ -359,6 +361,11 @@ impl Game<'_> {
                 self.android_key_up(key);
             }
             return Ok(true);
+        }
+        // A finger already owned by the world HUD must get its release even
+        // if it slides across an auxiliary button (or a key can stay stuck).
+        if t.phase != TouchPhase::Started && self.pad.touch.owns_pointer(t.id) {
+            return Ok(false);
         }
         let size = self.window.as_ref().unwrap().inner_size();
         let b = HudBatch::new([size.width, size.height]);

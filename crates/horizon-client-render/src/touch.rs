@@ -102,6 +102,21 @@ pub fn screen_direction(
     ray.map(|v| v / length)
 }
 
+/// Multiplayer player-list button, uses the same normalized top row as other controls.
+pub fn players_rect(width: f32, height: f32) -> [f32; 4] {
+    let size = height * 0.075;
+    [width * 0.62 - size / 2.0, height * 0.055 - size / 2.0, size, size]
+}
+pub fn players_at(width: f32, height: f32, point: [f32; 2]) -> bool {
+    layout::contains(players_rect(width, height), point)
+}
+pub fn draw_players(b: &mut HudBatch, a: &HudAtlas, pressed: bool) {
+    let rect = players_rect(b.width, b.height);
+    text_button(b, a, rect, "Tab", pressed, rgba(255,255,255,255), true);
+    let [x,y,w,h] = rect;
+    for (p,q) in [([x,y],[x+w,y]),([x+w,y],[x+w,y+h]),([x+w,y+h],[x,y+h]),([x,y+h],[x,y])] { line(b,a,p,q,rgba(188,100,255,230)); }
+}
+
 /// The extra editor button shares the HUD's GUI-pixel coordinates with hotbar hit testing.
 pub fn more_rect(width: f32, height: f32, avoid_left: bool) -> [f32; 4] {
     [width / 2.0 - 117.0, height - if avoid_left { 48.0 } else { 23.0 }, 22.0, 22.0]
@@ -1859,6 +1874,13 @@ mod tests {
 #[cfg(test)]
 mod more_button_tests {
     use super::*;
+    #[test]
+    fn players_button_geometry_uses_top_row() {
+        let rect = players_rect(400.0, 225.0);
+        let center = [rect[0] + rect[2] * 0.5, rect[1] + rect[3] * 0.5];
+        assert!(players_at(400.0, 225.0, center));
+        assert!(!players_at(400.0, 225.0, [200.0, 220.0]));
+    }
     #[test]
     fn more_button_is_separate_from_hotbar() {
         let rect = more_rect(400.0, 225.0, false);

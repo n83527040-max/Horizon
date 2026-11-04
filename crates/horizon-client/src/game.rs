@@ -13979,6 +13979,10 @@ impl Game<'_> {
             self.pad.touch.break_progress = self.touch_mining_progress();
             self.pad.touch.draw(&mut hud, &self.gui.atlas);
             if self.pad.touch.editor.is_none() && !self.pad_in_menu() {
+                if self.remote.is_some() {
+                    horizon_client::touch::draw_players(&mut hud, &self.gui.atlas,
+                        self.pad.touch.held_custom_tokens().any(|key| key == "action:key.playerlist"));
+                }
                 horizon_client::touch::draw_more(&mut hud, &self.gui.atlas,
                     self.touch_more_avoid_left());
             }
@@ -15192,6 +15196,13 @@ impl ApplicationHandler for Game<'_> {
                 let point = [touch.location.x as f32 / batch.scale, touch.location.y as f32 / batch.scale];
                 let normalized = [touch.location.x as f32 / size.width.max(1) as f32,
                     touch.location.y as f32 / size.height.max(1) as f32];
+                if self.remote.is_some() && horizon_client::touch::players_at(batch.width, batch.height, point)
+                    && !self.pad.touch.control_at_point(normalized)
+                    && self.pad.touch.begin_mapped_touch(touch.id, "action:key.playerlist", normalized)
+                {
+                    self.android_custom_events();
+                    return;
+                }
                 if horizon_client::touch::more_at(batch.width, batch.height, point,
                     self.touch_more_avoid_left())
                     && !self.pad.touch.control_at_point(normalized)

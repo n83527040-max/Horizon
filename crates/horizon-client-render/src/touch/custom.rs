@@ -188,6 +188,15 @@ impl TouchControls {
                 && layout::contains(self.custom_placement(i).rect(self.aspect()), point)
         })
     }
+    /// Begin an engine-mapped hold without inventing a key event on release.
+    pub fn begin_mapped_touch(&mut self, id: u64, token: &str, point: [f32; 2]) -> bool {
+        if !CustomButton::valid_token(token) || self.fingers.contains_key(&id) { return false; }
+        let first = !self.custom_fingers.values().any(|key| key == token);
+        self.custom_fingers.insert(id, token.to_owned());
+        self.fingers.insert(id, (Role::Ignore, point));
+        if first { self.custom_events.push((token.to_owned(), true)); }
+        true
+    }
     pub(super) fn custom_update(
         &mut self,
         id: u64,
@@ -335,6 +344,18 @@ mod tests {
         touch.update(1, point, true, false);
         assert!(touch.key_events().is_empty());
         assert_eq!(touch.custom_at_with_placeholders(point, true), Some(0));
+    }
+    #[test]
+    fn virtual_player_list_is_a_reference_counted_hold() {
+        let mut t = TouchControls::default();
+        t.viewport(1920, 1080);
+        assert!(t.begin_mapped_touch(1, "action:key.playerlist", [0.62, 0.05]));
+        assert!(t.begin_mapped_touch(2, "action:key.playerlist", [0.62, 0.05]));
+        assert_eq!(t.key_events(), [("action:key.playerlist".into(), true)]);
+        t.update(1, [0.01, 0.01], false, true);
+        assert!(t.key_events().is_empty());
+        t.update(2, [0.01, 0.01], false, true);
+        assert_eq!(t.key_events(), [("action:key.playerlist".into(), false)]);
     }
     #[test]
     fn contextual_visibility_controls_hit_testing() {
