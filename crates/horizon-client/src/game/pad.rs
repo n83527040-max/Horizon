@@ -472,6 +472,10 @@ impl Game<'_> {
             if let Some(input) = input {
                 let edges = self.pad.custom_inputs.edge(&format!("pad:{action}"), down, vec![input]);
                 if edges.is_empty() { return Ok(()); }
+                if down && match input {
+                    Ok(key) => self.pad.hardware_keys.iter().any(|p| self.settings.keys.translate_all(*p).contains(&Ok(key))),
+                    Err(button) => self.physical_buttons.contains(&button),
+                } { return Ok(()); }
             }
             self.pad.processing_mapped = true;
         }
