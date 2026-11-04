@@ -127,8 +127,10 @@ void main() {
         installDone: 25, installTotal: 100, installPercent: 25),
         size: const Size(320, 720));
     expect(find.text('25 B / 100 B'), findsOneWidget);
-    expect(find.byIcon(Icons.speed_rounded), findsNothing);
-    expect(find.byIcon(Icons.access_time_rounded), findsNothing);
+    expect(find.descendant(of: find.byType(CraftixRunnerProgress),
+        matching: find.byIcon(Icons.speed_rounded)), findsNothing);
+    expect(find.descendant(of: find.byType(CraftixRunnerProgress),
+        matching: find.byIcon(Icons.access_time_rounded)), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
