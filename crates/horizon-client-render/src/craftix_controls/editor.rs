@@ -40,11 +40,11 @@ impl Layouts {
 }
 fn invalid(message: &str) -> io::Error { io::Error::new(io::ErrorKind::InvalidData,message) }
 /// Edits are isolated until commit; cancel returns the untouched original.
-pub struct Editor { original: Layouts, pub staged: Layouts }
+pub struct Editor { original: Layouts, pub staged: Layouts, drag: Option<(u64, Id, [f32; 2])> }
 impl Editor {
     pub fn new(original: Layouts) -> io::Result<Self> {
         if !original.valid() { return Err(invalid("invalid layouts")); }
-        Ok(Self { staged: original.clone(), original })
+        Ok(Self { staged: original.clone(), original, drag: None })
     }
     fn available(&self, name: &str, except: Option<usize>) -> bool {
         let name = name.trim();
@@ -68,10 +68,11 @@ impl Editor {
     }
     pub fn select(&mut self, index: usize) -> io::Result<()> {
         if index >= self.staged.items.len() { return Err(invalid("invalid index")); }
-        self.staged.active = index; Ok(())
+        self.drag = None; self.staged.active = index; Ok(())
     }
     pub fn delete(&mut self) -> io::Result<()> {
         if self.staged.items.len() == 1 { return Err(invalid("cannot delete the last layout")); }
+        self.drag = None;
         self.staged.items.remove(self.staged.active);
         self.staged.active = self.staged.active.min(self.staged.items.len()-1); Ok(())
     }
@@ -102,7 +103,33 @@ impl Editor {
         let index=buttons.iter().position(|b| b.id==id).ok_or_else(|| invalid("button not found"))?;
         buttons.remove(index); Ok(())
     }
+    /// Capture one pointer for the preview without moving a button underneath it.
+    pub fn begin_drag(&mut self, pointer: u64, point: [f32; 2], aspect: f32) -> bool {
+        if self.drag.is_some() || !aspect.is_finite() || aspect <= 0.0 || !point.into_iter().all(f32::is_finite) { return false; }
+        let layout=&self.staged.items[self.staged.active];
+        if let Some(button)=layout.buttons.iter().rev().find(|b| b.circle.contains(point,aspect)) {
+            self.drag=Some((pointer,button.id,[point[0]-button.circle.center[0],point[1]-button.circle.center[1]]));
+            true
+        } else { false }
+    }
+    pub fn move_drag(&mut self, pointer: u64, point: [f32; 2], aspect: f32) -> bool {
+        if !aspect.is_finite() || aspect <= 0.0 || !point.into_iter().all(f32::is_finite) { return false; }
+        let Some((owner,id,offset))=self.drag else { return false; };
+        if owner != pointer { return false; }
+        let Some(button)=self.staged.items[self.staged.active].buttons.iter_mut().find(|b| b.id==id) else { self.drag=None; return false; };
+        let x_margin=(button.circle.radius/aspect).min(0.5);
+        let y_margin=button.circle.radius.min(0.5);
+        button.circle.center=[(point[0]-offset[0]).clamp(x_margin,1.0-x_margin),
+            (point[1]-offset[1]).clamp(y_margin,1.0-y_margin)];
+        true
+    }
+    pub fn end_drag(&mut self, pointer: u64) {
+        if self.drag.is_some_and(|(owner,_,_)| owner==pointer) { self.drag=None; }
+    }
+    /// Call when the viewport or context changes during editing.
+    pub fn cancel_drag(&mut self) { self.drag=None; }
     pub fn reset(&mut self) {
+        self.drag = None;
         let name = self.staged.items[self.staged.active].name.clone();
         self.staged.items[self.staged.active] = Layout { name, ..Layout::default() };
     }
@@ -123,6 +150,19 @@ mod tests {
         e.staged.items[1].buttons[0].circle.radius=0.2; e.reset();
         assert_eq!(e.staged.items[1].buttons[0].circle.radius,0.15);
         e.delete().unwrap(); assert_eq!(e.cancel(),original);
+    }
+    #[test]
+    fn preview_drag_is_owned_clamped_and_cancelled_transactionally() {
+        let old=Layouts::default(); let mut editor=Editor::new(old.clone()).unwrap();
+        let id=editor.add_key("Map","key.keyboard.m",Icon::Map).unwrap();
+        let p=editor.staged.items[0].buttons.iter().find(|b| b.id==id).unwrap().circle.center;
+        assert!(editor.begin_drag(11,p,16.0/9.0));
+        assert!(!editor.move_drag(12,[0.8,0.5],16.0/9.0));
+        assert!(editor.move_drag(11,[2.0,2.0],16.0/9.0));
+        let c=editor.staged.items[0].buttons.iter().find(|b| b.id==id).unwrap().circle;
+        assert!(c.center[0]+c.radius/(16.0/9.0) <= 1.0 && c.center[1]+c.radius<=1.0);
+        editor.cancel_drag(); assert!(!editor.move_drag(11,[0.4,0.4],16.0/9.0));
+        assert_eq!(editor.cancel(),old);
     }
     #[test]
     fn custom_map_button_is_editable_persistent_and_not_a_fake_binding() {
