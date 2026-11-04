@@ -30,6 +30,8 @@ pub(super) struct Pads {
     #[cfg(target_os = "android")]
     pub(super) custom_inputs: horizon_client::touch::InputOwners<std::result::Result<KeyCode, winit::event::MouseButton>>,
     #[cfg(target_os = "android")]
+    pub(super) processing_mapped: bool,
+    #[cfg(target_os = "android")]
     pub(super) hardware_keys: std::collections::HashSet<KeyCode>,
     #[cfg(target_os = "android")]
     last_input_mode: Option<horizon_client::android_gamepad::InputMode>,
@@ -463,7 +465,17 @@ impl Game<'_> {
     /// A bound action: a vanilla mapping acts as its default key or mouse
     /// button, like a rebound keyboard key.
     fn pad_action(&mut self, action: &str, down: bool) -> Result<()> {
-        match action {
+        #[cfg(target_os = "android")]
+        {
+            let default = KeyBinds::default_of(action);
+            let input = key_code(default).map(Ok).or_else(|| mouse_button(default).map(Err));
+            if let Some(input) = input {
+                let edges = self.pad.custom_inputs.edge(&format!("pad:{action}"), down, vec![input]);
+                if edges.is_empty() { return Ok(()); }
+            }
+            self.pad.processing_mapped = true;
+        }
+        let result = (|| -> Result<()> { match action {
             gamepad::HOTBAR_PREVIOUS | gamepad::HOTBAR_NEXT => {
                 if down && self.screen == Screen::Playing {
                     self.selected =
@@ -473,6 +485,7 @@ impl Game<'_> {
             }
             #[cfg(target_os = "android")]
             "key.sprint" => {
+                if !down && self.android_custom_key_held(KeyCode::ControlLeft) { return Ok(()); }
                 if down {
                     self.keys.insert(KeyCode::ControlLeft);
                 } else {
@@ -517,7 +530,10 @@ impl Game<'_> {
                     Ok(())
                 }
             }
-        }
+        } })();
+        #[cfg(target_os = "android")]
+        { self.pad.processing_mapped = false; }
+        result
     }
 
     /// B and Start: what Escape does where the pad is.

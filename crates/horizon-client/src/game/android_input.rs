@@ -228,10 +228,12 @@ impl Game<'_> {
                     Ok(key) => self.pad.hardware_keys.iter().any(|p| self.settings.keys.translate_all(*p).contains(&Ok(key))),
                     Err(button) => self.physical_buttons.contains(&button),
                 } { continue; }
+                self.pad.processing_mapped = true;
                 let result = match input {
                     Ok(key) => self.mapped_key(key, pressed, false),
                     Err(button) => self.android_custom_mouse(button, pressed),
                 };
+                self.pad.processing_mapped = false;
                 if let Err(error) = result { log::warn!("Custom touch input: {error}"); }
             }
             if down && self.screen == Screen::Chat

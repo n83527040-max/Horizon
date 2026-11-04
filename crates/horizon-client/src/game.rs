@@ -6918,7 +6918,8 @@ impl Game<'_> {
     /// keyboard and controllers both end here).
     fn mapped_key(&mut self, key: KeyCode, pressed: bool, repeat: bool) -> Result<()> {
         #[cfg(target_os = "android")]
-        if !pressed && self.android_custom_key_held(key) {
+        if (!pressed && self.android_custom_key_held(key))
+            || (pressed && !repeat && !self.pad.processing_mapped && self.pad.custom_inputs.contains(&Ok(key))) {
             return Ok(());
         }
         // Sneak and sprint are ToggleKeyMappings: a press (or a key
@@ -14605,7 +14606,8 @@ impl Game<'_> {
     /// A mouse button while playing (window or control socket).
     fn play_mouse(&mut self, button: MouseButton, pressed: bool) -> Result<()> {
         #[cfg(target_os = "android")]
-        if !pressed && self.android_custom_mouse_held(button) {
+        if (!pressed && self.android_custom_mouse_held(button))
+            || (pressed && !self.pad.processing_mapped && self.pad.custom_inputs.contains(&Err(button))) {
             return Ok(());
         }
         // A mod's claimed item takes the use button (capability `input`).
