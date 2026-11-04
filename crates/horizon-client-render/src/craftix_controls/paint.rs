@@ -51,21 +51,45 @@ fn icon(b: &mut HudBatch, a: &HudAtlas, id: Id, center: [f32;2], radius: f32, al
         _ => {}
     }
 }
+/// Independent visual interpolation. The actual movement/key edges remain immediate.
+#[derive(Default)]
+pub struct Animator {
+    joystick: [f32; 2],
+    presses: std::collections::BTreeMap<Id, f32>,
+}
+impl Animator {
+    pub fn advance(&mut self, layout: &Layout, router: &Router, elapsed_seconds: f32) {
+        let dt = if elapsed_seconds.is_finite() { elapsed_seconds.clamp(0.0, 0.1) } else { 0.0 };
+        let blend = 1.0 - (-16.0 * dt).exp();
+        let target = router.movement();
+        for i in 0..2 { self.joystick[i] += (target[i] - self.joystick[i]) * blend; }
+        self.presses.retain(|id, _| layout.buttons.iter().any(|b| b.id == *id));
+        for button in &layout.buttons {
+            let target = if button.action.as_ref().is_some_and(|action| router.active(action)) { 1.0 } else { 0.0 };
+            let value = self.presses.entry(button.id).or_default();
+            *value += (target - *value) * blend;
+        }
+    }
+    fn press(&self, id: Id) -> f32 { self.presses.get(&id).copied().unwrap_or(0.0).clamp(0.0, 1.0) }
+}
 /// Draw the entire replacement HUD from its data model. The caller controls
 /// the frame timing and routes pointer events separately.
-pub fn paint(b: &mut HudBatch, a: &HudAtlas, layout: &Layout, router: &Router) {
+pub fn paint(b: &mut HudBatch, a: &HudAtlas, layout: &Layout, animation: &Animator) {
     for button in &layout.buttons {
         if !button.enabled || button.opacity <= 0.0 { continue; }
         let center=[button.circle.center[0]*b.width,button.circle.center[1]*b.height];
-        let radius=button.circle.radius*b.height;
+        let press=animation.press(button.id);
+        let radius=button.circle.radius*b.height*(1.0-0.05*press);
         let alpha=(button.opacity.clamp(0.0,1.0)*255.0) as u8;
-        let held=button.action.as_ref().is_some_and(|a| router.active(a));
+        let fill_r=(12.0+71.0*press) as u8;
+        let fill_g=(9.0+16.0*press) as u8;
+        let fill_b=(22.0+98.0*press) as u8;
         ring(b,a,center,radius+2.2,2.2,rgba(158,42,255,alpha/8));
-        disk(b,a,center,radius,if held { rgba(83,25,120,alpha) } else { rgba(12,9,22,alpha) });
+        disk(b,a,center,radius,rgba(fill_r,fill_g,fill_b,alpha));
         ring(b,a,center,radius,(radius*0.035).max(1.0),rgba(195,119,255,alpha));
         ring(b,a,center,radius+1.0,1.0,rgba(203,121,255,alpha/3));
         if button.id==Id::Joystick {
-            let m=router.movement();
+            let m=animation.joystick;
             let knob=[center[0]+m[0]*radius*0.47,center[1]-m[1]*radius*0.47];
             disk(b,a,knob,radius*0.32,rgba(105,49,157,alpha));
             ring(b,a,knob,radius*0.32,(radius*0.025).max(0.8),rgba(225,178,255,alpha));
@@ -93,9 +117,21 @@ pub fn paint(b: &mut HudBatch, a: &HudAtlas, layout: &Layout, router: &Router) {
 mod tests {
     use super::*;
     #[test]
+    fn joystick_visual_returns_smoothly_without_delaying_input() {
+        let mut r=Router::default(); let l=Layout::default(); let aspect=16.0/9.0;
+        let joy=l.buttons.iter().find(|b| b.id==Id::Joystick).unwrap().circle.center;
+        r.begin(&l,1,joy,aspect,0); r.moved(&l,1,[joy[0],joy[1]-0.1],aspect);
+        let mut anim=Animator::default(); anim.advance(&l,&r,0.1); assert!(anim.joystick[1]>0.0);
+        r.end(1); assert_eq!(r.movement(),[0.0,0.0]);
+        let before=anim.joystick[1]; anim.advance(&l,&r,0.02);
+        assert!(anim.joystick[1]>0.0 && anim.joystick[1]<before);
+        for _ in 0..100 { anim.advance(&l,&r,0.1); }
+        assert!(anim.joystick[1]<0.0001);
+    }
+    #[test]
     fn paint_round_controls_has_bounded_geometry() {
         let mut b=HudBatch::new([1920,1080]); let a=HudAtlas::boot();
-        paint(&mut b,&a,&Layout::default(),&Router::default());
+        paint(&mut b,&a,&Layout::default(),&Animator::default());
         assert!(!b.vertices.is_empty());
         assert!(b.vertices.len()<40000,"unexpected HUD geometry growth");
         assert!(b.vertices.iter().all(|v| v.pos[0].is_finite() && v.pos[1].is_finite()));
