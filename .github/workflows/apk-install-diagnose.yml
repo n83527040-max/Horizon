@@ -33,6 +33,7 @@ jobs:
         run: |
           set -euo pipefail
           bash tools/ci_craftix_signing.sh
+          export CRAFTIX_KEYSTORE_FILE="$RUNNER_TEMP/craftix-release.jks"
           CERT=$("$JAVA_HOME/bin/keytool" -exportcert -keystore "$CRAFTIX_KEYSTORE_FILE" -storepass:env CRAFTIX_STORE_PASSWORD -alias "$CRAFTIX_KEY_ALIAS" | openssl x509 -inform DER -noout -fingerprint -sha256 | cut -d= -f2)
           BT="$ANDROID_HOME/build-tools/35.0.0"
           SIGNER="$JAVA_HOME/bin/java -jar $BT/lib/apksigner.jar"
