@@ -1,0 +1,100 @@
+# Optional release pipeline for the 0.7.6 UI redesign. Dispatch-only: the
+# upstream fork keeps `android-source.yml` as its only always-on workflow.
+name: Android UI redesign checks and release
+on:
+  workflow_dispatch:
+    inputs:
+      native_checks:
+        description: Type-check the Android Rust targets (no APK)
+        type: boolean
+        default: true
+      build_apk:
+        description: Build public release APKs (needs Mojang table preparation)
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: android-ui-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - run: git diff --check
+      - run: python3 tools/check_public_tree.py --history
+      - run: python3 -m unittest discover -s tests -p 'test_android*.py'
+      - run: python3 tools/android_ui_layout.py
+      - run: python3 tools/android_ui_preview.py
+      - name: Check the exported workflow contract still matches
+        run: cmp .github/workflows/android-source.yml packaging/android/source-checks.yml
+
+  native:
+    if: ${{ inputs.native_checks }}
+    needs: source
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - abi: arm64-v8a
+            target: aarch64-linux-android
+          - abi: armeabi-v7a
+            target: armv7-linux-androideabi
+    env:
+      CARGO_TARGET_DIR: .local/ci-target
+      CARGO_BUILD_JOBS: "2"
+      HORIZON_TELEMETRY_URL: "off"
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Install Android toolchain
+        run: |
+          sdkmanager "ndk;28.2.13676358" "build-tools;35.0.0" "platforms;android-35"
+          rustup target add "${{ matrix.target }}"
+      - name: Type-check and lint the redesigned launcher
+        run: |
+          python3 tools/android_build.py --abi "${{ matrix.abi }}" --clippy --public \
+            --sdk "$ANDROID_HOME" --java-home "$JAVA_HOME_17_X64"
+
+  apk:
+    if: ${{ inputs.build_apk }}
+    needs: source
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      CARGO_TARGET_DIR: .local/release-target
+      CARGO_BUILD_JOBS: "2"
+      HORIZON_TELEMETRY_URL: "off"
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install Android toolchain and Gradle 8.14
+        run: |
+          sdkmanager "ndk;28.2.13676358" "build-tools;35.0.0" "platforms;android-35"
+          rustup target add aarch64-linux-android
+          curl -fsSL -o /tmp/gradle.zip https://services.gradle.org/distributions/gradle-8.14-all.zip
+          mkdir -p "$HOME/.gradle/wrapper/dists/gradle-8.14-all/ci"
+          unzip -q /tmp/gradle.zip -d "$HOME/.gradle/wrapper/dists/gradle-8.14-all/ci"
+      - name: Prepare pinned engine tables (private, never committed)
+        run: python3 tools/android_prepare.py
+      - name: Build release APK
+        run: |
+          export JAVA_HOME="$JAVA_HOME_17_X64"
+          bash tools/build_release_apk.sh
+      - name: Publish APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Horizon-Android-0.7.6-redesign
+          path: .local/android/releases/0.7.6/*.apk
+          if-no-files-found: error

@@ -1,0 +1,152 @@
+# Gates phases 3-4 of the Flutter migration. The sandbox has no Dart/Flutter
+# SDK and no device, so GitHub Actions is the only real analyzer/test runner.
+name: Flutter foundation checks
+on:
+  push:
+    branches: [arena/92db30ff-horizon]
+    paths:
+      - 'flutter/**'
+      - 'tools/verify_flutter_foundation.py'
+      - 'tools/verify_flutter_migration_audit.py'
+      - 'tools/verify_flutter_native_bridge.py'
+      - 'tools/verify_craftix_release.py'
+      - 'tools/ci_craftix_signing.sh'
+      - 'tools/ci_record_certificate.py'
+      - 'CRAFTIX_MIGRATION_ANALYSIS.md'
+      - 'tools/test_live_catalog_api.py'
+      - 'tools/check_jni_symbols.py'
+      - 'tools/verify_action_matrix.py'
+      - 'crates/horizon-client/src/android/bridge_rules.rs'
+      - 'crates/horizon-client/src/android/catalog.rs'
+      - 'FLUTTER_MIGRATION_AUDIT.md'
+      - 'FLUTTER_NATIVE_BRIDGE_ANALYSIS.md'
+      - 'FLUTTER_BRIDGE_EVIDENCE.md'
+      - 'flutter/android/**'
+      - 'crates/horizon-client/src/android/flutter_bridge.rs'
+      - 'crates/horizon-client/src/android_main.rs'
+      - 'crates/horizon-client/src/android/launcher.rs'
+      - 'crates/horizon-client/src/android/launcher_pages.rs'
+      - 'research-lock.json'
+      - 'packaging/android/build.gradle'
+      - '.github/workflows/flutter-foundation.yml'
+      - 'ci-flutter.trigger'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  actions: read
+
+concurrency:
+  group: horizon-flutter-foundation
+  cancel-in-progress: true
+
+env:
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Toolchain
+        run: |
+          flutter --version 2>&1 | tee /tmp/flutter-version.txt
+          dart --version 2>&1 | tee -a /tmp/flutter-version.txt
+          python3 --version
+
+      - name: Cross-language contract + audit + existing Android tests
+        run: |
+          {
+            echo "\$ python3 tools/verify_flutter_migration_audit.py"
+            python3 tools/verify_flutter_migration_audit.py
+            echo "\$ python3 tools/verify_flutter_foundation.py"
+            python3 tools/verify_flutter_foundation.py
+            echo "\$ python3 tools/verify_flutter_native_bridge.py --write-evidence"
+            python3 tools/verify_flutter_native_bridge.py --write-evidence
+            echo "\$ python3 tools/verify_craftix_release.py"
+            python3 tools/verify_craftix_release.py
+            echo "\$ REAL Rust unit tests (rustc --test bridge_rules.rs)"
+            rustc --test crates/horizon-client/src/android/bridge_rules.rs -o /tmp/bridge_rules_test
+            /tmp/bridge_rules_test
+            echo "\$ LIVE Modrinth / Horizon API integration test"
+            python3 tools/test_live_catalog_api.py
+            echo "\$ 49-action test matrix"
+            python3 tools/verify_action_matrix.py --write
+            echo "\$ python3 -m unittest discover -s tests -p 'test_android*.py'"
+            python3 -m unittest discover -s tests -p 'test_android*.py'
+          } 2>&1 | tee /tmp/contract.txt
+
+      - name: Pub get
+        if: always()
+        working-directory: flutter
+        run: flutter pub get 2>&1 | tee /tmp/flutter-pubget.txt
+
+      - name: Flutter analyze
+        if: always()
+        working-directory: flutter
+        run: |
+          set -o pipefail
+          flutter analyze --no-fatal-infos 2>&1 | tee /tmp/flutter-analyze.txt
+
+      - name: Flutter test
+        if: always()
+        working-directory: flutter
+        run: |
+          set -o pipefail
+          flutter test --reporter expanded 2>&1 | tee /tmp/flutter-test.txt
+
+      - name: Generate golden baselines (no comparison claim yet)
+        if: always()
+        working-directory: flutter
+        run: |
+          set -o pipefail
+          flutter test --dart-define=GENERATE_GOLDENS=true --update-goldens \
+            test/golden_generation_test.dart 2>&1 | tee /tmp/flutter-golden.txt
+
+      - name: Upload generated golden baselines
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: horizon-golden-baselines
+          path: flutter/test/goldens/*.png
+          if-no-files-found: ignore
+
+      # The results-receiver host is not reachable from the coding sandbox, so
+      # mirror every step's output into an issue comment (api.github.com only).
+      - name: Publish results
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          touch /tmp/contract.txt /tmp/flutter-pubget.txt /tmp/flutter-analyze.txt /tmp/flutter-test.txt /tmp/flutter-version.txt /tmp/flutter-golden.txt
+          {
+            echo "🤖 Agent: Flutter foundation run $GITHUB_RUN_ID ($GITHUB_SHA)"
+            echo
+            echo "### Toolchain"
+            echo '```'; cat /tmp/flutter-version.txt; echo '```'
+            echo "### Contracts / existing tests"
+            echo '```'; tail -n 60 /tmp/contract.txt; echo '```'
+            echo "### flutter pub get"
+            echo '```'; tail -n 30 /tmp/flutter-pubget.txt; echo '```'
+            echo "### flutter analyze"
+            echo '```'; tail -n 120 /tmp/flutter-analyze.txt; echo '```'
+            echo "### flutter test (first errors)"
+            echo '```'; head -n 220 /tmp/flutter-test.txt; echo '```'
+            echo "### flutter test (summary)"
+            echo '```'; tail -n 60 /tmp/flutter-test.txt; echo '```'
+            echo "### golden generation"
+            echo '```'; tail -n 25 /tmp/flutter-golden.txt; echo '```'
+          } > /tmp/flutter-report.md
+          head -c 60000 /tmp/flutter-report.md > /tmp/flutter-report-trim.md
+          gh api "repos/${GITHUB_REPOSITORY}/issues/1/comments" -F body=@/tmp/flutter-report-trim.md
+          echo "report exit: $?"

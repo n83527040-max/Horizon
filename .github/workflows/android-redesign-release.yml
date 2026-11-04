@@ -1,0 +1,319 @@
+# Builds the CRAFTIX 0.7.8 Rust engine APK as a real, signed,
+# public release APK and publishes it as a downloadable GitHub Release asset.
+# Push-triggered because the Arena GitHub App token cannot dispatch workflows.
+name: CRAFTIX 0.7.8 Rust engine APK
+on:
+  push:
+    branches: [arena/92db30ff-horizon]
+    paths:
+      - '.github/workflows/android-redesign-release.yml'
+      - 'tools/verify_android_apk.py'
+      - 'tools/ci_android_setup.sh'
+      - 'tools/ci-craftix-078-notes.md'
+      - 'tools/ci_craftix_signing.sh'
+      - 'tools/ci_record_certificate.py'
+      - 'tools/verify_craftix_release.py'
+      - 'tools/build_release_apk.sh'
+      - 'tools/android_ui_layout.py'
+      - 'tools/android_ui_render.py'
+      - 'tools/android_ui_preview.py'
+      - 'tests/test_android_ui_redesign.py'
+      - 'crates/horizon-client/src/android/ui_spec.json'
+      - 'tools/android_prepare.py'
+      - 'tools/android_build.py'
+      - 'tools/android_release.py'
+      - 'crates/**'
+      - 'packaging/android/**'
+      - 'ci-release.trigger'
+  workflow_dispatch:
+permissions:
+  contents: write
+  issues: write
+  actions: read
+concurrency:
+  group: horizon-redesign-apk
+  cancel-in-progress: true
+env:
+  HORIZON_TELEMETRY_URL: "off"
+  CARGO_TERM_COLOR: never
+  CARGO_BUILD_JOBS: "2"
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  verify:
+    name: Source, layout and native type checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      CARGO_TARGET_DIR: ${{ github.workspace }}/.local/ci-target
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            .local/ci-target
+          key: ${{ runner.os }}-cargo-check-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-check-
+      - name: Announce build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue comment 1 --body "Run $GITHUB_RUN_ID / \`$GITHUB_SHA\`: \`verify\` started (source checks, Rust Android type-check, Clippy with warnings denied)."
+      - name: Source and redesign regression checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            python3 -m pip install --quiet --break-system-packages Pillow
+            git diff --check
+            python3 tools/check_public_tree.py
+            python3 tools/check_public_tree.py --history
+            python3 -m unittest discover -s tests -p 'test_android*.py'
+            python3 tools/android_ui_layout.py
+            python3 tools/android_ui_preview.py
+            python3 tools/android_ui_render.py --check
+            python3 -m unittest tests.test_android_ui_redesign -v
+            grep -n 'android:screenOrientation="portrait"' packaging/android/AndroidManifest.xml
+            cmp .github/workflows/android-source.yml packaging/android/source-checks.yml
+            git status --porcelain
+          } 2>&1 | tee -a "$RUNNER_TEMP/horizon-verify.log"
+      - name: Pin Android SDK and install Rust target
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            bash tools/ci_android_setup.sh
+            rustup target add aarch64-linux-android
+            rustc --version
+          } 2>&1 | tee -a "$RUNNER_TEMP/horizon-verify.log"
+      - name: Rust type-check the redesigned Android launcher
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            export JAVA_HOME="$JAVA_HOME_17_X64"
+            python3 tools/android_build.py --abi arm64-v8a --check --public \
+              --sdk "$ANDROID_HOME" --java-home "$JAVA_HOME"
+          } 2>&1 | tee -a "$RUNNER_TEMP/horizon-verify.log"
+      - name: Clippy (warnings denied)
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            export JAVA_HOME="$JAVA_HOME_17_X64"
+            python3 tools/android_build.py --abi arm64-v8a --clippy --public \
+              --sdk "$ANDROID_HOME" --java-home "$JAVA_HOME"
+          } 2>&1 | tee -a "$RUNNER_TEMP/horizon-verify.log"
+      - name: Report verify log
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tail -c 50000 "$RUNNER_TEMP/horizon-verify.log" > /tmp/verify-tail.txt || echo "no log" > /tmp/verify-tail.txt
+          gh issue comment 1 --body-file /tmp/verify-tail.txt
+
+  release:
+    name: Prepare resources, build and publish the APK
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      # Matches tools/android_release.py's per-ABI cache; avoids two full builds.
+      CARGO_TARGET_DIR: ${{ github.workspace }}/.local/android/release-arm64
+      # Permanent CRAFTIX release key, supplied by the repository owner.
+      CRAFTIX_KEYSTORE_BASE64: ${{ secrets.CRAFTIX_KEYSTORE_BASE64 }}
+      CRAFTIX_STORE_PASSWORD: ${{ secrets.CRAFTIX_STORE_PASSWORD }}
+      CRAFTIX_KEY_ALIAS: ${{ secrets.CRAFTIX_KEY_ALIAS }}
+      CRAFTIX_KEY_PASSWORD: ${{ secrets.CRAFTIX_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            .local/android/release-arm64
+          key: ${{ runner.os }}-cargo-release-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-release-
+      - name: Announce build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue comment 1 --body "Run $GITHUB_RUN_ID / \`$GITHUB_SHA\`: \`release\` started (engine tables, Rust release build, Gradle packaging, APK verification, GitHub Release)."
+      - name: Decode the permanent CRAFTIX release keystore
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash tools/ci_craftix_signing.sh 2>&1 | tee -a "$RUNNER_TEMP/horizon-build.log"
+
+      - name: Pin Android SDK, Rust target and Gradle 8.14
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            bash tools/ci_android_setup.sh
+            rustup target add aarch64-linux-android
+            mkdir -p "$HOME/.gradle/wrapper/dists/gradle-8.14-all/ci"
+            curl -fL --retry 3 -o /tmp/gradle.zip https://services.gradle.org/distributions/gradle-8.14-all.zip
+            unzip -q -o /tmp/gradle.zip -d "$HOME/.gradle/wrapper/dists/gradle-8.14-all/ci"
+            test -x "$HOME/.gradle/wrapper/dists/gradle-8.14-all/ci/gradle-8.14/bin/gradle"
+            "$HOME/.gradle/wrapper/dists/gradle-8.14-all/ci/gradle-8.14/bin/gradle" --version
+          } 2>&1 | tee -a "$RUNNER_TEMP/horizon-build.log"
+      - name: Prepare the pinned Minecraft 26.3 engine tables
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            export JAVA_HOME="$JAVA_HOME_25_X64"
+            export CARGO_TARGET_DIR="$GITHUB_WORKSPACE/.local/prepare-target"
+            mkdir -p .local/android
+            PREPARED=full
+            if python3 tools/android_prepare.py --java-home "$JAVA_HOME"; then
+              echo "PREPARE=full (Mojang downloads + Java exporters)"
+            else
+              echo "PREPARE=fallback (official v0.7.6 generated tables)"
+              PREPARED=fallback
+              curl -fL --retry 3 -o /tmp/upstream-v076.apk \
+                https://github.com/Vasysik/horizon-android/releases/download/v0.7.6/Horizon-Android-0.7.6-arm64-v8a.apk
+              unzip -p /tmp/upstream-v076.apk assets/engine-data.zip > /tmp/engine-data.zip
+              mkdir -p .local/horizon-client/26.3
+              unzip -o -q /tmp/engine-data.zip -d .local/horizon-client/26.3
+            fi
+            test -f .local/horizon-client/26.3/horizon-resources.json
+            test -f .local/horizon-client/26.3/worldgen/blocks/structure-blocks.json
+            printf 'PREPARE_MODE=%s\n' "$PREPARED" >> "$GITHUB_ENV"
+            # Keep only the generated tables: downloaded game jars, sounds,
+            # JDKs and host build artifacts are no longer needed.
+            rm -rf .local/android/minecraft .local/android/jdk .local/android/serve \
+                   .local/prepare-target .local/prepare-* 2>/dev/null || true
+            du -sh .local/horizon-client/26.3
+          } 2>&1 | tee -a "$RUNNER_TEMP/horizon-build.log"
+      - name: Build the signed public release APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            export JAVA_HOME="$JAVA_HOME_17_X64"
+            export CARGO_TARGET_DIR="$GITHUB_WORKSPACE/.local/android/release-arm64"
+            export HORIZON_CLIPPY=0
+            export HORIZON_JOBS=2
+            bash tools/build_release_apk.sh
+            ls -lh .local/android/releases/0.7.8/
+          } 2>&1 | tee -a "$RUNNER_TEMP/horizon-build.log"
+      - name: Verify APK contents, signature and installability
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            OUT=.local/android/releases/0.7.8
+            # tools/android_release.py still names the staged APK with the
+            # historical upstream prefix; give the deliverable its CRAFTIX name
+            # before verification. The binary itself is unchanged.
+            if [[ -f "$OUT/Horizon-Android-0.7.8-arm64-v8a.apk" ]]; then
+              mv "$OUT/Horizon-Android-0.7.8-arm64-v8a.apk" \
+                 "$OUT/CRAFTIX-Android-0.7.8-arm64-v8a.apk"
+            fi
+            APK="$OUT/CRAFTIX-Android-0.7.8-arm64-v8a.apk"
+            BT="$ANDROID_HOME/build-tools/35.0.0"
+            JAVA="$JAVA_HOME_17_X64/bin/java"
+            # v1+v2 with the SAME permanent CRAFTIX key (OEM install
+            # compatibility). apksigner strips the previous v2-only signature.
+            bash tools/resign_craftix_apk.sh "$APK"
+            if [[ ! -f /tmp/upstream-v076.apk ]]; then
+              curl -fL --retry 3 -o /tmp/upstream-v076.apk \
+                https://github.com/Vasysik/horizon-android/releases/download/v0.7.6/Horizon-Android-0.7.6-arm64-v8a.apk
+            fi
+            # Evidence from the *binary* manifest inside the APK: portrait lock.
+            "$BT/aapt2" dump xmltree --file AndroidManifest.xml "$APK" > "$OUT/manifest-tree.txt" || true
+            grep -n -A2 "screenOrientation" "$OUT/manifest-tree.txt" || true
+            python3 tools/verify_android_apk.py "$APK" \
+              --upstream /tmp/upstream-v076.apk --manifest-tree "$OUT/manifest-tree.txt" \
+              --report "$OUT/APK_VERIFICATION.json"
+            "$BT/aapt2" dump badging "$APK" | tee "$OUT/badging.txt" | grep -E "package:|sdkVersion:|targetSdkVersion:|native-code:|application-label:|application-debuggable" || true
+            "$JAVA" -jar "$BT/lib/apksigner.jar" verify --verbose --print-certs "$APK"
+            python3 tools/check_android_release.py "$APK" --aapt2 "$BT/aapt2" --public \
+              --report "$OUT/release-audit.json"
+            python3 tools/diagnose_apk_install.py "$APK" \
+              --aapt2 "$BT/aapt2" --apksigner "$JAVA -jar $BT/lib/apksigner.jar" \
+              --report "$OUT/INSTALL_DIAGNOSTICS.json"
+            # Assemble the final, clearly named deliverable and its checksums.
+            mv "$APK" "$OUT/CRAFTIX-Rust-0.7.8-arm64-v8a.apk"
+            ( cd "$OUT" && sha256sum CRAFTIX-Rust-0.7.8-arm64-v8a.apk > SHA256SUMS_RUST.txt )
+            printf 'PREPARE_MODE=%s\nBUILD_COMMIT=%s\n' "${PREPARE_MODE:-unknown}" "$GITHUB_SHA" > "$OUT/BUILD_INFO.txt"
+            ls -lh "$OUT"
+            cat "$OUT/SHA256SUMS_RUST.txt"
+          } 2>&1 | tee -a "$RUNNER_TEMP/horizon-build.log"
+      - name: Record the public CRAFTIX signing certificate fingerprint
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT=.local/android/releases/0.7.8
+          APK="$OUT/CRAFTIX-Rust-0.7.8-arm64-v8a.apk"
+          BT="$ANDROID_HOME/build-tools/35.0.0"
+          "$JAVA_HOME_17_X64/bin/java" -jar "$BT/lib/apksigner.jar" verify --print-certs "$APK" \
+            > "$OUT/certificate.txt"
+          python3 tools/ci_record_certificate.py "$OUT/certificate.txt" \
+            "$OUT/CERT_FINGERPRINT.json"
+
+      - name: Publish the APK as a GitHub Release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            TAG=craftix-0.7.8
+            OUT=.local/android/releases/0.7.8
+            APK="$OUT/CRAFTIX-Rust-0.7.8-arm64-v8a.apk"
+            NOTES=tools/ci-craftix-078-notes.md
+            ASSETS=("$APK" "$OUT/SHA256SUMS_RUST.txt" "$OUT/APK_VERIFICATION.json" \
+              "$OUT/release-audit.json" "$OUT/badging.txt" "$OUT/manifest-tree.txt" \
+              "$OUT/BUILD_INFO.txt" "$OUT/CERT_FINGERPRINT.json" "$OUT/certificate.txt" \
+              "$OUT/INSTALL_DIAGNOSTICS.json" \
+              "$OUT/LICENSE.txt" "$OUT/THIRD_PARTY_NOTICES.md")
+            if gh release view "$TAG" >/dev/null 2>&1; then
+              gh release upload "$TAG" "${ASSETS[@]}" --clobber
+            else
+              gh release create "$TAG" \
+                --title 'CRAFTIX 0.7.8 – Rust engine APK' \
+                --notes-file "$NOTES" --target "$GITHUB_SHA" \
+                "${ASSETS[@]}"
+            fi
+            # Prove the asset is downloadable and byte-identical to the built APK.
+            mkdir -p /tmp/release-download
+            gh release download "$TAG" --pattern 'CRAFTIX-Rust-*.apk' --dir /tmp/release-download
+            cmp "$APK" /tmp/release-download/CRAFTIX-Rust-0.7.8-arm64-v8a.apk
+            sha256sum /tmp/release-download/*.apk
+            gh release view "$TAG" --json url,tagName,assets --jq '.url, (.assets[].name)'
+          } 2>&1 | tee -a "$RUNNER_TEMP/horizon-build.log"
+      - name: Upload the APK as a downloadable Actions artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CRAFTIX-Rust-0.7.8-arm64-v8a
+          path: .local/android/releases/0.7.8/CRAFTIX-Rust-0.7.8-arm64-v8a.apk
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Remove temporary CRAFTIX keystore
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          rm -f "$RUNNER_TEMP/craftix-release.jks"
+          echo "temporary CRAFTIX keystore removed from the runner"
+
+      - name: Report build log
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tail -c 50000 "$RUNNER_TEMP/horizon-build.log" > /tmp/build-tail.txt || echo "no log" > /tmp/build-tail.txt
+          gh issue comment 1 --body-file /tmp/build-tail.txt

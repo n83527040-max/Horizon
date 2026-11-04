@@ -1,0 +1,67 @@
+{
+  "version": 1,
+  "note": "Single source of truth for the Android launcher's portrait, edge-to-edge visual language. Read by the native Rust UI (design.rs), the layout verifier (tools/android_ui_layout.py), the QA renderer (tools/android_ui_render.py) and the layout QA preview.",
+  "orientation": "portrait",
+  "width_policy": "full-width",
+  "width_policy_note": "max_content_width 0 disables the old centred desktop column. Cards span the whole screen minus responsive side padding and cutout insets.",
+  "palette": {
+    "bg": "#070B1C",
+    "card": "#111A35",
+    "card_alt": "#16224A",
+    "primary": "#8B45FF",
+    "secondary": "#315BFF",
+    "cyan": "#20DDF5",
+    "text": "#FFFFFF",
+    "muted": "#A9B4D0",
+    "outline": "#2A3560",
+    "success": "#3DDC97",
+    "danger": "#FF6B8B",
+    "glass": "#0C1330"
+  },
+  "radius": {
+    "card": 22.0,
+    "button": 18.0,
+    "chip": 14.0,
+    "nav": 26.0,
+    "hero": 26.0,
+    "pill": 999.0
+  },
+  "spacing": {
+    "pad": 16.0,
+    "gap": 12.0,
+    "section": 18.0,
+    "safe_top": 8.0,
+    "safe_bottom": 8.0
+  },
+  "header": { "height": 56.0 },
+  "subheader": { "height": 52.0 },
+  "nav": { "height": 72.0, "icon": 22.0, "label": 10.0 },
+  "hero": { "height": 180.0, "min": 150.0, "max": 210.0 },
+  "play": { "height": 62.0 },
+  "version": { "height": 78.0 },
+  "feature": { "height": 88.0 },
+  "performance": { "height": 122.0 },
+  "catalog": {
+    "row_height": 92.0,
+    "chip_height": 36.0,
+    "search_height": 46.0,
+    "action_height": 40.0
+  },
+  "installed": { "section_height": 46.0, "row_height": 92.0 },
+  "settings": { "row_height": 76.0, "section_height": 34.0 },
+  "breakpoints": {
+    "compact": 360.0,
+    "regular": 393.0,
+    "large": 432.0,
+    "tablet": 600.0
+  },
+  "max_content_width": 0.0,
+  "side_pad_wide_start": 600.0,
+  "side_pad_wide_extra": 24.0,
+  "motion": {
+    "page_ms": 220.0,
+    "press_ms": 160.0,
+    "skeleton_ms": 1200.0
+  },
+  "nav_items": ["Home", "Mods", "Packs", "Installed", "Settings"]
+}
