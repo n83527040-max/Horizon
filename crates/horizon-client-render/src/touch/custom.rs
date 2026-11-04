@@ -68,6 +68,9 @@ pub struct CustomButton {
     pub enabled: bool,
     #[serde(default)]
     pub visibility: CustomVisibility,
+    /// Toggle keeps the key down between taps; off by default for old layouts.
+    #[serde(default)]
+    pub toggle: bool,
 }
 impl CustomButton {
     pub fn new(key: String, index: usize) -> Self {
@@ -77,6 +80,7 @@ impl CustomButton {
             icon: CustomIcon::Text,
             enabled: true,
             visibility: CustomVisibility::Always,
+            toggle: false,
             layouts: [Placement::new(
                 0.68 + (index % 3) as f32 * 0.1,
                 0.35 + (index / 3 % 3) as f32 * 0.12,
@@ -142,14 +146,14 @@ impl TouchControls {
         started: bool,
         ended: bool,
     ) -> bool {
-        if self.custom_fingers.contains_key(&id) {
+        if self.custom_fingers.contains_key(&id) || self.toggle_fingers.contains_key(&id) {
             return self.custom_update(id, point, false, ended);
         }
         if started
             && self.custom_at(point).is_none()
             && let Some(token) = self.control_at(point).and_then(Self::inventory_token)
         {
-            let pressed = !self.custom_fingers.values().any(|v| v == token);
+            let pressed = !self.custom_token_active(token);
             self.custom_fingers.insert(id, token.into());
             self.fingers.insert(id, (Role::Ignore, point));
             if pressed {
@@ -191,7 +195,7 @@ impl TouchControls {
     /// Begin an engine-mapped hold without inventing a key event on release.
     pub fn begin_mapped_touch(&mut self, id: u64, token: &str, point: [f32; 2]) -> bool {
         if !CustomButton::valid_token(token) || self.fingers.contains_key(&id) { return false; }
-        let first = !self.custom_fingers.values().any(|key| key == token);
+        let first = !self.custom_token_active(token);
         self.custom_fingers.insert(id, token.to_owned());
         self.fingers.insert(id, (Role::Ignore, point));
         if first { self.custom_events.push((token.to_owned(), true)); }
@@ -204,11 +208,18 @@ impl TouchControls {
         started: bool,
         ended: bool,
     ) -> bool {
+        if self.toggle_fingers.contains_key(&id) {
+            if ended {
+                self.toggle_fingers.remove(&id);
+                self.fingers.remove(&id);
+            }
+            return true;
+        }
         if let Some(key) = self.custom_fingers.get(&id).cloned() {
             if ended {
                 self.custom_fingers.remove(&id);
                 self.fingers.remove(&id);
-                if !self.custom_fingers.values().any(|k| *k == key) {
+                if !self.custom_token_active(&key) {
                     self.custom_events.push((key, false));
                 }
             }
@@ -219,27 +230,44 @@ impl TouchControls {
             if key == "key.keyboard.unknown" {
                 return false;
             }
-            let pressed = !self.custom_fingers.values().any(|k| *k == key);
-            self.custom_fingers.insert(id, key.clone());
+            let active_before = self.custom_token_active(&key);
+            if self.settings.custom_buttons[index].toggle {
+                // Multiple fingers on the same toggle count as a single tap.
+                let first = !self.toggle_fingers.values().any(|v| *v == key);
+                self.toggle_fingers.insert(id, key.clone());
+                if first {
+                    if !self.latched_custom.remove(&key) {
+                        self.latched_custom.insert(key.clone());
+                    }
+                }
+            } else {
+                self.custom_fingers.insert(id, key.clone());
+            }
             self.fingers.insert(id, (Role::Ignore, point));
-            if pressed {
-                self.custom_events.push((key, true));
+            let active_after = self.custom_token_active(&key);
+            if active_before != active_after {
+                self.custom_events.push((key, active_after));
             }
             self.clicked = true;
             return true;
         }
         false
     }
+    fn custom_token_active(&self, token: &str) -> bool {
+        self.latched_custom.contains(token) || self.custom_fingers.values().any(|k| k == token)
+    }
     pub fn held_custom_tokens(&self) -> impl Iterator<Item = &str> {
-        self.custom_fingers.values().map(String::as_str)
+        self.custom_fingers.values().chain(self.latched_custom.iter()).map(String::as_str)
     }
     pub fn key_events(&mut self) -> Vec<(String, bool)> {
         std::mem::take(&mut self.custom_events)
     }
     pub(super) fn clear_custom(&mut self) {
-        let keys: std::collections::BTreeSet<_> = std::mem::take(&mut self.custom_fingers)
+        let mut keys: std::collections::BTreeSet<_> = std::mem::take(&mut self.custom_fingers)
             .into_values()
             .collect();
+        keys.append(&mut self.latched_custom);
+        self.toggle_fingers.clear();
         self.custom_events
             .extend(keys.into_iter().map(|k| (k, false)));
     }
@@ -259,7 +287,7 @@ impl TouchControls {
                 size,
                 size,
             ];
-            let pressed = self.custom_fingers.values().any(|key| *key == button.key);
+            let pressed = self.custom_token_active(&button.key);
             let opacity = if self.editor.is_some() {
                 p.opacity.max(0.25)
             } else {
@@ -346,6 +374,68 @@ mod tests {
         assert_eq!(touch.custom_at_with_placeholders(point, true), Some(0));
     }
     #[test]
+    fn toggle_sends_edges_on_tap_and_clears_on_focus_loss() {
+        let mut t = TouchControls::default();
+        t.viewport(1920, 1080);
+        let mut button = CustomButton::new("key.keyboard.m".into(), 0);
+        button.toggle = true;
+        t.settings.custom_buttons.push(button);
+        let p = t.custom_placement(0).center;
+        t.update(1, p, true, false);
+        t.update(2, p, true, false);
+        assert_eq!(t.key_events(), [("key.keyboard.m".into(), true)]);
+        t.update(1, p, false, true);
+        t.update(2, p, false, true);
+        assert!(t.key_events().is_empty());
+        assert_eq!(t.held_custom_tokens().collect::<Vec<_>>(), ["key.keyboard.m"]);
+        t.update(3, p, true, false);
+        assert_eq!(t.key_events(), [("key.keyboard.m".into(), false)]);
+        t.update(3, p, false, true);
+        t.update(4, p, true, false);
+        t.update(4, p, false, true);
+        assert_eq!(t.key_events(), [("key.keyboard.m".into(), true)]);
+        t.clear();
+        assert_eq!(t.key_events(), [("key.keyboard.m".into(), false)]);
+        assert_eq!(t.held_custom_tokens().count(), 0);
+    }
+    #[test]
+    fn toggle_and_hold_share_the_same_input_without_early_release() {
+        let mut t = TouchControls::default();
+        t.viewport(1920, 1080);
+        let mut toggle = CustomButton::new("key.keyboard.m".into(), 0);
+        toggle.toggle = true;
+        t.settings.custom_buttons.push(toggle);
+        t.settings.custom_buttons.push(CustomButton::new("key.keyboard.m".into(), 1));
+        let p = t.custom_placement(0).center;
+        let q = t.custom_placement(1).center;
+        t.update(1, p, true, false);
+        t.update(1, p, false, true);
+        t.update(2, q, true, false);
+        assert_eq!(t.key_events(), [("key.keyboard.m".into(), true)]);
+        t.update(3, p, true, false);
+        t.update(3, p, false, true);
+        assert!(t.key_events().is_empty());
+        t.update(2, q, false, true);
+        assert_eq!(t.key_events(), [("key.keyboard.m".into(), false)]);
+    }
+    #[test]
+    fn context_change_and_resize_release_latched_keys() {
+        let mut t = TouchControls::default();
+        t.viewport(1920, 1080);
+        let mut button = CustomButton::new("key.keyboard.m".into(), 0);
+        button.toggle = true;
+        t.settings.custom_buttons.push(button);
+        let p = t.custom_placement(0).center;
+        t.update(1, p, true, true);
+        assert_eq!(t.key_events(), [("key.keyboard.m".into(), true)]);
+        t.viewport(1080, 1920);
+        assert_eq!(t.key_events(), [("key.keyboard.m".into(), false)]);
+        t.update(2, t.custom_placement(0).center, true, true);
+        assert_eq!(t.key_events(), [("key.keyboard.m".into(), true)]);
+        t.set_inventory_mode(true);
+        assert_eq!(t.key_events(), [("key.keyboard.m".into(), false)]);
+    }
+    #[test]
     fn virtual_player_list_is_a_reference_counted_hold() {
         let mut t = TouchControls::default();
         t.viewport(1920, 1080);
@@ -382,10 +472,12 @@ mod tests {
         value.as_object_mut().unwrap().remove("name");
         value.as_object_mut().unwrap().remove("icon");
         value.as_object_mut().unwrap().remove("visibility");
+        value.as_object_mut().unwrap().remove("toggle");
         let loaded: CustomButton = serde_json::from_value(value).unwrap();
         assert!(loaded.enabled);
         assert_eq!(loaded.icon, CustomIcon::Text);
         assert_eq!(loaded.visibility, CustomVisibility::Always);
+        assert!(!loaded.toggle);
         assert!(loaded.name.is_empty());
     }
     #[test]

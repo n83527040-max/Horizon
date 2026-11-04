@@ -150,7 +150,8 @@ impl Game<'_> {
                 crate::device_runtime::preferences().gpu_profile,
                 &crate::backend::game_home(),
             );
-            self.pad.touch.inventory_mode = self.android_inventory_controls();
+            let inventory = self.android_inventory_controls();
+            self.pad.touch.set_inventory_mode(inventory);
             self.android_virtual_mouse_clicks(event_loop);
             let active = horizon_client::android_runtime::active_input();
             if self.pad.last_input_mode.replace(active).is_some_and(|old| {

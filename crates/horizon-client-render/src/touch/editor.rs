@@ -33,6 +33,12 @@ enum Drag {
 }
 
 impl TouchControls {
+    pub(super) fn cancel_editor_drag(&mut self) {
+        if let Some(e) = &mut self.editor {
+            e.drag = None;
+            e.manager_slider = None;
+        }
+    }
     pub fn open_editor(&mut self) {
         self.clear();
         self.editor = Some(Editor {
@@ -369,9 +375,11 @@ impl TouchControls {
                         e.manager_slider = Some((id, 0));
                     } else if layout::contains([0.56, 0.505, 0.23, 0.055], p) {
                         e.manager_slider = Some((id, 1));
-                    } else if layout::contains([0.56, 0.565, 0.23, 0.045], p) {
+                    } else if layout::contains([0.56, 0.565, 0.11, 0.045], p) {
                         let b = &mut self.settings.custom_buttons[i];
                         b.visibility = b.visibility.next();
+                    } else if layout::contains([0.68, 0.565, 0.11, 0.045], p) {
+                        self.settings.custom_buttons[i].toggle ^= true;
                     } else if layout::contains([0.56, 0.62, 0.11, 0.04], p) {
                         self.settings.custom_buttons.remove(i);
                         e.selected_custom = None;
@@ -420,7 +428,8 @@ impl TouchControls {
             manager_plate(b, a, [0.56, 0.36, 0.23, 0.055], &format!("Key: {}", button.binding_label()), false);
             manager_plate(b, a, [0.56, 0.435, 0.23, 0.055], &format!("Size: {:.0}%", p.size * 100.0), false);
             manager_plate(b, a, [0.56, 0.505, 0.23, 0.055], &format!("Opacity: {:.0}%", p.opacity * 100.0), false);
-            manager_plate(b, a, [0.56, 0.565, 0.23, 0.045], &format!("Show: {}", button.visibility.label()), false);
+            manager_plate(b, a, [0.56, 0.565, 0.11, 0.045], button.visibility.label(), false);
+            manager_plate(b, a, [0.68, 0.565, 0.11, 0.045], if button.toggle { "Toggle" } else { "Hold" }, button.toggle);
             manager_plate(b, a, [0.56, 0.62, 0.11, 0.04], "Delete", false);
             manager_plate(b, a, [0.68, 0.62, 0.11, 0.04], "Move", false);
         } else {

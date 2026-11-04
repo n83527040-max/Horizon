@@ -15609,6 +15609,11 @@ impl ApplicationHandler for Game<'_> {
                     horizon_client::preedit::set_preedit(None)
                 }
                 WindowEvent::Resized(size) => {
+                    #[cfg(target_os = "android")]
+                    {
+                        self.pad.touch.viewport(size.width, size.height);
+                        self.android_custom_events();
+                    }
                     if let Some(r) = &mut self.renderer {
                         r.resize(size.width, size.height);
                     }

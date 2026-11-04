@@ -590,6 +590,7 @@ mod portable_layout_tests {
         button.name = "Build".into();
         button.icon = super::super::CustomIcon::Attack;
         button.enabled = false;
+        button.toggle = true;
         source.custom_buttons.push(button);
         let json = source.layout_json().unwrap();
         let mut target = Settings::default();
@@ -601,6 +602,7 @@ mod portable_layout_tests {
         assert_eq!(target.custom_buttons[0].name, "Build");
         assert_eq!(target.custom_buttons[0].icon, super::super::CustomIcon::Attack);
         assert!(!target.custom_buttons[0].enabled);
+        assert!(target.custom_buttons[0].toggle);
     }
     #[test]
     fn invalid_import_is_transactional_and_bounded() {

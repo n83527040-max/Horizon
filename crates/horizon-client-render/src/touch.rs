@@ -207,12 +207,15 @@ pub struct TouchControls {
     pub editor: Option<editor::Editor>,
     fingers: BTreeMap<u64, (Role, [f32; 2])>,
     custom_fingers: BTreeMap<u64, String>,
+    toggle_fingers: BTreeMap<u64, String>,
+    latched_custom: std::collections::BTreeSet<String>,
     custom_events: Vec<(String, bool)>,
     pending: PadState,
     pub aim: Option<[f32; 2]>,
     tap_aim: Option<[f32; 2]>,
     pending_tap: Option<bool>,
     aspect: f32,
+    viewport_size: Option<[u32; 2]>,
     loaded: bool,
     pub chat_requested: bool,
     pub settings_requested: bool,
@@ -239,10 +242,25 @@ impl TouchControls {
     }
 
     pub fn viewport(&mut self, width: u32, height: u32) {
-        self.aspect = width.max(1) as f32 / height.max(1) as f32;
+        let size = [width.max(1), height.max(1)];
+        if self.viewport_size.is_some_and(|previous| previous != size) {
+            // Existing touch coordinates belong to the old drawable surface.
+            // Release them before adopting new geometry so a rotation cannot
+            // strand a key or convert a held button into a camera gesture.
+            self.clear();
+            self.cancel_editor_drag();
+        }
+        self.viewport_size = Some(size);
+        self.aspect = size[0] as f32 / size[1] as f32;
         if !self.loaded {
             self.settings = Settings::load();
             self.loaded = true;
+        }
+    }
+    pub fn set_inventory_mode(&mut self, inventory: bool) {
+        if self.inventory_mode != inventory {
+            self.clear();
+            self.inventory_mode = inventory;
         }
     }
     fn aspect(&self) -> f32 {
@@ -1396,6 +1414,30 @@ mod tests {
         assert!(t.poll_state().held(Button::LeftStick));
         t.update(4, point, false, true);
         assert!(!t.poll_state().held(Button::LeftStick));
+    }
+    #[test]
+    fn joystick_jump_and_attack_are_independent_multitouch_holds() {
+        let mut t = TouchControls::default();
+        t.viewport(1920, 1080);
+        let movement = t.placement(Control::Move).center;
+        let jump = t.placement(Control::Jump).center;
+        let attack = t.placement(Control::Attack).center;
+        t.update(1, movement, true, false);
+        t.update(1, [movement[0], movement[1] - 0.08], false, false);
+        t.update(2, jump, true, false);
+        t.update(3, attack, true, false);
+        let state = t.poll_state();
+        assert_ne!(state.left, [0.0, 0.0]);
+        assert!(state.held(Button::South));
+        assert_eq!(state.triggers[1], 1.0);
+        t.update(2, jump, false, true);
+        let state = t.poll_state();
+        assert!(!state.held(Button::South));
+        assert_eq!(state.triggers[1], 1.0);
+        assert_ne!(state.left, [0.0, 0.0]);
+        t.update(3, attack, false, true);
+        t.update(1, movement, false, true);
+        assert_eq!(t.poll_state(), PadState::default());
     }
     #[test]
     fn global_button_scale_changes_hit_geometry_without_rewriting_saved_layouts() {
