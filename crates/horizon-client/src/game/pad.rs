@@ -28,6 +28,8 @@ pub(super) struct Pads {
     #[cfg(target_os = "android")]
     pub(super) custom_keys: std::collections::HashSet<KeyCode>,
     #[cfg(target_os = "android")]
+    pub(super) custom_inputs: horizon_client::touch::InputOwners<std::result::Result<KeyCode, winit::event::MouseButton>>,
+    #[cfg(target_os = "android")]
     pub(super) hardware_keys: std::collections::HashSet<KeyCode>,
     #[cfg(target_os = "android")]
     last_input_mode: Option<horizon_client::android_gamepad::InputMode>,
@@ -169,6 +171,7 @@ impl Game<'_> {
                 self.pad.touch.clear();
                 horizon_client::android_runtime::clear_keypad();
             }
+            self.pad.touch.advance_custom_taps();
             self.android_custom_events();
         }
         #[cfg(target_os = "android")]

@@ -197,7 +197,7 @@ fn craftix_factory_layout(layouts: &mut [[Placement; 14]; 3]) {
             (Control::Move, 0.11, 0.70, 0.32),
             (Control::Sprint, 0.25, 0.73, 0.105),
             (Control::Attack, 0.82, 0.53, 0.18),
-            (Control::Use, 0.80, 0.73, 0.18),
+            (Control::Use, 0.80, 0.73, 0.20),
             (Control::Jump, 0.94, 0.55, 0.15),
             (Control::Sneak, 0.94, 0.75, 0.15),
         ] { row[control as usize] = Placement::new(x, y, size); }

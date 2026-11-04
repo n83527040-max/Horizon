@@ -8,6 +8,8 @@ use std::{
 const HOLD_DELAY: Duration = Duration::from_millis(350);
 mod custom;
 mod editor;
+mod ownership;
+pub use ownership::InputOwners;
 pub use editor::LayoutRequest;
 pub use custom::{CustomButton, CustomIcon, CustomVisibility};
 pub mod layout;
@@ -224,6 +226,7 @@ pub struct TouchControls {
     custom_fingers: BTreeMap<u64, String>,
     toggle_fingers: BTreeMap<u64, String>,
     latched_custom: std::collections::BTreeSet<String>,
+    single_taps: BTreeMap<String, Instant>,
     custom_events: Vec<(String, bool)>,
     pending: PadState,
     pub aim: Option<[f32; 2]>,

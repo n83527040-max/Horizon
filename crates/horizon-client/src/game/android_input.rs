@@ -189,96 +189,53 @@ impl Game<'_> {
     }
 
     pub(super) fn android_custom_key_held(&self, key: KeyCode) -> bool {
-        // A mapped touch action and a physical key can drive the same engine
-        // key. Releasing either source must not release the other one.
-        if self.pad.hardware_keys.iter().any(|physical| self.settings.keys.translate_all(*physical).contains(&Ok(key))) {
-            return true;
-        }
-        self.pad.touch.held_custom_tokens().any(|token| {
-            if let Some(mapping) = token.strip_prefix("action:") {
-                horizon_client::keybinds::key_code(horizon_client::keybinds::KeyBinds::default_of(
-                    mapping,
-                )) == Some(key)
-            } else {
-                horizon_client::keybinds::key_code(token).is_some_and(|physical| {
-                    self.settings
-                        .keys
-                        .translate_all(physical)
-                        .contains(&Ok(key))
-                })
-            }
-        })
+        self.pad.hardware_keys.iter().any(|physical| self.settings.keys.translate_all(*physical).contains(&Ok(key)))
+            || self.pad.custom_inputs.contains(&Ok(key))
     }
     pub(super) fn android_custom_mouse_held(&self, button: MouseButton) -> bool {
-        self.pad.touch.held_custom_tokens().any(|token| {
-            token.strip_prefix("action:").is_some_and(|mapping| {
-                horizon_client::keybinds::mouse_button(
-                    horizon_client::keybinds::KeyBinds::default_of(mapping),
-                ) == Some(button)
-            })
-        })
+        self.physical_buttons.contains(&button) || self.pad.custom_inputs.contains(&Err(button))
     }
     pub(super) fn android_custom_events(&mut self) {
         for (name, down) in self.pad.touch.key_events() {
-            if let Some(mapping) = name.strip_prefix("action:") {
+            let is_action = name.starts_with("action:");
+            let inputs = if let Some(mapping) = name.strip_prefix("action:") {
                 let default = horizon_client::keybinds::KeyBinds::default_of(mapping);
-                let result = if let Some(key) = horizon_client::keybinds::key_code(default) {
-                    self.mapped_key(key, down, false)
+                if let Some(key) = horizon_client::keybinds::key_code(default) {
+                    vec![Ok(key)]
                 } else if let Some(button) = horizon_client::keybinds::mouse_button(default) {
-                    self.android_custom_mouse(button, down)
-                } else {
-                    Ok(())
-                };
-                if let Err(error) = result {
-                    log::warn!("Custom touch action: {error}");
+                    vec![Err(button)]
+                } else { Vec::new() }
+            } else {
+                let Some(key) = horizon_client::keybinds::key_code(&name) else { continue; };
+                if down { self.pad.custom_keys.insert(key); } else { self.pad.custom_keys.remove(&key); }
+                if !self.pad.hardware_keys.contains(&key) {
+                    if (!self.pad_in_menu() || !down)
+                        && horizon_client::android_runtime::keypad_key(key, down) {
+                        continue;
+                    }
+                    if down { self.physical_keys.insert(key); } else { self.physical_keys.remove(&key); }
+                    self.mod_key(key, down, false);
+                    self.native_key_event(key, down, false);
+                    let action = if down { KeyAction::Press } else { KeyAction::Release };
+                    if self.debug_key(key, action) { continue; }
                 }
-                if down && self.screen == Screen::Chat {
-                    self.android_show_keyboard();
-                }
-                continue;
-            }
-            let Some(key) = horizon_client::keybinds::key_code(&name) else {
-                continue;
+                self.settings.keys.translate_all(key)
             };
-            if down {
-                self.pad.custom_keys.insert(key);
-            } else {
-                self.pad.custom_keys.remove(&key);
-            }
-            if self.pad.hardware_keys.contains(&key) {
-                continue;
-            }
-            if (!self.pad_in_menu() || !down)
-                && horizon_client::android_runtime::keypad_key(key, down)
-            {
-                continue;
-            }
-            if down {
-                self.physical_keys.insert(key);
-            } else {
-                self.physical_keys.remove(&key);
-            }
-            self.mod_key(key, down, false);
-            self.native_key_event(key, down, false);
-            let action = if down {
-                KeyAction::Press
-            } else {
-                KeyAction::Release
-            };
-            if self.debug_key(key, action) {
-                continue;
-            }
-            for mapped in self.settings.keys.translate_all(key) {
-                let result = match mapped {
-                    Ok(code) => self.mapped_key(code, down, false),
-                    Err(button) => self.android_custom_mouse(button, down),
+            let edges = self.pad.custom_inputs.edge(&name, down, inputs);
+            for (input, pressed) in edges {
+                // Do not inject a second press while a hardware source owns it.
+                if pressed && match input {
+                    Ok(key) => self.pad.hardware_keys.iter().any(|p| self.settings.keys.translate_all(*p).contains(&Ok(key))),
+                    Err(button) => self.physical_buttons.contains(&button),
+                } { continue; }
+                let result = match input {
+                    Ok(key) => self.mapped_key(key, pressed, false),
+                    Err(button) => self.android_custom_mouse(button, pressed),
                 };
-                if let Err(error) = result {
-                    log::warn!("Custom touch key: {error}");
-                }
+                if let Err(error) = result { log::warn!("Custom touch input: {error}"); }
             }
-            if down && matches!(key, KeyCode::KeyT | KeyCode::Slash) && self.screen == Screen::Chat
-            {
+            if down && self.screen == Screen::Chat
+                && (is_action || matches!(horizon_client::keybinds::key_code(&name), Some(KeyCode::KeyT | KeyCode::Slash))) {
                 self.android_show_keyboard();
             }
         }

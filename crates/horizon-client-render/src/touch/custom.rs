@@ -71,6 +71,9 @@ pub struct CustomButton {
     /// Toggle keeps the key down between taps; off by default for old layouts.
     #[serde(default)]
     pub toggle: bool,
+    /// A single press is released automatically after the engine has sampled it.
+    #[serde(default)]
+    pub single: bool,
 }
 impl CustomButton {
     pub fn new(key: String, index: usize) -> Self {
@@ -81,6 +84,7 @@ impl CustomButton {
             enabled: true,
             visibility: CustomVisibility::Always,
             toggle: false,
+            single: false,
             layouts: [Placement::new(
                 0.68 + (index % 3) as f32 * 0.1,
                 0.35 + (index / 3 % 3) as f32 * 0.12,
@@ -231,7 +235,10 @@ impl TouchControls {
                 return false;
             }
             let active_before = self.custom_token_active(&key);
-            if self.settings.custom_buttons[index].toggle {
+            if self.settings.custom_buttons[index].single {
+                self.toggle_fingers.insert(id, key.clone());
+                self.single_taps.insert(key.clone(), Instant::now());
+            } else if self.settings.custom_buttons[index].toggle {
                 // Multiple fingers on the same toggle count as a single tap.
                 let first = !self.toggle_fingers.values().any(|v| *v == key);
                 self.toggle_fingers.insert(id, key.clone());
@@ -254,10 +261,23 @@ impl TouchControls {
         false
     }
     fn custom_token_active(&self, token: &str) -> bool {
-        self.latched_custom.contains(token) || self.custom_fingers.values().any(|k| k == token)
+        self.latched_custom.contains(token) || self.single_taps.contains_key(token)
+            || self.custom_fingers.values().any(|k| k == token)
     }
     pub fn held_custom_tokens(&self) -> impl Iterator<Item = &str> {
-        self.custom_fingers.values().chain(self.latched_custom.iter()).map(String::as_str)
+        self.custom_fingers.values().chain(self.latched_custom.iter()).chain(self.single_taps.keys()).map(String::as_str)
+    }
+    pub fn advance_custom_taps(&mut self) {
+        self.expire_custom_taps(Instant::now());
+    }
+    fn expire_custom_taps(&mut self, now: Instant) {
+        let expired: Vec<_> = self.single_taps.iter()
+            .filter(|(_, at)| now.saturating_duration_since(**at) >= Duration::from_millis(100))
+            .map(|(key, _)| key.clone()).collect();
+        for key in expired {
+            self.single_taps.remove(&key);
+            if !self.custom_token_active(&key) { self.custom_events.push((key, false)); }
+        }
     }
     pub fn key_events(&mut self) -> Vec<(String, bool)> {
         std::mem::take(&mut self.custom_events)
@@ -267,6 +287,7 @@ impl TouchControls {
             .into_values()
             .collect();
         keys.append(&mut self.latched_custom);
+        keys.extend(std::mem::take(&mut self.single_taps).into_keys());
         self.toggle_fingers.clear();
         self.custom_events
             .extend(keys.into_iter().map(|k| (k, false)));
@@ -342,6 +363,29 @@ impl TouchControls {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn single_press_releases_on_timer_and_clear_without_interrupting_shared_hold() {
+        let mut t = TouchControls { loaded: true, ..Default::default() };
+        let mut tap = CustomButton::new("action:key.jump".into(), 0);
+        tap.single = true;
+        let hold = CustomButton::new("action:key.jump".into(), 1);
+        t.settings.custom_buttons = vec![tap, hold];
+        let a = t.custom_placement(0).center;
+        let b = t.custom_placement(1).center;
+        t.update(1, a, true, false);
+        assert_eq!(t.key_events(), [("action:key.jump".into(), true)]);
+        t.update(1, a, false, true);
+        assert!(t.key_events().is_empty());
+        t.update(2, b, true, false);
+        t.expire_custom_taps(Instant::now() + Duration::from_millis(101));
+        assert!(t.key_events().is_empty());
+        t.update(2, b, false, true);
+        assert_eq!(t.key_events(), [("action:key.jump".into(), false)]);
+        t.update(3, a, true, false);
+        t.key_events();
+        t.clear();
+        assert_eq!(t.key_events(), [("action:key.jump".into(), false)]);
+    }
     #[test]
     fn inventory_modifier_and_mouse_hold_independently_and_cancel_cleanly() {
         let mut t = TouchControls::default();

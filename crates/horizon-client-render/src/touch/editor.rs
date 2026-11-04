@@ -381,7 +381,10 @@ impl TouchControls {
                         let b = &mut self.settings.custom_buttons[i];
                         b.visibility = b.visibility.next();
                     } else if layout::contains([0.68, 0.565, 0.11, 0.045], p) {
-                        self.settings.custom_buttons[i].toggle ^= true;
+                        let button = &mut self.settings.custom_buttons[i];
+                        if button.single { button.single = false; button.toggle = false; }
+                        else if button.toggle { button.toggle = false; button.single = true; }
+                        else { button.toggle = true; }
                     } else if layout::contains([0.56, 0.62, 0.11, 0.04], p) {
                         self.settings.custom_buttons.remove(i);
                         e.selected_custom = None;
@@ -433,7 +436,7 @@ impl TouchControls {
             manager_slider(b, a, [0.56, 0.435, 0.23, 0.055], ((p.size - 0.045) / 0.405).clamp(0.0, 1.0));
             manager_slider(b, a, [0.56, 0.505, 0.23, 0.055], p.opacity.clamp(0.0, 1.0));
             manager_plate(b, a, [0.56, 0.565, 0.11, 0.045], button.visibility.label(), false);
-            manager_plate(b, a, [0.68, 0.565, 0.11, 0.045], if button.toggle { "Toggle" } else { "Hold" }, button.toggle);
+            manager_plate(b, a, [0.68, 0.565, 0.11, 0.045], if button.single { "Single" } else if button.toggle { "Toggle" } else { "Hold" }, button.toggle || button.single);
             manager_plate(b, a, [0.56, 0.62, 0.11, 0.04], "Delete", false);
             manager_plate(b, a, [0.68, 0.62, 0.11, 0.04], "Move", false);
         } else {
