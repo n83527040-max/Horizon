@@ -25,7 +25,7 @@ images are the visual target; the present implementation is not pixel-matched.
 * Layouts has standard and left-handed presets; three numbered persistent slots
   can be saved and loaded, and a separately confirmed reset removes custom
   buttons. Presets and loaded layouts are applied to the active settings only
-  after Save/Done; saving a named slot or exporting writes that file immediately,
+  after Save/Done; saving a numbered slot or exporting writes that file immediately,
   even if the editor is later cancelled.
 * Layout transfer is bounded versioned JSON, containing only control data. On
   Android, Layouts > Export writes `transfer.json` in the current profile's
@@ -43,7 +43,8 @@ images are the visual target; the present implementation is not pixel-matched.
 * Neon line segments use one quad each rather than a quad per pixel; this bounds
   the geometry cost without claiming a measured frame-rate improvement.
 * Per-finger custom key ownership provides down/up events, shared-key holds,
-  and latched toggles. Resize and inventory-context transitions clear touches.
+  and latched toggles for the same binding token. Resize and inventory-context
+  transitions clear touches.
   The auxiliary overlay no longer swallows the end of an already-owned HUD
   touch merely because the finger moved over it. Transitions clear held keys.
 * There are Rust tests for editor interactions, keys, context visibility,
@@ -62,6 +63,10 @@ still need further work and visual/device validation. The fixed
 More/Tab buttons are not yet individually movable/resizable. Inventory-only
 buttons require enabling inventory controls. Layout slots are numbered, not
 user-named, and transfer uses the Files provider rather than a native picker.
+Different binding tokens that resolve to the same engine action (for example,
+a mapped action and its raw key) do not yet share an ownership counter; releasing
+one while the other is held can interrupt that action. Mixed physical, built-in,
+and custom input ownership needs further integration tests.
 
 The underlying engine supports specific mappings and raw keyboard events; a raw
 M/R/G key does not provide a map, replay, or any other missing functionality.
@@ -74,9 +79,9 @@ No Minecraft Java mod integration is included or implied.
 * GitHub Actions controls-only run 41900991959 at commit `95832ad` passed the
   Rust touch tests and Android arm64 type-check. Run 41902824058 at `62550d8`
   passed desktop tests; its Android job was cancelled when the newer run started,
-  not reported as a success. Run 41903433421 at `c334e02` is in progress.
-  These jobs do not build or run an APK. Changes after those commits require
-  their own check.
+  not reported as a success. Run 41903433421 at `c334e02` and run 41904207257
+  at `f53eb17` both passed desktop touch tests and the Android arm64 type-check.
+  These jobs do not build or run an APK; source and native jobs were skipped.
 * Cargo, Flutter and ADB are unavailable locally. No actual device tests have
   been performed for each button, multitouch, keyboard/IME, appearance,
   persistence after process restart, transfer, orientation, or performance.
