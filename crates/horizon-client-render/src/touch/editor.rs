@@ -67,8 +67,9 @@ impl TouchControls {
         if let Some(i) = self.editor.as_ref().filter(|e| e.name_editing).and_then(|e| e.selected_custom)
             && let Some(button) = self.settings.custom_buttons.get_mut(i)
         {
-            let remaining = 32usize.saturating_sub(button.name.chars().count());
-            button.name.extend(text.chars().filter(|c| !c.is_control()).take(remaining));
+            // Keep the IME and model in sync until editing ends; truncating here
+            // would make later backspaces delete the wrong visible characters.
+            button.name.push_str(text);
         }
     }
     pub fn custom_name_backspace(&mut self) {
@@ -79,6 +80,11 @@ impl TouchControls {
         }
     }
     pub fn finish_custom_name(&mut self) {
+        if let Some(i) = self.editor.as_ref().and_then(|e| e.selected_custom)
+            && let Some(button) = self.settings.custom_buttons.get_mut(i)
+        {
+            button.name = button.name.chars().filter(|c| !c.is_control()).take(32).collect();
+        }
         if let Some(e) = &mut self.editor {
             e.name_editing = false;
             e.name_request = false;
@@ -111,6 +117,7 @@ impl TouchControls {
                     e.layout_request = Some(LayoutRequest::Import);
                 } else if layout::contains([0.4, 0.57, 0.2, 0.08], p) {
                     e.layout_menu = false;
+                    e.error = None;
                 }
             }
             self.editor = Some(e);
@@ -359,10 +366,10 @@ impl TouchControls {
             }
         }
         self.draw_custom_editor(b, a, e);
-        if e.error.is_some() {
+        if let Some(error) = &e.error {
             b.text(
                 a,
-                "Save failed. Retry Done.",
+                error,
                 w * 0.33,
                 h * 0.88,
                 rgba(255, 120, 120, 255),

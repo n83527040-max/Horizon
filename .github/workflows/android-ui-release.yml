@@ -129,7 +129,7 @@ jobs:
           persist-credentials: false
       - name: Install Android toolchain
         run: |
-          sdkmanager "ndk;28.2.13676358" "build-tools;35.0.0" "platforms;android-35"
+          bash tools/ci_android_setup.sh
           rustup target add aarch64-linux-android
       - name: Check Android host without packaging
         shell: bash

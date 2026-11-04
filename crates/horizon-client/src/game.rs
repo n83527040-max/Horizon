@@ -15149,6 +15149,10 @@ impl ApplicationHandler for Game<'_> {
                 self.android_transfer_control_layout();
                 if let Some(initial) = self.pad.touch.take_custom_name_request() {
                     crate::platform::show(&initial);
+                    if !crate::platform::active() {
+                        self.pad.touch.finish_custom_name();
+                        self.pad.touch.layout_status("System keyboard unavailable".into());
+                    }
                 }
                 if self.pad.touch.editor.is_none() {
                     crate::platform::hide();
