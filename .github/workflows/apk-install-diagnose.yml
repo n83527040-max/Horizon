@@ -50,3 +50,31 @@ jobs:
       - name: Remove temporary keystore
         if: always()
         run: rm -f "$RUNNER_TEMP/craftix-release.jks"
+  emulator-update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Download the exact published APKs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/previous /tmp/current
+          gh release download craftix-0.7.9-beta --pattern 'CRAFTIX-0.7.9-arm64-v8a.apk' --dir /tmp/previous
+          gh release download craftix-0.8.0-beta --pattern 'CRAFTIX-0.8.0-arm64-v8a.apk' --dir /tmp/current
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Install the old APK and update in an Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 33
+          target: google_apis_playstore
+          arch: x86_64
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          script: bash tools/test_craftix_apk_update.sh /tmp/previous/CRAFTIX-0.7.9-arm64-v8a.apk /tmp/current/CRAFTIX-0.8.0-arm64-v8a.apk
