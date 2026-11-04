@@ -692,6 +692,42 @@ pub fn draw_boot(atlas: &HudAtlas, batch: &mut HudBatch, logs: &[String]) {
     draw_boot_log(atlas, batch, logs);
 }
 
+/// CRAFTIX's Android-only boot identity. Desktop keeps the Horizon boot screen.
+/// The fade is derived from the existing loading clock, with no timer thread.
+pub fn draw_craftix_boot(atlas: &HudAtlas, batch: &mut HudBatch, elapsed: f32) {
+    batch.fill(atlas, 0.0, 0.0, batch.width, batch.height, color::hex(0x000000, 255));
+    let opacity = craftix_boot_opacity(elapsed);
+    let mut ui = Ui::new(atlas, batch, (0.0, 0.0));
+    let size = (ui.w / 16.0).clamp(DISPLAY, 96.0);
+    let small = (size * 0.25).clamp(MICRO, 18.0);
+    let block = size * 1.45 + small * 0.6 + small * 1.5;
+    let top = (ui.h - block) / 2.0;
+    let center = ui.w / 2.0;
+    // Four subtle, translucent text offsets keep the glow cheap on mobile.
+    let glow = color::hex(0xA43AFF, (opacity * 32.0).round() as u8);
+    for (dx, dy) in [(-2.0, 0.0), (2.0, 0.0), (0.0, -2.0), (0.0, 2.0)] {
+        ui.text_centered(Face::SemiBold, size, center + dx, top + dy, glow, "CRAFTIX");
+    }
+    ui.text_centered(
+        Face::SemiBold, size, center, top,
+        color::hex(0xFFFFFF, (opacity * 255.0).round() as u8), "CRAFTIX",
+    );
+    ui.text_centered(
+        Face::Regular, small, center, top + size * 1.45 + small * 0.6,
+        color::hex(0xC3B7D8, (opacity * 220.0).round() as u8),
+        "Minecraft Java • Android",
+    );
+    ui.finish();
+}
+
+fn craftix_boot_opacity(elapsed: f32) -> f32 {
+    if elapsed.is_finite() {
+        (elapsed / 0.7).clamp(0.0, 1.0)
+    } else {
+        1.0
+    }
+}
+
 /// The wordmark with its tagline, centred.
 fn wordmark(atlas: &HudAtlas, batch: &mut HudBatch) {
     let mut ui = Ui::new(atlas, batch, (0.0, 0.0));
@@ -820,6 +856,20 @@ mod tests {
             atlas.sprites["horizon/white"].texels((atlas.width, atlas.height)),
             (4, 4)
         );
+    }
+
+    #[test]
+    fn craftix_boot_fades_in_and_draws_a_black_backdrop() {
+        assert_eq!(craftix_boot_opacity(0.0), 0.0);
+        assert_eq!(craftix_boot_opacity(0.35), 0.5);
+        assert_eq!(craftix_boot_opacity(1.0), 1.0);
+        assert_eq!(craftix_boot_opacity(f32::NAN), 1.0);
+        let atlas = HudAtlas::boot();
+        let mut batch = HudBatch::new([1280, 720]);
+        draw_craftix_boot(&atlas, &mut batch, 1.0);
+        assert!(batch.vertices[..6].iter().all(|v| v.color == 0xFF00_0000));
+        assert!(!batch.patches.is_empty());
+        reset_atlas();
     }
 
     #[test]

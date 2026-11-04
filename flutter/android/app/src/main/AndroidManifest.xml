@@ -48,7 +48,7 @@
             android:name="dev.horizon.android.HorizonActivity"
             android:exported="false"
             android:process=":engine"
-            android:screenOrientation="unspecified"
+            android:screenOrientation="sensorLandscape"
             android:configChanges="orientation|screenSize|keyboardHidden|keyboard|density|screenLayout"
             android:windowSoftInputMode="adjustResize"
             android:theme="@style/HorizonGameTheme">

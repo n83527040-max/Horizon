@@ -187,6 +187,22 @@ fn deserialize_visibility<'de, D: serde::Deserializer<'de>>(d: D) -> Result<[u8;
     values[..old.len()].copy_from_slice(&old);
     Ok(values)
 }
+/// Reference-inspired Android factory placement. Existing saved layouts are
+/// never overwritten; the player can explicitly select the Standard preset.
+#[cfg(any(target_os = "android", test))]
+fn craftix_factory_layout(layouts: &mut [[Placement; 14]; 3]) {
+    for mode in [Mode::Crosshair, Mode::Tap] {
+        let row = &mut layouts[mode.index()];
+        for (control, x, y, size) in [
+            (Control::Move, 0.11, 0.70, 0.32),
+            (Control::Sprint, 0.25, 0.73, 0.105),
+            (Control::Attack, 0.82, 0.53, 0.18),
+            (Control::Use, 0.80, 0.73, 0.20),
+            (Control::Jump, 0.94, 0.55, 0.15),
+            (Control::Sneak, 0.94, 0.75, 0.15),
+        ] { row[control as usize] = Placement::new(x, y, size); }
+    }
+}
 impl Default for Settings {
     fn default() -> Self {
         let base = [
@@ -208,6 +224,8 @@ impl Default for Settings {
         let mut layouts = [base; 3];
         layouts[2][Control::Sneak as usize] = Placement::new(0.13, 0.76, 0.10);
         layouts[2][Control::Jump as usize] = Placement::new(0.90, 0.78, 0.14);
+        #[cfg(target_os = "android")]
+        craftix_factory_layout(&mut layouts);
         Self {
             mode: Mode::Crosshair,
             split_controls: false,
@@ -333,6 +351,7 @@ impl Settings {
         self.custom_buttons
             .retain(|b| super::CustomButton::valid_token(&b.key));
         for button in &mut self.custom_buttons {
+            button.name = button.name.chars().filter(|c| !c.is_control()).take(32).collect();
             for p in &mut button.layouts {
                 p.sanitize();
             }
@@ -387,12 +406,96 @@ impl Settings {
         p
     }
 }
+/// A portable, bounded control layout; gameplay and graphics settings are not exported.
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LayoutFile {
+    schema: u32,
+    mode: Mode,
+    split_controls: bool,
+    left_handed: bool,
+    button_scale: f32,
+    #[serde(deserialize_with = "deserialize_visibility")]
+    button_visibility: [u8; 14],
+    #[serde(deserialize_with = "deserialize_layouts")]
+    layouts: [[Placement; 14]; 3],
+    custom_buttons: Vec<super::CustomButton>,
+}
+const MAX_LAYOUT_BYTES: usize = 128 * 1024;
+
+impl Settings {
+    /// Export only the control layout, not player information or preferences.
+    pub fn layout_json(&self) -> std::io::Result<Vec<u8>> {
+        let layout = LayoutFile {
+            schema: 1, mode: self.mode, split_controls: self.split_controls,
+            left_handed: self.left_handed, button_scale: self.button_scale,
+            button_visibility: self.button_visibility, layouts: self.layouts,
+            custom_buttons: self.custom_buttons.clone(),
+        };
+        let data = serde_json::to_vec_pretty(&layout)?;
+        if data.len() > MAX_LAYOUT_BYTES {
+            return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "Layout too large"));
+        }
+        Ok(data)
+    }
+    /// Validate completely before modifying the active settings.
+    pub fn import_layout_json(&mut self, data: &[u8]) -> std::io::Result<()> {
+        if data.len() > MAX_LAYOUT_BYTES {
+            return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "Layout too large"));
+        }
+        let layout: LayoutFile = serde_json::from_slice(data)?;
+        if layout.schema != 1 || layout.custom_buttons.len() > 32
+            || layout.button_visibility.iter().any(|v| *v > 2)
+            || layout.custom_buttons.iter().any(|b| !super::CustomButton::valid_token(&b.key))
+        {
+            return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "Unsupported control layout"));
+        }
+        let mut next = self.clone();
+        next.mode = layout.mode;
+        next.split_controls = layout.split_controls;
+        next.left_handed = layout.left_handed;
+        next.button_scale = layout.button_scale;
+        next.button_visibility = layout.button_visibility;
+        next.layouts = layout.layouts;
+        next.custom_buttons = layout.custom_buttons;
+        next.sanitize();
+        *self = next;
+        Ok(())
+    }
+    /// Built-in templates only change controls; unrelated preferences survive.
+    pub fn apply_control_preset(&mut self, left_handed: bool) {
+        let defaults = Self::default();
+        self.layouts = defaults.layouts;
+        self.button_visibility = defaults.button_visibility;
+        self.mode = Mode::Crosshair;
+        self.split_controls = false;
+        self.left_handed = left_handed;
+        self.button_scale = 1.0;
+    }
+}
+
 pub fn contains([x, y, w, h]: [f32; 4], p: [f32; 2]) -> bool {
     (x..=x + w).contains(&p[0]) && (y..=y + h).contains(&p[1])
 }
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn craftix_factory_controls_do_not_overlap_on_landscape_phones() {
+        let mut layouts = Settings::default().layouts;
+        craftix_factory_layout(&mut layouts);
+        for aspect in [16.0 / 9.0, 20.0 / 9.0] {
+            for mode in [Mode::Crosshair, Mode::Tap] {
+                let row = &layouts[mode.index()];
+                for (a,b) in [(Control::Move,Control::Sprint), (Control::Attack,Control::Use),
+                    (Control::Attack,Control::Jump), (Control::Use,Control::Sneak), (Control::Jump,Control::Sneak)] {
+                    let [x,y,w,h] = row[a as usize].rect(aspect);
+                    let [u,v,s,t] = row[b as usize].rect(aspect);
+                    assert!(x+w <= u || u+s <= x || y+h <= v || v+t <= y, "{mode:?}: {a:?} overlaps {b:?}");
+                }
+            }
+        }
+    }
     #[test]
     fn gyro_preferences_roundtrip_and_reject_bad_values() {
         let mut s = super::Settings::default();
@@ -506,5 +609,46 @@ mod tests {
             [0.80, 0.96]
         );
         std::fs::remove_file(file).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod portable_layout_tests {
+    use super::*;
+    #[test]
+    fn round_trip_keeps_layout_but_not_other_preferences() {
+        let mut source = Settings::default();
+        source.left_handed = true;
+        source.layouts[0][0].center = [0.3, 0.7];
+        let mut button = super::super::CustomButton::new("key.keyboard.z".into(), 0);
+        button.name = "Build".into();
+        button.icon = super::super::CustomIcon::Attack;
+        button.enabled = false;
+        button.toggle = true;
+        source.custom_buttons.push(button);
+        let json = source.layout_json().unwrap();
+        let mut target = Settings::default();
+        target.sensitivity = 2.0;
+        target.import_layout_json(&json).unwrap();
+        assert_eq!(target.sensitivity, 2.0);
+        assert!(target.left_handed);
+        assert_eq!(target.layouts[0][0].center, [0.3, 0.7]);
+        assert_eq!(target.custom_buttons[0].name, "Build");
+        assert_eq!(target.custom_buttons[0].icon, super::super::CustomIcon::Attack);
+        assert!(!target.custom_buttons[0].enabled);
+        assert!(target.custom_buttons[0].toggle);
+    }
+    #[test]
+    fn invalid_import_is_transactional_and_bounded() {
+        let mut target = Settings::default();
+        target.left_handed = true;
+        assert!(target.import_layout_json(b"{not json").is_err());
+        assert!(target.left_handed);
+        assert!(target.import_layout_json(&vec![b' '; MAX_LAYOUT_BYTES + 1]).is_err());
+        assert!(target.left_handed);
+        let mut json: serde_json::Value = serde_json::from_slice(&target.layout_json().unwrap()).unwrap();
+        json["schema"] = 99.into();
+        assert!(target.import_layout_json(&serde_json::to_vec(&json).unwrap()).is_err());
+        assert!(target.left_handed);
     }
 }

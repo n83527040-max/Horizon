@@ -75,8 +75,8 @@ def main() -> int:
     report["badging"] = badging.strip().splitlines()[:4]
     if "name='com.craftix.launcher'" not in badging:
         errors.append("package name is not com.craftix.launcher")
-    if "versionCode='30'" not in badging or "versionName='0.7.8'" not in badging:
-        errors.append("versionCode/versionName are not 30 / 0.7.8")
+    if "versionCode='32'" not in badging or "versionName='0.8.0'" not in badging:
+        errors.append("versionCode/versionName are not 32 / 0.8.0")
     if "application-label:'CRAFTIX'" not in badging:
         errors.append("CRAFTIX app label is missing from the binary manifest")
     if not re.search(r"(?:sdkVersion|minSdkVersion):'28'", badging):

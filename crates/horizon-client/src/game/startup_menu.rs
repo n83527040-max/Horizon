@@ -593,6 +593,17 @@ impl Loading {
             log::info!("{}", notice.text);
         }
         for out in crate::platform::poll() {
+            if self.menu.controls.custom_name_editing() {
+                match out {
+                    Output::Text(text) => self.menu.controls.custom_name_text(&text),
+                    Output::Backspace => self.menu.controls.custom_name_backspace(),
+                    Output::Enter | Output::Close => {
+                        self.menu.controls.finish_custom_name();
+                        crate::platform::hide();
+                    }
+                }
+                continue;
+            }
             match out {
                 Output::Text(s) => {
                     if self.menu.options_open {
@@ -743,8 +754,13 @@ impl Loading {
         if self.menu.controls.editor.is_some() {
             if matches!(&event, WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed && (event.logical_key == winit::keyboard::Key::Named(winit::keyboard::NamedKey::BrowserBack) || event.physical_key == PhysicalKey::Code(KeyCode::Escape)))
             {
-                self.menu.controls.cancel_editor();
-                self.settings.touch = self.menu.controls.settings.clone();
+                if self.menu.controls.custom_name_editing() {
+                    self.menu.controls.finish_custom_name();
+                    crate::platform::hide();
+                } else {
+                    self.menu.controls.cancel_editor();
+                    self.settings.touch = self.menu.controls.settings.clone();
+                }
                 return Ok(());
             }
             if let WindowEvent::Touch(t) = &event {
@@ -764,7 +780,16 @@ impl Loading {
                         t.phase == TouchPhase::Ended,
                     );
                 }
+                super::android_input::android_transfer_control_layout(&mut self.menu.controls);
+                if let Some(initial) = self.menu.controls.take_custom_name_request() {
+                    crate::platform::show(&initial);
+                    if !crate::platform::active() {
+                        self.menu.controls.finish_custom_name();
+                        self.menu.controls.layout_status("System keyboard unavailable".into());
+                    }
+                }
                 if self.menu.controls.editor.is_none() {
+                    crate::platform::hide();
                     self.settings.touch = self.menu.controls.settings.clone();
                 }
                 if std::mem::take(&mut self.menu.controls.clicked) {
@@ -1150,10 +1175,16 @@ impl Loading {
     }
 
     pub(super) fn draw_menu(&mut self, batch: &mut HudBatch) {
+        #[cfg(not(target_os = "android"))]
         let logs = horizon_client::logging::recent_lines();
         let Some(gui) = &self.gui else {
             // The pack's screens do not exist yet: the boot screen holds the
             // window, the wordmark and the console's lines while they load.
+            #[cfg(target_os = "android")]
+            horizon_client::ui_theme::draw_craftix_boot(
+                &self.boot, batch, self.started.elapsed().as_secs_f32(),
+            );
+            #[cfg(not(target_os = "android"))]
             horizon_client::ui_theme::draw_boot(&self.boot, batch, &logs);
             return;
         };

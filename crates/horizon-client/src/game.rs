@@ -6918,7 +6918,8 @@ impl Game<'_> {
     /// keyboard and controllers both end here).
     fn mapped_key(&mut self, key: KeyCode, pressed: bool, repeat: bool) -> Result<()> {
         #[cfg(target_os = "android")]
-        if !pressed && self.android_custom_key_held(key) {
+        if (!pressed && self.android_custom_key_held(key))
+            || (pressed && !repeat && !self.pad.processing_mapped && self.pad.custom_inputs.contains(&Ok(key))) {
             return Ok(());
         }
         // Sneak and sprint are ToggleKeyMappings: a press (or a key
@@ -7553,6 +7554,10 @@ impl Game<'_> {
                 let attack_left = None;
                 let draws = hud_layout::hotbar_with_attack_side(wi, hi, &inputs, attack_left);
                 hud_layout::paint(&mut batch, &self.gui.atlas, &draws);
+                #[cfg(target_os = "android")]
+                if crate::touch_visible() {
+                    horizon_client::touch::draw_hotbar_neon(&mut batch, &self.gui.atlas, self.selected);
+                }
                 for d in &draws {
                     if let hud_layout::GuiDraw::Item { slot, x, y, .. } = *d {
                         let stack = if slot == 40 {
@@ -13944,6 +13949,33 @@ impl Game<'_> {
             };
         let mut hud = horizon_client::spans::time("hud", || self.hud(size));
         #[cfg(target_os = "android")]
+        if crate::touch_visible() && !self.pad_in_menu() && !self.pad.touch_ui.expanded
+            && !self.ui.hide_gui && !self.creative && !self.spectator()
+        {
+            let name = self.acting_player_name().to_owned();
+            let mut skin = self.player_model.as_ref().and_then(|model| model.skin.clone());
+            // Integrated single-player can have a launcher-provided offline skin
+            // even when no remote profile has populated player_model.skin.
+            if skin.is_none() {
+                if let Some((pixels, _)) = horizon_client::skins::offline_skin() {
+                    const OFFLINE: &str = "horizon/offline_skin";
+                    if !self.skin_slots.contains(OFFLINE) || !self.gui.atlas.sprites.contains_key(OFFLINE) {
+                        self.store_skin(OFFLINE.into(), pixels.clone());
+                    }
+                    if self.gui.atlas.sprites.contains_key(OFFLINE) {
+                        self.skin_downloads.borrow_mut().drawn(OFFLINE);
+                        skin = Some(OFFLINE.into());
+                    }
+                }
+            }
+            if let Some(player) = &mut self.player {
+                let health = player.health.health();
+                let max_health = player.attribute("minecraft:max_health").unwrap_or(20.0) as f32;
+                let armor = player.attribute("minecraft:armor").or_else(|_| player.attribute("armor")).unwrap_or(0.0) as i32;
+                horizon_client::touch::draw_player_card(&mut hud, &self.gui.atlas, &name, skin.as_deref(), health, max_health, armor);
+            }
+        }
+        #[cfg(target_os = "android")]
         {
             self.pad.touch.auxiliary_only =
                 self.settings.keypad.enabled && self.pad.touch.editor.is_none();
@@ -13962,6 +13994,14 @@ impl Game<'_> {
             self.pad.touch.sneaking = self.keys.contains(&KeyCode::ShiftLeft);
             self.pad.touch.break_progress = self.touch_mining_progress();
             self.pad.touch.draw(&mut hud, &self.gui.atlas);
+            if self.pad.touch.editor.is_none() && !self.pad_in_menu() {
+                if self.remote.is_some() {
+                    horizon_client::touch::draw_players(&mut hud, &self.gui.atlas,
+                        self.pad.touch.held_custom_tokens().any(|key| key == "action:key.playerlist"));
+                }
+                horizon_client::touch::draw_more(&mut hud, &self.gui.atlas,
+                    self.touch_more_avoid_left());
+            }
         }
         #[cfg(target_os = "android")]
         {
@@ -14566,7 +14606,8 @@ impl Game<'_> {
     /// A mouse button while playing (window or control socket).
     fn play_mouse(&mut self, button: MouseButton, pressed: bool) -> Result<()> {
         #[cfg(target_os = "android")]
-        if !pressed && self.android_custom_mouse_held(button) {
+        if (!pressed && self.android_custom_mouse_held(button))
+            || (pressed && !self.pad.processing_mapped && self.pad.custom_inputs.contains(&Err(button))) {
             return Ok(());
         }
         // A mod's claimed item takes the use button (capability `input`).
@@ -15092,6 +15133,11 @@ impl ApplicationHandler for Game<'_> {
         #[cfg(target_os = "android")]
         if matches!(&event,WindowEvent::KeyboardInput {event,..} if event.state==ElementState::Pressed && event.logical_key==winit::keyboard::Key::Named(winit::keyboard::NamedKey::BrowserBack))
         {
+            if self.pad.touch.custom_name_editing() {
+                self.pad.touch.finish_custom_name();
+                crate::platform::hide();
+                return;
+            }
             if self.pad.touch.editor.is_some() {
                 self.pad.touch.cancel_editor();
                 self.settings.touch = self.pad.touch.settings.clone();
@@ -15141,13 +15187,49 @@ impl ApplicationHandler for Game<'_> {
                 ) {
                     self.pause = false;
                 }
+                android_input::android_transfer_control_layout(&mut self.pad.touch);
+                if let Some(initial) = self.pad.touch.take_custom_name_request() {
+                    crate::platform::show(&initial);
+                    if !crate::platform::active() {
+                        self.pad.touch.finish_custom_name();
+                        self.pad.touch.layout_status("System keyboard unavailable".into());
+                    }
+                }
                 if self.pad.touch.editor.is_none() {
+                    crate::platform::hide();
                     self.settings.touch = self.pad.touch.settings.clone();
                 }
                 if std::mem::take(&mut self.pad.touch.clicked) {
                     self.audio.play_button_click();
                 }
                 return;
+            }
+            // This is separate from the legacy top-left auxiliary keyboard;
+            // keep that feature while exposing the custom editor by the hotbar.
+            if !self.pad_in_menu() && (crate::touch_visible() || self.settings.keypad.enabled)
+                && touch.phase == TouchPhase::Started
+            {
+                let batch = HudBatch::new([size.width, size.height]);
+                let point = [touch.location.x as f32 / batch.scale, touch.location.y as f32 / batch.scale];
+                let normalized = [touch.location.x as f32 / size.width.max(1) as f32,
+                    touch.location.y as f32 / size.height.max(1) as f32];
+                if self.remote.is_some() && horizon_client::touch::players_at(batch.width, batch.height, point)
+                    && !self.pad.touch.control_at_point(normalized)
+                    && self.pad.touch.begin_mapped_touch(touch.id, "action:key.playerlist", normalized)
+                {
+                    self.android_custom_events();
+                    return;
+                }
+                if horizon_client::touch::more_at(batch.width, batch.height, point,
+                    self.touch_more_avoid_left())
+                    && !self.pad.touch.control_at_point(normalized)
+                {
+                    self.pad.touch.clear();
+                    self.android_custom_events();
+                    self.pad.touch.open_custom_manager();
+                    self.audio.play_button_click();
+                    return;
+                }
             }
             match self.android_aux_touch(touch, event_loop, id) {
                 Ok(true) => return,
@@ -15251,6 +15333,7 @@ impl ApplicationHandler for Game<'_> {
                 if self.pad.touch.chat_requested {
                     self.audio.play_button_click();
                     self.pad.touch.clear();
+                    self.android_custom_events();
                     if let Err(error) = self.key_pressed(KeyCode::KeyT) {
                         log::warn!("Touch chat: {error}");
                     }
@@ -15543,6 +15626,11 @@ impl ApplicationHandler for Game<'_> {
                     horizon_client::preedit::set_preedit(None)
                 }
                 WindowEvent::Resized(size) => {
+                    #[cfg(target_os = "android")]
+                    {
+                        self.pad.touch.viewport(size.width, size.height);
+                        self.android_custom_events();
+                    }
                     if let Some(r) = &mut self.renderer {
                         r.resize(size.width, size.height);
                     }

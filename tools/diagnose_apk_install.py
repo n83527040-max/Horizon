@@ -103,12 +103,15 @@ def diagnose(apk: Path, aapt2: str, apksigner: str) -> dict:
     for level in (21, 24, 28):
         code, out = run([*shlex.split(apksigner), "verify", "--verbose",
                          "--min-sdk-version", str(level), str(apk)])
+        verified = code == 0 and "Verifies" in out and "DOES NOT VERIFY" not in out
         report[f"apksignerMinSdk{level}"] = {
             "exit": code,
-            "verified": "Verifies" in out,
+            "verified": verified,
             "notes": [line.strip() for line in out.splitlines()
                       if "DOES NOT VERIFY" in line or "ERROR" in line or "Verifies" in line][:6],
         }
+        if not verified:
+            problems.append(f"apksigner verification failed for minSdk {level}")
 
     report["sha256"] = hashlib.sha256(apk.read_bytes()).hexdigest()
     report["problems"] = problems

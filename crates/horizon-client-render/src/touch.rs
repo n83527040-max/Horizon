@@ -8,7 +8,10 @@ use std::{
 const HOLD_DELAY: Duration = Duration::from_millis(350);
 mod custom;
 mod editor;
-pub use custom::CustomButton;
+mod ownership;
+pub use ownership::InputOwners;
+pub use editor::LayoutRequest;
+pub use custom::{CustomButton, CustomIcon, CustomVisibility};
 pub mod layout;
 pub use layout::{Control, Mode, Settings};
 /// Entity-placement items retain short-tap placement, like building blocks.
@@ -101,6 +104,94 @@ pub fn screen_direction(
     ray.map(|v| v / length)
 }
 
+/// Multiplayer player-list button, uses the same normalized top row as other controls.
+pub fn players_rect(width: f32, height: f32) -> [f32; 4] {
+    let size = height * 0.075;
+    [width * 0.62 - size / 2.0, height * 0.055 - size / 2.0, size, size]
+}
+pub fn players_at(width: f32, height: f32, point: [f32; 2]) -> bool {
+    layout::contains(players_rect(width, height), point)
+}
+pub fn draw_players(b: &mut HudBatch, a: &HudAtlas, pressed: bool) {
+    let rect = players_rect(b.width, b.height);
+    text_button(b, a, rect, "Tab", pressed, rgba(255,255,255,255), true);
+    let [x,y,w,h] = rect;
+    for (p,q) in [([x,y],[x+w,y]),([x+w,y],[x+w,y+h]),([x+w,y+h],[x,y+h]),([x,y+h],[x,y])] { line(b,a,p,q,rgba(188,100,255,230)); }
+}
+
+/// The extra editor button shares the HUD's GUI-pixel coordinates with hotbar hit testing.
+pub fn more_rect(width: f32, height: f32, avoid_left: bool) -> [f32; 4] {
+    [width / 2.0 - 117.0, height - if avoid_left { 48.0 } else { 23.0 }, 22.0, 22.0]
+}
+pub fn more_at(width: f32, height: f32, point: [f32; 2], avoid_left: bool) -> bool {
+    layout::contains(more_rect(width, height, avoid_left), point)
+}
+/// Compact actual player status; original vanilla survival bars remain intact.
+pub fn draw_player_card(b: &mut HudBatch, a: &HudAtlas, name: &str, skin: Option<&str>, health: f32, max_health: f32, armor: i32) {
+    let x = 40.0;
+    let width = (b.width / 2.0 - x - 14.0).clamp(0.0, 120.0);
+    if width < 75.0 { return; }
+    let y = 3.0;
+    b.fill(a, x, y, width, 30.0, rgba(12, 9, 25, 218));
+    line(b, a, [x, y + 30.0], [x + width, y + 30.0], rgba(170, 95, 235, 200));
+    let face = if width >= 100.0 {
+        skin.and_then(|s| a.sprites.get(s)).or_else(|| a.sprites.get("entity/player/wide/steve")).copied()
+    } else { None };
+    let info_x = if face.is_some() { x + 25.0 } else { x + 3.0 };
+    if let Some(r) = face {
+        // PlayerFaceExtractor: 8x8 face at (8,8), then the hat at (40,8).
+        for u in [8.0, 40.0] {
+            let mut part = r;
+            part.u0 = r.u0 + (r.u1-r.u0) * u / 64.0;
+            part.u1 = r.u0 + (r.u1-r.u0) * (u+8.0) / 64.0;
+            part.v0 = r.v0 + (r.v1-r.v0) * 8.0 / 64.0;
+            part.v1 = r.v0 + (r.v1-r.v0) * 16.0 / 64.0;
+            b.rect_uv(x + 3.0, y + 5.0, 19.0, 19.0, part, u32::MAX);
+        }
+    }
+    let available = (x + width - info_x - 3.0).max(1.0);
+    let mut label = name.to_owned();
+    while HudBatch::text_width(a, &label) > available && !label.is_empty() { label.pop(); }
+    b.text(a, &label, info_x, y + 2.0, rgba(255, 255, 255, 255), false);
+    let step = (available / 10.0).min(7.0);
+    for i in 0..10 {
+        let icon_x = info_x + i as f32 * step;
+        let remaining = health - i as f32 * 2.0;
+        if (i as f32) * 2.0 < max_health.max(0.0) {
+            b.sprite_scaled(a, "hud/heart/container", icon_x, y + 11.0, step, 7.0, u32::MAX);
+            if remaining > 0.0 {
+                b.sprite_scaled(a, if remaining >= 2.0 { "hud/heart/full" } else { "hud/heart/half" }, icon_x, y + 11.0, step, 7.0, u32::MAX);
+            }
+        }
+        let remaining_armor = armor - i * 2;
+        b.sprite_scaled(a, if remaining_armor >= 2 { "hud/armor_full" } else if remaining_armor == 1 { "hud/armor_half" } else { "hud/armor_empty" },
+            icon_x, y + 20.0, step, 7.0, u32::MAX);
+    }
+    // Original survival bars still handle extra health, status effects and absorption.
+}
+
+/// Overlay only the slot borders: item sprites and the engine's selected slot
+/// remain authoritative, and the geometry matches `hotbar_slot`.
+pub fn draw_hotbar_neon(b: &mut HudBatch, a: &HudAtlas, selected: usize) {
+    let start = b.width / 2.0 - 90.0;
+    let y = b.height - 22.0;
+    for slot in 0..9 {
+        let x = start + slot as f32 * 20.0;
+        let color = if slot == selected { rgba(226, 174, 255, 245) } else { rgba(166, 103, 224, 175) };
+        for (p, q) in [([x, y], [x+20.0, y]), ([x+20.0, y], [x+20.0, y+20.0]),
+            ([x+20.0, y+20.0], [x, y+20.0]), ([x, y+20.0], [x, y])] { line(b, a, p, q, color); }
+    }
+}
+pub fn draw_more(b: &mut HudBatch, a: &HudAtlas, avoid_left: bool) {
+    let [x, y, w, h] = more_rect(b.width, b.height, avoid_left);
+    b.fill(a, x, y, w, h, rgba(15, 8, 30, 210));
+    for (p, q) in [([x, y], [x+w, y]), ([x+w, y], [x+w, y+h]),
+        ([x+w, y+h], [x, y+h]), ([x, y+h], [x, y])] {
+        line(b, a, p, q, rgba(188, 100, 255, 235));
+    }
+    fitted_sprite(b, a, "ui/more-dots", [x + 4.0, y + 4.0, w - 8.0, h - 8.0], rgba(255,255,255,255));
+}
+
 pub fn hotbar_slot(width: f32, height: f32, point: [f32; 2]) -> Option<usize> {
     let x = point[0] - (width / 2.0 - 90.0);
     (point[1] >= height - 22.0 && point[1] < height && (0.0..180.0).contains(&x))
@@ -133,12 +224,18 @@ pub struct TouchControls {
     pub editor: Option<editor::Editor>,
     fingers: BTreeMap<u64, (Role, [f32; 2])>,
     custom_fingers: BTreeMap<u64, String>,
+    toggle_fingers: BTreeMap<u64, String>,
+    latched_custom: std::collections::BTreeSet<String>,
+    single_taps: BTreeMap<String, Instant>,
     custom_events: Vec<(String, bool)>,
     pending: PadState,
     pub aim: Option<[f32; 2]>,
     tap_aim: Option<[f32; 2]>,
     pending_tap: Option<bool>,
     aspect: f32,
+    viewport_size: Option<[u32; 2]>,
+    animation_origin: Option<Instant>,
+    press_times: BTreeMap<u64, Instant>,
     loaded: bool,
     pub chat_requested: bool,
     pub settings_requested: bool,
@@ -165,10 +262,26 @@ impl TouchControls {
     }
 
     pub fn viewport(&mut self, width: u32, height: u32) {
-        self.aspect = width.max(1) as f32 / height.max(1) as f32;
+        self.animation_origin.get_or_insert_with(Instant::now);
+        let size = [width.max(1), height.max(1)];
+        if self.viewport_size.is_some_and(|previous| previous != size) {
+            // Existing touch coordinates belong to the old drawable surface.
+            // Release them before adopting new geometry so a rotation cannot
+            // strand a key or convert a held button into a camera gesture.
+            self.clear();
+            self.cancel_editor_drag();
+        }
+        self.viewport_size = Some(size);
+        self.aspect = size[0] as f32 / size[1] as f32;
         if !self.loaded {
             self.settings = Settings::load();
             self.loaded = true;
+        }
+    }
+    pub fn set_inventory_mode(&mut self, inventory: bool) {
+        if self.inventory_mode != inventory {
+            self.clear();
+            self.inventory_mode = inventory;
         }
     }
     fn aspect(&self) -> f32 {
@@ -335,6 +448,9 @@ impl TouchControls {
                         || (bt == Button::LeftTrigger && state.triggers[0] > 0.0)
                         || (bt == Button::RightTrigger && state.triggers[1] > 0.0)
                 });
+            // Presentation is independent of input ownership and saved bounds.
+            #[cfg(target_os = "android")]
+            let control_vertices = b.vertices.len();
             if control == Control::Move {
                 if self.settings.mode == Mode::Dpad {
                     let cell = size / 3.0;
@@ -487,6 +603,31 @@ impl TouchControls {
                     ),
                 }
             }
+            #[cfg(target_os = "android")]
+            if matches!(control, Control::Move | Control::Sprint | Control::Jump |
+                Control::Sneak | Control::Attack | Control::Use)
+                && (control != Control::Move || self.settings.mode != Mode::Dpad)
+            {
+                let center = [x + size / 2.0, y + size / 2.0];
+                // Scale only the painted glyph; the original multitouch hitbox
+                // stays fixed and cannot drift as a finger presses the control.
+                if held && control != Control::Move {
+                    let age = self.fingers.iter().filter_map(|(id, (role, _))| {
+                        if matches!(role, Role::Button(button) if Some(*button) == Self::button(control)) {
+                            self.press_times.get(id).map(|t| t.elapsed().as_secs_f32())
+                        } else { None }
+                    }).fold(1.0_f32, f32::min);
+                    let t = (age / 0.12).clamp(0.0, 1.0);
+                    let eased = t * t * (3.0 - 2.0 * t);
+                    let scale = 1.0 - 0.06 * eased;
+                    b.scale_since(control_vertices, center[0], center[1], scale, scale);
+                }
+                let time = self.animation_origin.map_or(0.0, |start| start.elapsed().as_secs_f32());
+                let pulse = 0.93 + 0.07 * (time * 1.8).sin();
+                let alpha = (opacity.clamp(0.0, 1.0) * if held { 245.0 } else { 165.0 * pulse }) as u8;
+                ring(b, a, center, size * 0.48, rgba(180, 72, 255, alpha));
+                ring(b, a, center, size * 0.48 + 1.5, rgba(158, 48, 255, alpha / 3));
+            }
             if let Some(e) = &self.editor
                 && e.selected == Some(control)
             {
@@ -552,6 +693,8 @@ impl TouchControls {
     }
     /// Coordinates are fractions of the drawable surface. Returns a look delta.
     pub fn update(&mut self, id: u64, point: [f32; 2], started: bool, ended: bool) -> [f32; 2] {
+        if started { self.press_times.insert(id, Instant::now()); }
+        if ended { self.press_times.remove(&id); }
         if self.custom_update(id, point, started, ended) {
             return [0.0; 2];
         }
@@ -692,6 +835,7 @@ impl TouchControls {
     pub fn clear(&mut self) {
         self.clear_custom();
         self.fingers.clear();
+        self.press_times.clear();
         self.last_sneak_tap = None;
         self.sprint_latched = false;
         self.pending = PadState::default();
@@ -1077,18 +1221,20 @@ fn line(
     q: [f32; 2],
     color: u32,
 ) {
-    let steps = (q[0] - p[0]).abs().max((q[1] - p[1]).abs()).ceil().max(1.0) as u32;
-    for i in 0..=steps {
-        let t = i as f32 / steps as f32;
-        b.fill(
-            a,
-            p[0] + (q[0] - p[0]) * t - 0.7,
-            p[1] + (q[1] - p[1]) * t - 0.7,
-            1.4,
-            1.4,
-            color,
-        );
+    // One quad per segment rather than one quad per pixel. Hotbar outlines,
+    // editor glass and circular rings otherwise generate thousands of quads.
+    let dx = q[0] - p[0];
+    let dy = q[1] - p[1];
+    let length = dx.hypot(dy);
+    if length <= f32::EPSILON {
+        b.fill(a, p[0] - 0.7, p[1] - 0.7, 1.4, 1.4, color);
+        return;
     }
+    let (nx, ny) = (-dy / length * 0.7, dx / length * 0.7);
+    b.fill_quad(a, [
+        [p[0] - nx, p[1] - ny], [q[0] - nx, q[1] - ny],
+        [q[0] + nx, q[1] + ny], [p[0] + nx, p[1] + ny],
+    ], color);
 }
 #[cfg(test)]
 mod tests {
@@ -1302,6 +1448,30 @@ mod tests {
         assert!(t.poll_state().held(Button::LeftStick));
         t.update(4, point, false, true);
         assert!(!t.poll_state().held(Button::LeftStick));
+    }
+    #[test]
+    fn joystick_jump_and_attack_are_independent_multitouch_holds() {
+        let mut t = TouchControls::default();
+        t.viewport(1920, 1080);
+        let movement = t.placement(Control::Move).center;
+        let jump = t.placement(Control::Jump).center;
+        let attack = t.placement(Control::Attack).center;
+        t.update(1, movement, true, false);
+        t.update(1, [movement[0], movement[1] - 0.08], false, false);
+        t.update(2, jump, true, false);
+        t.update(3, attack, true, false);
+        let state = t.poll_state();
+        assert_ne!(state.left, [0.0, 0.0]);
+        assert!(state.held(Button::South));
+        assert_eq!(state.triggers[1], 1.0);
+        t.update(2, jump, false, true);
+        let state = t.poll_state();
+        assert!(!state.held(Button::South));
+        assert_eq!(state.triggers[1], 1.0);
+        assert_ne!(state.left, [0.0, 0.0]);
+        t.update(3, attack, false, true);
+        t.update(1, movement, false, true);
+        assert_eq!(t.poll_state(), PadState::default());
     }
     #[test]
     fn global_button_scale_changes_hit_geometry_without_rewriting_saved_layouts() {
@@ -1778,5 +1948,37 @@ mod tests {
         touch.update(2, center, false, true);
         touch.poll_state(); // consume the queued tap
         assert!(!touch.poll_state().held(Button::LeftStick));
+    }
+}
+
+#[cfg(test)]
+mod more_button_tests {
+    use super::*;
+    #[test]
+    fn neon_line_has_constant_geometry_cost() {
+        let atlas = HudAtlas::boot();
+        let mut batch = HudBatch::new([1920, 1080]);
+        line(&mut batch, &atlas, [1.0, 1.0], [1000.0, 1000.0], rgba(255,255,255,255));
+        assert_eq!(batch.vertices.len(), 6);
+        line(&mut batch, &atlas, [5.0, 5.0], [5.0, 5.0], rgba(255,255,255,255));
+        assert_eq!(batch.vertices.len(), 12);
+    }
+    #[test]
+    fn players_button_geometry_uses_top_row() {
+        let rect = players_rect(400.0, 225.0);
+        let center = [rect[0] + rect[2] * 0.5, rect[1] + rect[3] * 0.5];
+        assert!(players_at(400.0, 225.0, center));
+        assert!(!players_at(400.0, 225.0, [200.0, 220.0]));
+    }
+    #[test]
+    fn more_button_is_separate_from_hotbar() {
+        let rect = more_rect(400.0, 225.0, false);
+        let point = [rect[0] + rect[2] / 2.0, rect[1] + rect[3] / 2.0];
+        assert!(more_at(400.0, 225.0, point, false));
+        assert_eq!(hotbar_slot(400.0, 225.0, point), None);
+        assert!(!more_at(400.0, 225.0, [200.0, 220.0], false));
+        let shifted = more_rect(400.0, 225.0, true);
+        assert!(shifted[1] + shifted[3] < 225.0 - 23.0);
+        assert!(!more_at(400.0, 225.0, point, true));
     }
 }

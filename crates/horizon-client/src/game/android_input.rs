@@ -7,7 +7,69 @@ use horizon_client::{
 };
 use winit::event::{Touch, TouchPhase};
 
+fn transfer_control_layout(
+    settings: &mut horizon_client::touch::Settings,
+    request: horizon_client::touch::LayoutRequest,
+) -> std::io::Result<()> {
+    use std::io::Read;
+    use horizon_client::touch::LayoutRequest;
+    let dir = std::env::current_dir()?.join("craftix-controls");
+    std::fs::create_dir_all(&dir)?;
+    if std::fs::symlink_metadata(&dir)?.file_type().is_symlink() {
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid layout folder"));
+    }
+    let path = match request {
+        LayoutRequest::Import | LayoutRequest::Export => dir.join("transfer.json"),
+        LayoutRequest::SaveSlot(slot @ 1..=3) | LayoutRequest::LoadSlot(slot @ 1..=3) => dir.join(format!("slot-{slot}.json")),
+        _ => return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid layout slot")),
+    };
+    match request {
+        LayoutRequest::Export | LayoutRequest::SaveSlot(_) => {
+            let data = settings.layout_json()?;
+            let temp = dir.join(".transfer.tmp");
+            // A fresh temporary file plus rename avoids corrupting an earlier export.
+            let _ = std::fs::remove_file(&temp);
+            let mut f = std::fs::OpenOptions::new().write(true).create_new(true).open(&temp)?;
+            use std::io::Write;
+            f.write_all(&data)?;
+            f.sync_all()?;
+            std::fs::rename(temp, path)?;
+        }
+        LayoutRequest::Import | LayoutRequest::LoadSlot(_) => {
+            if std::fs::symlink_metadata(&path)?.file_type().is_symlink() {
+                return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid layout file"));
+            }
+            let mut data = Vec::new();
+            std::fs::File::open(path)?.take(128 * 1024 + 1).read_to_end(&mut data)?;
+            settings.import_layout_json(&data)?;
+        }
+    }
+    Ok(())
+}
+
+pub(super) fn android_transfer_control_layout(controls: &mut horizon_client::touch::TouchControls) {
+    use horizon_client::touch::LayoutRequest;
+    let Some(request) = controls.take_layout_request() else { return; };
+    let message = match transfer_control_layout(&mut controls.settings, request) {
+        Ok(()) => match request {
+            LayoutRequest::Export => "Exported transfer.json in Control layouts".to_owned(),
+            LayoutRequest::Import => "Imported. Tap Done to save.".to_owned(),
+            LayoutRequest::SaveSlot(n) => format!("Saved layout slot {n}."),
+            LayoutRequest::LoadSlot(n) => format!("Loaded slot {n}. Tap Done to apply."),
+        },
+        Err(error) => format!("Layout transfer failed: {error}"),
+    };
+    controls.layout_status(message);
+}
+
 impl Game<'_> {
+    /// Keep the hotbar-side button away from an offhand slot or left attack gauge.
+    pub(super) fn touch_more_avoid_left(&self) -> bool {
+        (self.offhand.is_some() && !self.settings.main_hand_left)
+            || (self.settings.touch.attack_indicator_left
+                && horizon_client::touch::attack_indicator(self.settings.attack_indicator, self.interaction_crosshair()) == 2)
+    }
+
     pub(crate) fn android_apply_display_scale(&mut self) {
         if let (Some(window), Some(renderer)) = (&self.window, &mut self.renderer)
             && let Err(error) = crate::display::apply(window, renderer)
@@ -99,6 +161,10 @@ impl Game<'_> {
             .action(batch.width, batch.height, point, self.pad_in_menu())
             .is_some()
             || self.pad.touch_ui.owns_key(POINTER)
+            || (!self.pad_in_menu() && horizon_client::touch::more_at(batch.width, batch.height, point,
+                self.touch_more_avoid_left()))
+            || (!self.pad_in_menu() && self.remote.is_some()
+                && horizon_client::touch::players_at(batch.width, batch.height, point))
             || self.pad.touch.owns_pointer(POINTER)
             || (!self.pad_in_menu() && self.pad.touch.auxiliary_at(normalized));
         if !utility {
@@ -123,91 +189,55 @@ impl Game<'_> {
     }
 
     pub(super) fn android_custom_key_held(&self, key: KeyCode) -> bool {
-        self.pad.touch.held_custom_tokens().any(|token| {
-            if let Some(mapping) = token.strip_prefix("action:") {
-                horizon_client::keybinds::key_code(horizon_client::keybinds::KeyBinds::default_of(
-                    mapping,
-                )) == Some(key)
-            } else {
-                horizon_client::keybinds::key_code(token).is_some_and(|physical| {
-                    self.settings
-                        .keys
-                        .translate_all(physical)
-                        .contains(&Ok(key))
-                })
-            }
-        })
+        self.pad.hardware_keys.iter().any(|physical| self.settings.keys.translate_all(*physical).contains(&Ok(key)))
+            || self.pad.custom_inputs.contains(&Ok(key))
     }
     pub(super) fn android_custom_mouse_held(&self, button: MouseButton) -> bool {
-        self.pad.touch.held_custom_tokens().any(|token| {
-            token.strip_prefix("action:").is_some_and(|mapping| {
-                horizon_client::keybinds::mouse_button(
-                    horizon_client::keybinds::KeyBinds::default_of(mapping),
-                ) == Some(button)
-            })
-        })
+        self.physical_buttons.contains(&button) || self.pad.custom_inputs.contains(&Err(button))
     }
     pub(super) fn android_custom_events(&mut self) {
         for (name, down) in self.pad.touch.key_events() {
-            if let Some(mapping) = name.strip_prefix("action:") {
+            let is_action = name.starts_with("action:");
+            let inputs = if let Some(mapping) = name.strip_prefix("action:") {
                 let default = horizon_client::keybinds::KeyBinds::default_of(mapping);
-                let result = if let Some(key) = horizon_client::keybinds::key_code(default) {
-                    self.mapped_key(key, down, false)
+                if let Some(key) = horizon_client::keybinds::key_code(default) {
+                    vec![Ok(key)]
                 } else if let Some(button) = horizon_client::keybinds::mouse_button(default) {
-                    self.android_custom_mouse(button, down)
-                } else {
-                    Ok(())
-                };
-                if let Err(error) = result {
-                    log::warn!("Custom touch action: {error}");
+                    vec![Err(button)]
+                } else { Vec::new() }
+            } else {
+                let Some(key) = horizon_client::keybinds::key_code(&name) else { continue; };
+                if down { self.pad.custom_keys.insert(key); } else { self.pad.custom_keys.remove(&key); }
+                if !self.pad.hardware_keys.contains(&key) {
+                    if (!self.pad_in_menu() || !down)
+                        && horizon_client::android_runtime::keypad_key(key, down) {
+                        continue;
+                    }
+                    if down { self.physical_keys.insert(key); } else { self.physical_keys.remove(&key); }
+                    self.mod_key(key, down, false);
+                    self.native_key_event(key, down, false);
+                    let action = if down { KeyAction::Press } else { KeyAction::Release };
+                    if self.debug_key(key, action) { continue; }
                 }
-                if down && self.screen == Screen::Chat {
-                    self.android_show_keyboard();
-                }
-                continue;
-            }
-            let Some(key) = horizon_client::keybinds::key_code(&name) else {
-                continue;
+                self.settings.keys.translate_all(key)
             };
-            if down {
-                self.pad.custom_keys.insert(key);
-            } else {
-                self.pad.custom_keys.remove(&key);
-            }
-            if self.pad.hardware_keys.contains(&key) {
-                continue;
-            }
-            if (!self.pad_in_menu() || !down)
-                && horizon_client::android_runtime::keypad_key(key, down)
-            {
-                continue;
-            }
-            if down {
-                self.physical_keys.insert(key);
-            } else {
-                self.physical_keys.remove(&key);
-            }
-            self.mod_key(key, down, false);
-            self.native_key_event(key, down, false);
-            let action = if down {
-                KeyAction::Press
-            } else {
-                KeyAction::Release
-            };
-            if self.debug_key(key, action) {
-                continue;
-            }
-            for mapped in self.settings.keys.translate_all(key) {
-                let result = match mapped {
-                    Ok(code) => self.mapped_key(code, down, false),
-                    Err(button) => self.android_custom_mouse(button, down),
+            let edges = self.pad.custom_inputs.edge(&name, down, inputs);
+            for (input, pressed) in edges {
+                // Do not inject a second press while a hardware source owns it.
+                if pressed && match input {
+                    Ok(key) => self.pad.hardware_keys.iter().any(|p| self.settings.keys.translate_all(*p).contains(&Ok(key))),
+                    Err(button) => self.physical_buttons.contains(&button),
+                } { continue; }
+                self.pad.processing_mapped = true;
+                let result = match input {
+                    Ok(key) => self.mapped_key(key, pressed, false),
+                    Err(button) => self.android_custom_mouse(button, pressed),
                 };
-                if let Err(error) = result {
-                    log::warn!("Custom touch key: {error}");
-                }
+                self.pad.processing_mapped = false;
+                if let Err(error) = result { log::warn!("Custom touch input: {error}"); }
             }
-            if down && matches!(key, KeyCode::KeyT | KeyCode::Slash) && self.screen == Screen::Chat
-            {
+            if down && self.screen == Screen::Chat
+                && (is_action || matches!(horizon_client::keybinds::key_code(&name), Some(KeyCode::KeyT | KeyCode::Slash))) {
                 self.android_show_keyboard();
             }
         }
@@ -296,6 +326,11 @@ impl Game<'_> {
             }
             return Ok(true);
         }
+        // A finger already owned by the world HUD must get its release even
+        // if it slides across an auxiliary button (or a key can stay stuck).
+        if t.phase != TouchPhase::Started && self.pad.touch.owns_pointer(t.id) {
+            return Ok(false);
+        }
         let size = self.window.as_ref().unwrap().inner_size();
         let b = HudBatch::new([size.width, size.height]);
         let p = [t.location.x as f32 / b.scale, t.location.y as f32 / b.scale];
@@ -306,6 +341,8 @@ impl Game<'_> {
         {
             if t.phase == TouchPhase::Started {
                 self.pad.touch.clear();
+                // Flush the release edges before opening another overlay.
+                self.android_custom_events();
                 self.pad.touch.ignore(t.id);
                 match action {
                     Action::LatchF3 => {
@@ -476,6 +513,17 @@ impl Game<'_> {
             ));
         }
         for out in crate::platform::poll() {
+            if self.pad.touch.custom_name_editing() {
+                match out {
+                    Output::Text(text) => self.pad.touch.custom_name_text(&text),
+                    Output::Backspace => self.pad.touch.custom_name_backspace(),
+                    Output::Enter | Output::Close => {
+                        self.pad.touch.finish_custom_name();
+                        crate::platform::hide();
+                    }
+                }
+                continue;
+            }
             let next_sign_line = self.sign_edit.is_some() && matches!(out, Output::Enter);
             let done =
                 matches!(out, Output::Close) || (matches!(out, Output::Enter) && !next_sign_line);
@@ -488,7 +536,7 @@ impl Game<'_> {
         }
         // Title screens also use Playing: their focused text fields must keep
         // the IME until the user confirms or closes the editor.
-        if !self.pad_in_menu() && crate::platform::active() {
+        if !self.pad_in_menu() && !self.pad.touch.custom_name_editing() && crate::platform::active() {
             crate::platform::hide();
         }
     }
@@ -559,7 +607,7 @@ impl Game<'_> {
             crate::platform::cancel_vibration();
             self.pad.touch.clear();
             self.pad.touch_aim = None;
-            if self.pad.touch.editor.is_some() {
+            if self.pad.touch.editor.is_some() && !self.pad.touch.custom_name_editing() {
                 self.pad.touch.cancel_editor();
                 self.pause = false;
             }

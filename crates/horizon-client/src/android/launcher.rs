@@ -77,6 +77,7 @@ pub(super) struct Launcher {
     /// Set by the Flutter host's "Play" hand-off. It only schedules the
     /// existing `action()` once; the game path itself is untouched.
     auto_play: bool,
+    from_flutter: bool,
     /// Presentation-only state. None of these fields is read by the game,
     /// the installer, the account code or the content managers.
     hero_patch: Option<horizon_client::font::Patch>,
@@ -112,6 +113,7 @@ impl Launcher {
         Self {
             home,
             auto_play,
+            from_flutter: auto_play,
             controller_edges: Default::default(),
             controller_repeat: None,
             window: None,
@@ -152,6 +154,12 @@ impl Launcher {
             drop(game);
         }
         crate::performance::stop();
+        if self.from_flutter {
+            // Finish the separate engine Activity; Android reveals Flutter's
+            // portrait Activity rather than the native fallback launcher.
+            events.exit();
+            return;
+        }
         crate::platform::hide();
         horizon_client::auth::clear_current();
         self.session_ready = false;
@@ -186,7 +194,7 @@ impl Launcher {
     }
     pub(super) fn configure_screen(&self) {
         crate::native_ime::configure_screen(
-            self.catalog.config.screen.immersive,
+            self.game.is_some() || self.catalog.config.screen.immersive,
             self.catalog.config.screen.avoid_cutout,
         );
         winit::platform::android::set_native_content_aspect(
@@ -206,7 +214,11 @@ impl Launcher {
         // an "automatic rotation" preference cannot flip the launcher sideways.
         // An explicit orientation choice in Settings still applies to the
         // current session through Action::ChooseOrientation.
-        crate::platform::set_orientation(self.catalog.config.orientation.launcher_mode());
+        crate::platform::set_orientation(if self.auto_play {
+            crate::catalog::Orientation::Landscape
+        } else {
+            self.catalog.config.orientation.launcher_mode()
+        });
         self.configure_screen();
         crate::display::set_scale(self.catalog.config.render_scale);
         horizon_client::android_runtime::configure_gpu(false);
@@ -353,7 +365,11 @@ impl Launcher {
             self.window = None;
             self.gui = None;
             horizon_client::ui_theme::reset_atlas();
+            // Apply sensor landscape to the game only; the Flutter Activity
+            // remains portrait and the fallback launcher restores its setting.
+            crate::platform::set_orientation(crate::catalog::Orientation::Landscape);
             self.game = Some(game);
+            self.configure_screen();
             self.game.as_mut().unwrap().resumed(events);
         } else {
             if !self.home.join("engine-data.zip").is_file() {

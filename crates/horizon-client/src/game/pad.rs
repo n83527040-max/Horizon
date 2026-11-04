@@ -28,6 +28,10 @@ pub(super) struct Pads {
     #[cfg(target_os = "android")]
     pub(super) custom_keys: std::collections::HashSet<KeyCode>,
     #[cfg(target_os = "android")]
+    pub(super) custom_inputs: horizon_client::touch::InputOwners<std::result::Result<KeyCode, winit::event::MouseButton>>,
+    #[cfg(target_os = "android")]
+    pub(super) processing_mapped: bool,
+    #[cfg(target_os = "android")]
     pub(super) hardware_keys: std::collections::HashSet<KeyCode>,
     #[cfg(target_os = "android")]
     last_input_mode: Option<horizon_client::android_gamepad::InputMode>,
@@ -150,7 +154,8 @@ impl Game<'_> {
                 crate::device_runtime::preferences().gpu_profile,
                 &crate::backend::game_home(),
             );
-            self.pad.touch.inventory_mode = self.android_inventory_controls();
+            let inventory = self.android_inventory_controls();
+            self.pad.touch.set_inventory_mode(inventory);
             self.android_virtual_mouse_clicks(event_loop);
             let active = horizon_client::android_runtime::active_input();
             if self.pad.last_input_mode.replace(active).is_some_and(|old| {
@@ -168,6 +173,7 @@ impl Game<'_> {
                 self.pad.touch.clear();
                 horizon_client::android_runtime::clear_keypad();
             }
+            self.pad.touch.advance_custom_taps();
             self.android_custom_events();
         }
         #[cfg(target_os = "android")]
@@ -459,7 +465,21 @@ impl Game<'_> {
     /// A bound action: a vanilla mapping acts as its default key or mouse
     /// button, like a rebound keyboard key.
     fn pad_action(&mut self, action: &str, down: bool) -> Result<()> {
-        match action {
+        #[cfg(target_os = "android")]
+        {
+            let default = KeyBinds::default_of(action);
+            let input = key_code(default).map(Ok).or_else(|| mouse_button(default).map(Err));
+            if let Some(input) = input {
+                let edges = self.pad.custom_inputs.edge(&format!("pad:{action}"), down, vec![input]);
+                if edges.is_empty() { return Ok(()); }
+                if down && match input {
+                    Ok(key) => self.pad.hardware_keys.iter().any(|p| self.settings.keys.translate_all(*p).contains(&Ok(key))),
+                    Err(button) => self.physical_buttons.contains(&button),
+                } { return Ok(()); }
+            }
+            self.pad.processing_mapped = true;
+        }
+        let result = (|| -> Result<()> { match action {
             gamepad::HOTBAR_PREVIOUS | gamepad::HOTBAR_NEXT => {
                 if down && self.screen == Screen::Playing {
                     self.selected =
@@ -469,6 +489,7 @@ impl Game<'_> {
             }
             #[cfg(target_os = "android")]
             "key.sprint" => {
+                if !down && self.android_custom_key_held(KeyCode::ControlLeft) { return Ok(()); }
                 if down {
                     self.keys.insert(KeyCode::ControlLeft);
                 } else {
@@ -513,7 +534,10 @@ impl Game<'_> {
                     Ok(())
                 }
             }
-        }
+        } })();
+        #[cfg(target_os = "android")]
+        { self.pad.processing_mapped = false; }
+        result
     }
 
     /// B and Start: what Escape does where the pad is.

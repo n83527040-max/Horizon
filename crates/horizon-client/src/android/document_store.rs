@@ -70,6 +70,7 @@ fn resolve(home: &Path, id: &str) -> io::Result<Document> {
             Some("mods") => ("horizon-mods", "Mods"),
             Some("packs") => ("resourcepacks", "Resource Packs"),
             Some("shaders") => ("shaderpacks", "Shader Packs"),
+            Some("controls") => ("craftix-controls", "Control layouts"),
             _ => return Err(invalid()),
         };
         (root.join(folder), label, false)
@@ -163,7 +164,7 @@ fn row(home: &Path, id: &str) -> io::Result<Value> {
 }
 pub fn children(home: &Path, id: &str) -> io::Result<Vec<Value>> {
     if id == ROOT {
-        return ["mods", "packs", "shaders", "reports"]
+        return ["mods", "packs", "shaders", "reports", "controls"]
             .iter()
             .map(|folder| row(home, &folder_id(profile(home), folder)))
             .collect();
@@ -346,7 +347,8 @@ mod tests {
         ));
         fs::create_dir_all(&home).unwrap();
         let roots = children(&home, ROOT).unwrap();
-        assert_eq!(roots.len(), 4);
+        assert_eq!(roots.len(), 5);
+        assert_eq!(roots[4]["document_id"], "p0/controls");
         assert_eq!(roots[0]["document_id"], "p0/mods");
         for id in [
             "../tokens",
