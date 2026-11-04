@@ -711,6 +711,7 @@ impl CustomButton {
     }
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CustomButton {
     pub key: String,
     pub layouts: [Placement; 3],

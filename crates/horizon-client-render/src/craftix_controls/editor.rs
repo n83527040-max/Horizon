@@ -1,5 +1,5 @@
 //! Transactional, named layouts for the replacement editor.
-use super::layout::{Action, Behavior, Button, Circle, Icon, Id, Layout};
+use super::layout::{Action, Behavior, Button, Icon, Id, Layout};
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeSet, io::{self, Write}, path::Path};
 const MAX_BYTES: usize = 128 * 1024;
@@ -123,8 +123,15 @@ impl Editor {
         let layout = &mut self.staged.items[self.staged.active];
         let id = (0..u32::MAX).map(Id::Custom).find(|id| !layout.buttons.iter().any(|b| b.id == *id))
             .ok_or_else(|| invalid("no button IDs available"))?;
-        let button = Button { id, action: Some(Action::Key(key.into())), circle: Circle { center: [0.7, 0.30], radius: 0.05 },
-            opacity: 0.85, behavior: Behavior::Hold, icon, enabled: true, label: name.trim().into() };
+        let mut button = Button::new(
+            id,
+            Some(Action::Key(key.into())),
+            [0.7, 0.30],
+            0.05,
+        );
+        button.icon = icon;
+        button.behavior = Behavior::Hold;
+        button.label = name.trim().into();
         if !button.valid() || button.label.is_empty() { return Err(invalid("invalid button")); }
         layout.buttons.push(button);
         Ok(id)
