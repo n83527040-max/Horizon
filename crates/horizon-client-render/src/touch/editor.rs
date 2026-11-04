@@ -22,6 +22,7 @@ pub struct Editor {
     manager_slider: Option<(u64, usize)>,
     layout_slot: u8,
     confirm_reset: bool,
+    opened_at: Instant,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -63,6 +64,7 @@ impl TouchControls {
             manager_slider: None,
             layout_slot: 1,
             confirm_reset: false,
+            opened_at: Instant::now(),
         });
     }
     pub fn open_custom_manager(&mut self) {
@@ -428,6 +430,8 @@ impl TouchControls {
             manager_plate(b, a, [0.56, 0.36, 0.23, 0.055], &format!("Key: {}", button.binding_label()), false);
             manager_plate(b, a, [0.56, 0.435, 0.23, 0.055], &format!("Size: {:.0}%", p.size * 100.0), false);
             manager_plate(b, a, [0.56, 0.505, 0.23, 0.055], &format!("Opacity: {:.0}%", p.opacity * 100.0), false);
+            manager_slider(b, a, [0.56, 0.435, 0.23, 0.055], ((p.size - 0.045) / 0.405).clamp(0.0, 1.0));
+            manager_slider(b, a, [0.56, 0.505, 0.23, 0.055], p.opacity.clamp(0.0, 1.0));
             manager_plate(b, a, [0.56, 0.565, 0.11, 0.045], button.visibility.label(), false);
             manager_plate(b, a, [0.68, 0.565, 0.11, 0.045], if button.toggle { "Toggle" } else { "Hold" }, button.toggle);
             manager_plate(b, a, [0.56, 0.62, 0.11, 0.04], "Delete", false);
@@ -456,8 +460,15 @@ impl TouchControls {
         let (w, h) = (b.width, b.height);
         let text = rgba(245, 245, 245, 255);
         if e.manager {
+            let start = b.vertices.len();
             self.draw_manager(b, a, e);
             if e.key_picker { self.draw_custom_editor(b, a, e); }
+            let t = (e.opened_at.elapsed().as_secs_f32() / 0.18).clamp(0.0, 1.0);
+            let opacity = t * t * (3.0 - 2.0 * t);
+            for vertex in &mut b.vertices[start..] {
+                let alpha = ((vertex.color >> 24) as f32 * opacity).round() as u32;
+                vertex.color = (vertex.color & 0x00ff_ffff) | (alpha << 24);
+            }
             return;
         }
         if e.layout_menu {
@@ -580,17 +591,41 @@ impl TouchControls {
     }
 }
 fn manager_row(row: usize) -> [f32; 4] { [0.34, 0.27 + row as f32 * 0.06, 0.20, 0.055] }
-fn glass(b: &mut HudBatch, a: &HudAtlas, [x,y,w,h]: [f32; 4], on: bool) {
+pub(super) fn glass(b: &mut HudBatch, a: &HudAtlas, [x,y,w,h]: [f32; 4], on: bool) {
     let (x,y,w,h) = (x*b.width,y*b.height,w*b.width,h*b.height);
-    b.fill(a,x,y,w,h, if on { rgba(92,30,144,220) } else { rgba(12,9,26,225) });
-    let color = if on { rgba(211,145,255,255) } else { rgba(126,78,173,210) };
-    for (p,q) in [([x,y],[x+w,y]),([x+w,y],[x+w,y+h]),([x+w,y+h],[x,y+h]),([x,y+h],[x,y])] { line(b,a,p,q,color); }
+    let radius = 4.0_f32.min(w * 0.2).min(h * 0.3);
+    let fill = if on { rgba(92,30,144,220) } else { rgba(12,9,26,225) };
+    // A small chamfer approximates rounded dark glass using constant geometry.
+    b.fill(a, x + radius, y, w - radius * 2.0, h, fill);
+    b.fill(a, x, y + radius, radius, h - radius * 2.0, fill);
+    b.fill(a, x + w - radius, y + radius, radius, h - radius * 2.0, fill);
+    for tri in [
+        [[x+radius,y],[x+radius,y+radius],[x,y+radius]],
+        [[x+w-radius,y],[x+w,y+radius],[x+w-radius,y+radius]],
+        [[x,y+h-radius],[x+radius,y+h-radius],[x+radius,y+h]],
+        [[x+w-radius,y+h-radius],[x+w,y+h-radius],[x+w-radius,y+h]],
+    ] { b.fill_quad(a, [tri[0],tri[1],tri[2],tri[2]], fill); }
+    let color = if on { rgba(211,145,255,255) } else { rgba(150,90,205,210) };
+    let points = [[x+radius,y],[x+w-radius,y],[x+w,y+radius],[x+w,y+h-radius],
+        [x+w-radius,y+h],[x+radius,y+h],[x,y+h-radius],[x,y+radius],[x+radius,y]];
+    for pair in points.windows(2) { line(b,a,pair[0],pair[1],color); }
+    if on {
+        line(b,a,[x+radius,y+1.0],[x+w-radius,y+1.0],rgba(208,120,255,65));
+        line(b,a,[x+radius,y+h-1.0],[x+w-radius,y+h-1.0],rgba(208,120,255,65));
+    }
 }
 fn manager_text(b: &mut HudBatch, a: &HudAtlas, [x,y,w,h]: [f32;4], text: &str) {
     let (x,y,w,h)=(x*b.width,y*b.height,w*b.width,h*b.height);
     let mut label = text.to_owned();
     while HudBatch::text_width(a, &label) > (w-6.0).max(1.0) && !label.is_empty() { label.pop(); }
     b.text(a,&label,x+3.0,y+(h-8.0)/2.0,rgba(245,240,255,255),false);
+}
+fn manager_slider(b: &mut HudBatch, a: &HudAtlas, [x,y,w,h]: [f32;4], value: f32) {
+    let (x,y,w,h) = (x*b.width,y*b.height,w*b.width,h*b.height);
+    let track = (w - 8.0).max(0.0);
+    b.fill(a, x+4.0, y+h-3.0, track, 1.0, rgba(95,65,120,220));
+    b.fill(a, x+4.0, y+h-3.0, track*value, 1.0, rgba(200,125,255,255));
+    b.fill(a, x+3.0+track*value, y+h-4.0, 3.0, 3.0, rgba(245,220,255,255));
 }
 fn manager_plate(b: &mut HudBatch, a: &HudAtlas, rect: [f32;4], text: &str, on: bool) {
     glass(b,a,rect,on); manager_text(b,a,rect,text);

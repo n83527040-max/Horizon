@@ -296,7 +296,32 @@ impl TouchControls {
             if opacity <= 0.0 {
                 continue;
             }
+            #[cfg(target_os = "android")]
+            {
+                let start = b.vertices.len();
+                let normalized = [rect[0]/b.width, rect[1]/b.height, rect[2]/b.width, rect[3]/b.height];
+                editor::glass(b, a, normalized, pressed);
+                let icon = button.icon.sprite();
+                if let Some(icon) = icon {
+                    fitted_sprite(b, a, icon, [rect[0]+size*0.28, rect[1]+size*0.10, size*0.44, size*0.44], rgba(245,232,255,255));
+                }
+                let label = button.label();
+                let width = HudBatch::text_width(a, &label);
+                let text_start = b.vertices.len();
+                let ty = if icon.is_some() { rect[1]+size*0.68 } else { rect[1]+(size-8.0)/2.0 };
+                b.text(a, &label, rect[0]+(size-width)/2.0, ty, rgba(250,242,255,255), false);
+                let scale = ((size-6.0).max(1.0)/width.max(1.0)).min(1.0);
+                b.scale_since(text_start, rect[0]+size/2.0, ty+4.0, scale, scale);
+                if pressed { b.scale_since(start, rect[0]+size/2.0, rect[1]+size/2.0, 0.95, 0.95); }
+                for vertex in &mut b.vertices[start..] {
+                    let alpha = ((vertex.color >> 24) as f32 * opacity.clamp(0.0,1.0)).round() as u32;
+                    vertex.color = (vertex.color & 0x00ff_ffff) | (alpha << 24);
+                }
+                continue;
+            }
+            #[cfg(not(target_os = "android"))]
             let color = rgba(255, 255, 255, (opacity * 255.0) as u8);
+            #[cfg(not(target_os = "android"))]
             if let Some(icon) = button.icon.sprite() {
                 text_button(b, a, rect, "", pressed, color, true);
                 fitted_sprite(b, a, icon,

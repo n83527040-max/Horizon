@@ -13952,11 +13952,12 @@ impl Game<'_> {
             && !self.ui.hide_gui && !self.creative && !self.spectator()
         {
             let name = self.acting_player_name().to_owned();
+            let skin = self.player_model.as_ref().and_then(|model| model.skin.as_deref());
             if let Some(player) = &mut self.player {
                 let health = player.health.health();
                 let max_health = player.attribute("minecraft:max_health").unwrap_or(20.0) as f32;
                 let armor = player.attribute("minecraft:armor").or_else(|_| player.attribute("armor")).unwrap_or(0.0) as i32;
-                horizon_client::touch::draw_player_card(&mut hud, &self.gui.atlas, &name, health, max_health, armor);
+                horizon_client::touch::draw_player_card(&mut hud, &self.gui.atlas, &name, skin, health, max_health, armor);
             }
         }
         #[cfg(target_os = "android")]

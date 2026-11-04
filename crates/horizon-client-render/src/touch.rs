@@ -125,32 +125,47 @@ pub fn more_at(width: f32, height: f32, point: [f32; 2], avoid_left: bool) -> bo
     layout::contains(more_rect(width, height, avoid_left), point)
 }
 /// Compact actual player status; original vanilla survival bars remain intact.
-pub fn draw_player_card(b: &mut HudBatch, a: &HudAtlas, name: &str, health: f32, max_health: f32, armor: i32) {
+pub fn draw_player_card(b: &mut HudBatch, a: &HudAtlas, name: &str, skin: Option<&str>, health: f32, max_health: f32, armor: i32) {
     let x = 40.0;
-    let width = (b.width / 2.0 - x - 14.0).clamp(0.0, 112.0);
+    let width = (b.width / 2.0 - x - 14.0).clamp(0.0, 120.0);
     if width < 75.0 { return; }
     let y = 3.0;
     b.fill(a, x, y, width, 30.0, rgba(12, 9, 25, 218));
     line(b, a, [x, y + 30.0], [x + width, y + 30.0], rgba(170, 95, 235, 200));
+    let face = if width >= 100.0 {
+        skin.and_then(|s| a.sprites.get(s)).or_else(|| a.sprites.get("entity/player/wide/steve")).copied()
+    } else { None };
+    let info_x = if face.is_some() { x + 25.0 } else { x + 3.0 };
+    if let Some(r) = face {
+        // PlayerFaceExtractor: 8x8 face at (8,8), then the hat at (40,8).
+        for u in [8.0, 40.0] {
+            let mut part = r;
+            part.u0 = r.u0 + (r.u1-r.u0) * u / 64.0;
+            part.u1 = r.u0 + (r.u1-r.u0) * (u+8.0) / 64.0;
+            part.v0 = r.v0 + (r.v1-r.v0) * 8.0 / 64.0;
+            part.v1 = r.v0 + (r.v1-r.v0) * 16.0 / 64.0;
+            b.rect_uv(x + 3.0, y + 5.0, 19.0, 19.0, part, u32::MAX);
+        }
+    }
+    let available = (x + width - info_x - 3.0).max(1.0);
     let mut label = name.to_owned();
-    while HudBatch::text_width(a, &label) > width - 6.0 && !label.is_empty() { label.pop(); }
-    b.text(a, &label, x + 3.0, y + 2.0, rgba(255, 255, 255, 255), false);
+    while HudBatch::text_width(a, &label) > available && !label.is_empty() { label.pop(); }
+    b.text(a, &label, info_x, y + 2.0, rgba(255, 255, 255, 255), false);
+    let step = (available / 10.0).min(7.0);
     for i in 0..10 {
-        let x = x + 3.0 + i as f32 * 7.0;
+        let icon_x = info_x + i as f32 * step;
         let remaining = health - i as f32 * 2.0;
         if (i as f32) * 2.0 < max_health.max(0.0) {
-            b.sprite_scaled(a, "hud/heart/container", x, y + 11.0, 7.0, 7.0, u32::MAX);
+            b.sprite_scaled(a, "hud/heart/container", icon_x, y + 11.0, step, 7.0, u32::MAX);
             if remaining > 0.0 {
-                b.sprite_scaled(a, if remaining >= 2.0 { "hud/heart/full" } else { "hud/heart/half" }, x, y + 11.0, 7.0, 7.0, u32::MAX);
+                b.sprite_scaled(a, if remaining >= 2.0 { "hud/heart/full" } else { "hud/heart/half" }, icon_x, y + 11.0, step, 7.0, u32::MAX);
             }
         }
         let remaining_armor = armor - i * 2;
         b.sprite_scaled(a, if remaining_armor >= 2 { "hud/armor_full" } else if remaining_armor == 1 { "hud/armor_half" } else { "hud/armor_empty" },
-            x, y + 20.0, 7.0, 7.0, u32::MAX);
+            icon_x, y + 20.0, step, 7.0, u32::MAX);
     }
-    if max_health > 20.0 || health > 20.0 || armor > 20 {
-        b.text(a, &format!("{:.0}/{:.0}", health, max_health), x + 75.0, y + 11.0, rgba(255,255,255,255), false);
-    }
+    // Original survival bars still handle extra health, status effects and absorption.
 }
 
 /// Overlay only the slot borders: item sprites and the engine's selected slot
@@ -216,6 +231,8 @@ pub struct TouchControls {
     pending_tap: Option<bool>,
     aspect: f32,
     viewport_size: Option<[u32; 2]>,
+    animation_origin: Option<Instant>,
+    press_times: BTreeMap<u64, Instant>,
     loaded: bool,
     pub chat_requested: bool,
     pub settings_requested: bool,
@@ -242,6 +259,7 @@ impl TouchControls {
     }
 
     pub fn viewport(&mut self, width: u32, height: u32) {
+        self.animation_origin.get_or_insert_with(Instant::now);
         let size = [width.max(1), height.max(1)];
         if self.viewport_size.is_some_and(|previous| previous != size) {
             // Existing touch coordinates belong to the old drawable surface.
@@ -591,9 +609,19 @@ impl TouchControls {
                 // Scale only the painted glyph; the original multitouch hitbox
                 // stays fixed and cannot drift as a finger presses the control.
                 if held && control != Control::Move {
-                    b.scale_since(control_vertices, center[0], center[1], 0.94, 0.94);
+                    let age = self.fingers.iter().filter_map(|(id, (role, _))| {
+                        if matches!(role, Role::Button(button) if Some(*button) == Self::button(control)) {
+                            self.press_times.get(id).map(|t| t.elapsed().as_secs_f32())
+                        } else { None }
+                    }).fold(1.0_f32, f32::min);
+                    let t = (age / 0.12).clamp(0.0, 1.0);
+                    let eased = t * t * (3.0 - 2.0 * t);
+                    let scale = 1.0 - 0.06 * eased;
+                    b.scale_since(control_vertices, center[0], center[1], scale, scale);
                 }
-                let alpha = (opacity.clamp(0.0, 1.0) * if held { 245.0 } else { 165.0 }) as u8;
+                let time = self.animation_origin.map_or(0.0, |start| start.elapsed().as_secs_f32());
+                let pulse = 0.93 + 0.07 * (time * 1.8).sin();
+                let alpha = (opacity.clamp(0.0, 1.0) * if held { 245.0 } else { 165.0 * pulse }) as u8;
                 ring(b, a, center, size * 0.48, rgba(180, 72, 255, alpha));
                 ring(b, a, center, size * 0.48 + 1.5, rgba(158, 48, 255, alpha / 3));
             }
@@ -662,6 +690,8 @@ impl TouchControls {
     }
     /// Coordinates are fractions of the drawable surface. Returns a look delta.
     pub fn update(&mut self, id: u64, point: [f32; 2], started: bool, ended: bool) -> [f32; 2] {
+        if started { self.press_times.insert(id, Instant::now()); }
+        if ended { self.press_times.remove(&id); }
         if self.custom_update(id, point, started, ended) {
             return [0.0; 2];
         }
@@ -802,6 +832,7 @@ impl TouchControls {
     pub fn clear(&mut self) {
         self.clear_custom();
         self.fingers.clear();
+        self.press_times.clear();
         self.last_sneak_tap = None;
         self.sprint_latched = false;
         self.pending = PadState::default();

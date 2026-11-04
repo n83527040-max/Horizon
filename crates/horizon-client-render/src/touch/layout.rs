@@ -187,6 +187,22 @@ fn deserialize_visibility<'de, D: serde::Deserializer<'de>>(d: D) -> Result<[u8;
     values[..old.len()].copy_from_slice(&old);
     Ok(values)
 }
+/// Reference-inspired Android factory placement. Existing saved layouts are
+/// never overwritten; the player can explicitly select the Standard preset.
+#[cfg(any(target_os = "android", test))]
+fn craftix_factory_layout(layouts: &mut [[Placement; 14]; 3]) {
+    for mode in [Mode::Crosshair, Mode::Tap] {
+        let row = &mut layouts[mode.index()];
+        for (control, x, y, size) in [
+            (Control::Move, 0.11, 0.70, 0.32),
+            (Control::Sprint, 0.25, 0.73, 0.105),
+            (Control::Attack, 0.82, 0.53, 0.18),
+            (Control::Use, 0.80, 0.73, 0.18),
+            (Control::Jump, 0.94, 0.55, 0.15),
+            (Control::Sneak, 0.94, 0.75, 0.15),
+        ] { row[control as usize] = Placement::new(x, y, size); }
+    }
+}
 impl Default for Settings {
     fn default() -> Self {
         let base = [
@@ -208,6 +224,8 @@ impl Default for Settings {
         let mut layouts = [base; 3];
         layouts[2][Control::Sneak as usize] = Placement::new(0.13, 0.76, 0.10);
         layouts[2][Control::Jump as usize] = Placement::new(0.90, 0.78, 0.14);
+        #[cfg(target_os = "android")]
+        craftix_factory_layout(&mut layouts);
         Self {
             mode: Mode::Crosshair,
             split_controls: false,
@@ -462,6 +480,22 @@ pub fn contains([x, y, w, h]: [f32; 4], p: [f32; 2]) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn craftix_factory_controls_do_not_overlap_on_landscape_phones() {
+        let mut layouts = Settings::default().layouts;
+        craftix_factory_layout(&mut layouts);
+        for aspect in [16.0 / 9.0, 20.0 / 9.0] {
+            for mode in [Mode::Crosshair, Mode::Tap] {
+                let row = &layouts[mode.index()];
+                for (a,b) in [(Control::Move,Control::Sprint), (Control::Attack,Control::Use),
+                    (Control::Attack,Control::Jump), (Control::Use,Control::Sneak), (Control::Jump,Control::Sneak)] {
+                    let [x,y,w,h] = row[a as usize].rect(aspect);
+                    let [u,v,s,t] = row[b as usize].rect(aspect);
+                    assert!(x+w <= u || u+s <= x || y+h <= v || v+t <= y, "{mode:?}: {a:?} overlaps {b:?}");
+                }
+            }
+        }
+    }
     #[test]
     fn gyro_preferences_roundtrip_and_reject_bad_values() {
         let mut s = super::Settings::default();
