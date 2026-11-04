@@ -3,6 +3,7 @@
 > **CRAFTIX 0.7.8** (`com.craftix.launcher`): نسخة موسَّعة بالعلامة التجارية
 > الجديدة، أيقونة adaptive، شاشة رئيسية بحالات Download/تقدّم حقيقي/Play،
 > وتوقيع دائم بمفتاح CRAFTIX Release من أسرار GitHub Actions.
+> **[وثيقة التسليم الكاملة للوكيل التالي](CRAFTIX_HANDOFF.md)** ·
 > المواصفة: `CRAFTIX_Implementation_Package.zip` · تحليل الهجرة:
 > **[CRAFTIX_MIGRATION_ANALYSIS.md](CRAFTIX_MIGRATION_ANALYSIS.md)** ·
 > بوابة الإصدار: `tools/verify_craftix_release.py`.
