@@ -2,6 +2,11 @@
 name: CRAFTIX APK install diagnostics
 on:
   workflow_dispatch:
+    inputs:
+      run_emulator:
+        description: Try an arm64 update test (requires a bootable emulator)
+        type: boolean
+        default: false
 permissions:
   contents: read
 jobs:
@@ -51,6 +56,7 @@ jobs:
         if: always()
         run: rm -f "$RUNNER_TEMP/craftix-release.jks"
   emulator-update:
+    if: ${{ inputs.run_emulator }}
     runs-on: macos-14
     timeout-minutes: 35
     steps:
