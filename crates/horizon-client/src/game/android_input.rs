@@ -43,20 +43,20 @@ fn transfer_control_layout(
     Ok(())
 }
 
-impl Game<'_> {
-    pub(super) fn android_transfer_control_layout(&mut self) {
-        use horizon_client::touch::LayoutRequest;
-        let Some(request) = self.pad.touch.take_layout_request() else { return; };
-        let message = match transfer_control_layout(&mut self.pad.touch.settings, request) {
-            Ok(()) => match request {
-                LayoutRequest::Export => "Exported transfer.json in Control layouts".to_owned(),
-                LayoutRequest::Import => "Imported. Tap Done to save.".to_owned(),
-            },
-            Err(error) => format!("Layout transfer failed: {error}"),
-        };
-        self.pad.touch.layout_status(message);
-    }
+pub(super) fn android_transfer_control_layout(controls: &mut horizon_client::touch::TouchControls) {
+    use horizon_client::touch::LayoutRequest;
+    let Some(request) = controls.take_layout_request() else { return; };
+    let message = match transfer_control_layout(&mut controls.settings, request) {
+        Ok(()) => match request {
+            LayoutRequest::Export => "Exported transfer.json in Control layouts".to_owned(),
+            LayoutRequest::Import => "Imported. Tap Done to save.".to_owned(),
+        },
+        Err(error) => format!("Layout transfer failed: {error}"),
+    };
+    controls.layout_status(message);
+}
 
+impl Game<'_> {
     pub(crate) fn android_apply_display_scale(&mut self) {
         if let (Some(window), Some(renderer)) = (&self.window, &mut self.renderer)
             && let Err(error) = crate::display::apply(window, renderer)

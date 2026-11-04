@@ -18,7 +18,9 @@ concurrency:
   group: android-ui-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  # With both switches off this dispatch is reserved for control-only checks.
   source:
+    if: ${{ inputs.native_checks || inputs.build_apk }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

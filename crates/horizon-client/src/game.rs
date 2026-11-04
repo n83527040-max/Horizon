@@ -15146,7 +15146,7 @@ impl ApplicationHandler for Game<'_> {
                 ) {
                     self.pause = false;
                 }
-                self.android_transfer_control_layout();
+                android_input::android_transfer_control_layout(&mut self.pad.touch);
                 if let Some(initial) = self.pad.touch.take_custom_name_request() {
                     crate::platform::show(&initial);
                     if !crate::platform::active() {
