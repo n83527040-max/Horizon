@@ -1169,18 +1169,20 @@ fn line(
     q: [f32; 2],
     color: u32,
 ) {
-    let steps = (q[0] - p[0]).abs().max((q[1] - p[1]).abs()).ceil().max(1.0) as u32;
-    for i in 0..=steps {
-        let t = i as f32 / steps as f32;
-        b.fill(
-            a,
-            p[0] + (q[0] - p[0]) * t - 0.7,
-            p[1] + (q[1] - p[1]) * t - 0.7,
-            1.4,
-            1.4,
-            color,
-        );
+    // One quad per segment rather than one quad per pixel. Hotbar outlines,
+    // editor glass and circular rings otherwise generate thousands of quads.
+    let dx = q[0] - p[0];
+    let dy = q[1] - p[1];
+    let length = dx.hypot(dy);
+    if length <= f32::EPSILON {
+        b.fill(a, p[0] - 0.7, p[1] - 0.7, 1.4, 1.4, color);
+        return;
     }
+    let (nx, ny) = (-dy / length * 0.7, dx / length * 0.7);
+    b.fill_quad(a, [
+        [p[0] + nx, p[1] + ny], [q[0] + nx, q[1] + ny],
+        [q[0] - nx, q[1] - ny], [p[0] - nx, p[1] - ny],
+    ], color);
 }
 #[cfg(test)]
 mod tests {
@@ -1876,6 +1878,15 @@ mod tests {
 #[cfg(test)]
 mod more_button_tests {
     use super::*;
+    #[test]
+    fn neon_line_has_constant_geometry_cost() {
+        let atlas = HudAtlas::boot();
+        let mut batch = HudBatch::new([1920, 1080]);
+        line(&mut batch, &atlas, [1.0, 1.0], [1000.0, 1000.0], rgba(255,255,255,255));
+        assert_eq!(batch.vertices.len(), 6);
+        line(&mut batch, &atlas, [5.0, 5.0], [5.0, 5.0], rgba(255,255,255,255));
+        assert_eq!(batch.vertices.len(), 12);
+    }
     #[test]
     fn players_button_geometry_uses_top_row() {
         let rect = players_rect(400.0, 225.0);

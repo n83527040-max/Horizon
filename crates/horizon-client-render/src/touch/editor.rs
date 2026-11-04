@@ -130,6 +130,9 @@ impl TouchControls {
         }
         if e.layout_menu {
             if started {
+                if !layout::contains([0.28, 0.62, 0.44, 0.07], p) {
+                    e.confirm_reset = false;
+                }
                 if layout::contains([0.28, 0.26, 0.2, 0.08], p) {
                     self.settings.apply_control_preset(false);
                     e.error = Some("Standard preset applied. Tap Done to save.".into());
