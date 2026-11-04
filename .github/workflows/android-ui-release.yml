@@ -98,3 +98,42 @@ jobs:
           name: Horizon-Android-0.7.6-redesign
           path: .local/android/releases/0.7.6/*.apk
           if-no-files-found: error
+
+  # Control-only verification runs independently; it never builds or publishes APKs.
+  controls-desktop-tests:
+    if: ${{ !inputs.native_checks && !inputs.build_apk }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Test touch input, editor and layout
+        shell: bash
+        run: |
+          set -o pipefail
+          trap 'printf "::error::"; tail -c 4000 /tmp/check.log | base64 -w0; echo' ERR
+          cargo test -p horizon-client-render --lib touch:: -- --nocapture 2>&1 | tee /tmp/check.log
+  controls-android-check:
+    if: ${{ !inputs.native_checks && !inputs.build_apk }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      CARGO_BUILD_JOBS: '2'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Install Android toolchain
+        run: |
+          sdkmanager "ndk;28.2.13676358" "build-tools;35.0.0" "platforms;android-35"
+          rustup target add aarch64-linux-android
+      - name: Check Android host without packaging
+        shell: bash
+        run: |
+          set -o pipefail
+          trap 'printf "::error::"; tail -c 4000 /tmp/check.log | base64 -w0; echo' ERR
+          python3 tools/android_build.py --abi arm64-v8a --check --sdk "$ANDROID_HOME" --java-home "$JAVA_HOME_17_X64" 2>&1 | tee /tmp/check.log
