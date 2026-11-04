@@ -18,9 +18,13 @@ fn transfer_control_layout(
     if std::fs::symlink_metadata(&dir)?.file_type().is_symlink() {
         return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid layout folder"));
     }
-    let path = dir.join("transfer.json");
+    let path = match request {
+        LayoutRequest::Import | LayoutRequest::Export => dir.join("transfer.json"),
+        LayoutRequest::SaveSlot(slot @ 1..=3) | LayoutRequest::LoadSlot(slot @ 1..=3) => dir.join(format!("slot-{slot}.json")),
+        _ => return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid layout slot")),
+    };
     match request {
-        LayoutRequest::Export => {
+        LayoutRequest::Export | LayoutRequest::SaveSlot(_) => {
             let data = settings.layout_json()?;
             let temp = dir.join(".transfer.tmp");
             // A fresh temporary file plus rename avoids corrupting an earlier export.
@@ -31,7 +35,7 @@ fn transfer_control_layout(
             f.sync_all()?;
             std::fs::rename(temp, path)?;
         }
-        LayoutRequest::Import => {
+        LayoutRequest::Import | LayoutRequest::LoadSlot(_) => {
             if std::fs::symlink_metadata(&path)?.file_type().is_symlink() {
                 return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid layout file"));
             }
@@ -50,6 +54,8 @@ pub(super) fn android_transfer_control_layout(controls: &mut horizon_client::tou
         Ok(()) => match request {
             LayoutRequest::Export => "Exported transfer.json in Control layouts".to_owned(),
             LayoutRequest::Import => "Imported. Tap Done to save.".to_owned(),
+            LayoutRequest::SaveSlot(n) => format!("Saved layout slot {n}."),
+            LayoutRequest::LoadSlot(n) => format!("Loaded slot {n}. Tap Done to apply."),
         },
         Err(error) => format!("Layout transfer failed: {error}"),
     };

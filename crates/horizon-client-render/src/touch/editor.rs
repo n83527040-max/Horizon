@@ -16,10 +16,15 @@ pub struct Editor {
     name_request: bool,
     layout_menu: bool,
     layout_request: Option<LayoutRequest>,
+    manager: bool,
+    return_to_manager: bool,
+    manager_page: usize,
+    manager_slider: Option<(u64, usize)>,
+    layout_slot: u8,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum LayoutRequest { Import, Export }
+pub enum LayoutRequest { Import, Export, SaveSlot(u8), LoadSlot(u8) }
 
 enum Drag {
     Control([f32; 2]),
@@ -45,7 +50,19 @@ impl TouchControls {
             name_request: false,
             layout_menu: false,
             layout_request: None,
+            manager: false,
+            return_to_manager: false,
+            manager_page: 0,
+            manager_slider: None,
+            layout_slot: 1,
         });
+    }
+    pub fn open_custom_manager(&mut self) {
+        self.open_editor();
+        if let Some(e) = &mut self.editor {
+            e.manager = true;
+            if !self.settings.custom_buttons.is_empty() { e.selected_custom = Some(0); }
+        }
     }
     pub fn take_layout_request(&mut self) -> Option<LayoutRequest> {
         self.editor.as_mut()?.layout_request.take()
@@ -121,10 +138,31 @@ impl TouchControls {
                     e.layout_request = Some(LayoutRequest::Export);
                 } else if cfg!(target_os = "android") && layout::contains([0.52, 0.4, 0.2, 0.08], p) {
                     e.layout_request = Some(LayoutRequest::Import);
-                } else if layout::contains([0.4, 0.57, 0.2, 0.08], p) {
+                } else if cfg!(target_os = "android") && layout::contains([0.28, 0.50, 0.13, 0.08], p) {
+                    e.layout_slot = e.layout_slot % 3 + 1;
+                } else if cfg!(target_os = "android") && layout::contains([0.42, 0.50, 0.13, 0.08], p) {
+                    e.layout_request = Some(LayoutRequest::SaveSlot(e.layout_slot));
+                } else if cfg!(target_os = "android") && layout::contains([0.56, 0.50, 0.16, 0.08], p) {
+                    e.layout_request = Some(LayoutRequest::LoadSlot(e.layout_slot));
+                } else if layout::contains([0.4, 0.62, 0.2, 0.08], p) {
                     e.layout_menu = false;
+                    e.manager = e.return_to_manager;
+                    e.return_to_manager = false;
                     e.error = None;
                 }
+            }
+            self.editor = Some(e);
+            return false;
+        }
+        if e.manager {
+            if e.key_picker {
+                self.edit_custom(&mut e, id, p, started, ended);
+                self.editor = Some(e);
+                return false;
+            }
+            if self.manager_touch(&mut e, id, p, started, ended) {
+                self.clear();
+                return true;
             }
             self.editor = Some(e);
             return false;
@@ -163,6 +201,12 @@ impl TouchControls {
                 e.key_picker = false;
                 e.drag = None;
                 e.error = None;
+            } else if layout::contains([0.49, 0.04, 0.105, 0.075], p) {
+                e.manager = true;
+                e.palette = false;
+                e.key_picker = false;
+                e.selected = None;
+                e.drag = None;
             } else if layout::contains([0.02, 0.13, 0.335, 0.075], p) {
                 e.palette = !e.palette;
                 e.selected = None;
@@ -254,12 +298,127 @@ impl TouchControls {
         self.editor = Some(e);
         false
     }
+    fn manager_touch(&mut self, e: &mut Editor, id: u64, p: [f32; 2], started: bool, ended: bool) -> bool {
+        if started {
+            if layout::contains([0.70, 0.13, 0.09, 0.06], p) {
+                match self.settings.save() {
+                    Ok(()) => return true,
+                    Err(error) => e.error = Some(format!("Save failed: {error}")),
+                }
+            } else if layout::contains([0.60, 0.13, 0.09, 0.06], p) {
+                self.settings = e.original.clone();
+                return true;
+            } else if layout::contains([0.20, 0.29, 0.12, 0.07], p) {
+                e.manager = false;
+                e.return_to_manager = true;
+                e.layout_menu = true;
+                e.error = None;
+            } else if layout::contains([0.20, 0.38, 0.12, 0.07], p) {
+                e.manager = false;
+                e.drag = None;
+            } else if layout::contains([0.34, 0.60, 0.20, 0.06], p) {
+                if self.settings.custom_buttons.len() < 32 {
+                    let i = self.settings.custom_buttons.len();
+                    self.settings.custom_buttons.push(CustomButton::new("key.keyboard.unknown".into(), i));
+                    e.selected_custom = Some(i);
+                    e.manager_page = i / 4;
+                    e.raw_keys = true;
+                    e.key_page = 0;
+                    e.key_picker = true;
+                } else { e.error = Some("Maximum: 32 buttons".into()); }
+            } else if layout::contains([0.34, 0.53, 0.095, 0.05], p) {
+                e.manager_page = e.manager_page.saturating_sub(1);
+            } else if layout::contains([0.445, 0.53, 0.095, 0.05], p) {
+                e.manager_page = (e.manager_page + 1).min(self.settings.custom_buttons.len().saturating_sub(1) / 4);
+            } else {
+                for row in 0..4 {
+                    let i = e.manager_page * 4 + row;
+                    if i < self.settings.custom_buttons.len() && layout::contains(manager_row(row), p) {
+                        e.selected_custom = Some(i);
+                        e.error = None;
+                        break;
+                    }
+                }
+                if let Some(i) = e.selected_custom {
+                    if layout::contains([0.56, 0.22, 0.23, 0.055], p) {
+                        e.name_editing = true; e.name_request = true;
+                    } else if layout::contains([0.56, 0.29, 0.11, 0.055], p) {
+                        self.settings.custom_buttons[i].icon = self.settings.custom_buttons[i].icon.next();
+                    } else if layout::contains([0.68, 0.29, 0.11, 0.055], p) {
+                        self.settings.custom_buttons[i].enabled ^= true;
+                    } else if layout::contains([0.56, 0.36, 0.23, 0.055], p) {
+                        e.key_picker = true; e.raw_keys = true; e.key_page = 0;
+                    } else if layout::contains([0.56, 0.435, 0.23, 0.055], p) {
+                        e.manager_slider = Some((id, 0));
+                    } else if layout::contains([0.56, 0.505, 0.23, 0.055], p) {
+                        e.manager_slider = Some((id, 1));
+                    } else if layout::contains([0.56, 0.565, 0.23, 0.045], p) {
+                        let b = &mut self.settings.custom_buttons[i];
+                        b.visibility = b.visibility.next();
+                    } else if layout::contains([0.56, 0.62, 0.11, 0.04], p) {
+                        self.settings.custom_buttons.remove(i);
+                        e.selected_custom = None;
+                        e.manager_page = e.manager_page.min(self.settings.custom_buttons.len().saturating_sub(1) / 4);
+                    } else if layout::contains([0.68, 0.62, 0.11, 0.04], p) {
+                        e.manager = false; e.drag = None;
+                    }
+                }
+            }
+        }
+        if let Some((owner, slider)) = e.manager_slider && owner == id {
+            if let Some(i) = e.selected_custom && let Some(button) = self.settings.custom_buttons.get_mut(i) {
+                let value = ((p[0] - 0.56) / 0.23).clamp(0.0, 1.0);
+                let placement = &mut button.layouts[self.settings.mode.index()];
+                if slider == 0 { placement.size = 0.045 + value * 0.405; }
+                else { placement.opacity = value; }
+            }
+            if ended { e.manager_slider = None; }
+        }
+        false
+    }
+    fn draw_manager(&self, b: &mut HudBatch, a: &HudAtlas, e: &Editor) {
+        glass(b, a, [0.18, 0.10, 0.64, 0.59], false);
+        glass(b, a, [0.19, 0.21, 0.14, 0.46], false);
+        glass(b, a, [0.335, 0.21, 0.21, 0.46], false);
+        glass(b, a, [0.55, 0.21, 0.25, 0.46], false);
+        manager_text(b, a, [0.20, 0.12, 0.36, 0.07], "MORE  /  CUSTOM CONTROLS");
+        manager_plate(b, a, [0.60, 0.13, 0.09, 0.06], "Cancel", false);
+        manager_plate(b, a, [0.70, 0.13, 0.09, 0.06], "Save", true);
+        manager_plate(b, a, [0.20, 0.22, 0.12, 0.06], "Buttons", true);
+        manager_plate(b, a, [0.20, 0.29, 0.12, 0.07], "Layouts", false);
+        manager_plate(b, a, [0.20, 0.38, 0.12, 0.07], "Position", false);
+        manager_text(b, a, [0.34, 0.215, 0.20, 0.05], &format!("Buttons ({})", self.settings.custom_buttons.len()));
+        for (row, (i, button)) in self.settings.custom_buttons.iter().enumerate().skip(e.manager_page * 4).take(4).enumerate() {
+            let text = format!("{}  /  {}{}", button.label(), button.binding_label(), if button.enabled { "" } else { " (off)" });
+            manager_plate(b, a, manager_row(row), &text, e.selected_custom == Some(i));
+        }
+        manager_plate(b, a, [0.34, 0.53, 0.095, 0.05], "< Prev", false);
+        manager_plate(b, a, [0.445, 0.53, 0.095, 0.05], "Next >", false);
+        manager_plate(b, a, [0.34, 0.60, 0.20, 0.06], "+ Add button", true);
+        if let Some(i) = e.selected_custom && let Some(button) = self.settings.custom_buttons.get(i) {
+            let p = button.layouts[self.settings.mode.index()];
+            manager_plate(b, a, [0.56, 0.22, 0.23, 0.055], &format!("Name: {}", button.label()), false);
+            manager_plate(b, a, [0.56, 0.29, 0.11, 0.055], &format!("Icon: {}", button.icon.label()), false);
+            manager_plate(b, a, [0.68, 0.29, 0.11, 0.055], if button.enabled { "Enabled" } else { "Disabled" }, button.enabled);
+            manager_plate(b, a, [0.56, 0.36, 0.23, 0.055], &format!("Key: {}", button.binding_label()), false);
+            manager_plate(b, a, [0.56, 0.435, 0.23, 0.055], &format!("Size: {:.0}%", p.size * 100.0), false);
+            manager_plate(b, a, [0.56, 0.505, 0.23, 0.055], &format!("Opacity: {:.0}%", p.opacity * 100.0), false);
+            manager_plate(b, a, [0.56, 0.565, 0.23, 0.045], &format!("Show: {}", button.visibility.label()), false);
+            manager_plate(b, a, [0.56, 0.62, 0.11, 0.04], "Delete", false);
+            manager_plate(b, a, [0.68, 0.62, 0.11, 0.04], "Move", false);
+        } else {
+            manager_text(b, a, [0.56, 0.30, 0.23, 0.09], "Select or add a button");
+        }
+        if let Some(error) = &e.error { manager_text(b, a, [0.20, 0.665, 0.60, 0.02], error); }
+    }
     pub(super) fn draw_editor_toolbar(&self, b: &mut HudBatch, a: &HudAtlas) {
+        if self.editor.as_ref().is_some_and(|e| e.manager) { return; }
         for (rect, label) in [
             ([0.02, 0.04, 0.105, 0.075], "Done"),
             ([0.135, 0.04, 0.105, 0.075], "Cancel"),
             ([0.25, 0.04, 0.105, 0.075], "Reset"),
             ([0.37, 0.04, 0.105, 0.075], "Layouts"),
+            ([0.49, 0.04, 0.105, 0.075], "Custom"),
             ([0.02, 0.13, 0.335, 0.075], "Add buttons..."),
         ] {
             plate(b, a, rect, label, false);
@@ -270,17 +429,25 @@ impl TouchControls {
         let e = self.editor.as_ref().unwrap();
         let (w, h) = (b.width, b.height);
         let text = rgba(245, 245, 245, 255);
+        if e.manager {
+            self.draw_manager(b, a, e);
+            if e.key_picker { self.draw_custom_editor(b, a, e); }
+            return;
+        }
         if e.layout_menu {
-            b.fill(a, w * 0.24, h * 0.19, w * 0.52, h * 0.55, rgba(15, 10, 25, 245));
+            b.fill(a, w * 0.24, h * 0.19, w * 0.52, h * 0.62, rgba(15, 10, 25, 245));
             plate(b, a, [0.28, 0.26, 0.2, 0.08], "Standard", false);
             plate(b, a, [0.52, 0.26, 0.2, 0.08], "Left-handed", false);
             if cfg!(target_os = "android") {
                 plate(b, a, [0.28, 0.4, 0.2, 0.08], "Export", false);
                 plate(b, a, [0.52, 0.4, 0.2, 0.08], "Import", false);
+                plate(b, a, [0.28, 0.50, 0.13, 0.08], &format!("Slot {}", e.layout_slot), false);
+                plate(b, a, [0.42, 0.50, 0.13, 0.08], "Save", false);
+                plate(b, a, [0.56, 0.50, 0.16, 0.08], "Load", false);
             }
-            plate(b, a, [0.4, 0.57, 0.2, 0.08], "Back", false);
+            plate(b, a, [0.4, 0.62, 0.2, 0.08], "Back", false);
             if let Some(message) = &e.error {
-                b.text(a, message, w * 0.26, h * 0.68, text, true);
+                b.text(a, message, w * 0.26, h * 0.75, text, true);
             }
             return;
         }
@@ -383,6 +550,22 @@ impl TouchControls {
             );
         }
     }
+}
+fn manager_row(row: usize) -> [f32; 4] { [0.34, 0.27 + row as f32 * 0.06, 0.20, 0.055] }
+fn glass(b: &mut HudBatch, a: &HudAtlas, [x,y,w,h]: [f32; 4], on: bool) {
+    let (x,y,w,h) = (x*b.width,y*b.height,w*b.width,h*b.height);
+    b.fill(a,x,y,w,h, if on { rgba(92,30,144,220) } else { rgba(12,9,26,225) });
+    let color = if on { rgba(211,145,255,255) } else { rgba(126,78,173,210) };
+    for (p,q) in [([x,y],[x+w,y]),([x+w,y],[x+w,y+h]),([x+w,y+h],[x,y+h]),([x,y+h],[x,y])] { line(b,a,p,q,color); }
+}
+fn manager_text(b: &mut HudBatch, a: &HudAtlas, [x,y,w,h]: [f32;4], text: &str) {
+    let (x,y,w,h)=(x*b.width,y*b.height,w*b.width,h*b.height);
+    let mut label = text.to_owned();
+    while HudBatch::text_width(a, &label) > (w-6.0).max(1.0) && !label.is_empty() { label.pop(); }
+    b.text(a,&label,x+3.0,y+(h-8.0)/2.0,rgba(245,240,255,255),false);
+}
+fn manager_plate(b: &mut HudBatch, a: &HudAtlas, rect: [f32;4], text: &str, on: bool) {
+    glass(b,a,rect,on); manager_text(b,a,rect,text);
 }
 fn palette_rect(index: usize) -> [f32; 4] {
     [
@@ -767,6 +950,38 @@ mod tests {
         assert!(t.settings.custom_buttons[0].name.is_empty());
     }
 
+    #[test]
+    fn manager_creates_real_binding_edits_and_cancels_transactionally() {
+        let mut t = TouchControls::default();
+        t.viewport(1920, 1080);
+        t.open_custom_manager();
+        t.edit_touch(1, [0.42, 0.63], true, true);
+        assert_eq!(t.settings.custom_buttons.len(), 1);
+        assert!(t.capture_custom_key("key.keyboard.m"));
+        t.edit_touch(2, [0.66, 0.245], true, true);
+        assert_eq!(t.take_custom_name_request(), Some(String::new()));
+        t.custom_name_text("Map");
+        t.finish_custom_name();
+        t.edit_touch(3, [0.75, 0.46], true, true);
+        t.edit_touch(4, [0.65, 0.58], true, true);
+        assert_eq!(t.settings.custom_buttons[0].name, "Map");
+        assert_eq!(t.settings.custom_buttons[0].key, "key.keyboard.m");
+        assert_eq!(t.settings.custom_buttons[0].visibility, CustomVisibility::Gameplay);
+        assert!(t.settings.custom_buttons[0].layouts[0].size > 0.3);
+        t.edit_touch(5, [0.64, 0.15], true, true);
+        assert!(t.editor.is_none());
+        assert!(t.settings.custom_buttons.is_empty());
+    }
+    #[test]
+    fn manager_touches_do_not_generate_game_input() {
+        let mut t = TouchControls::default();
+        t.viewport(1920, 1080);
+        t.open_custom_manager();
+        t.edit_touch(1, [0.8, 0.8], true, false);
+        t.edit_touch(1, [0.9, 0.7], false, true);
+        assert!(t.key_events().is_empty());
+        assert_eq!(t.state().left, [0.0, 0.0]);
+    }
     #[test]
     fn presets_are_editor_transactions() {
         let mut t = TouchControls::default();

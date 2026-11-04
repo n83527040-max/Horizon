@@ -9,7 +9,7 @@ const HOLD_DELAY: Duration = Duration::from_millis(350);
 mod custom;
 mod editor;
 pub use editor::LayoutRequest;
-pub use custom::{CustomButton, CustomIcon};
+pub use custom::{CustomButton, CustomIcon, CustomVisibility};
 pub mod layout;
 pub use layout::{Control, Mode, Settings};
 /// Entity-placement items retain short-tap placement, like building blocks.
@@ -100,6 +100,23 @@ pub fn screen_direction(
     let ray = std::array::from_fn::<_, 3, _>(|i| forward[i] + right[i] * x + up[i] * y);
     let length = ray.iter().map(|v| v * v).sum::<f64>().sqrt();
     ray.map(|v| v / length)
+}
+
+/// The extra editor button shares the HUD's GUI-pixel coordinates with hotbar hit testing.
+pub fn more_rect(width: f32, height: f32) -> [f32; 4] {
+    [width / 2.0 - 117.0, height - 23.0, 22.0, 22.0]
+}
+pub fn more_at(width: f32, height: f32, point: [f32; 2]) -> bool {
+    layout::contains(more_rect(width, height), point)
+}
+pub fn draw_more(b: &mut HudBatch, a: &HudAtlas) {
+    let [x, y, w, h] = more_rect(b.width, b.height);
+    b.fill(a, x, y, w, h, rgba(15, 8, 30, 210));
+    for (p, q) in [([x, y], [x+w, y]), ([x+w, y], [x+w, y+h]),
+        ([x+w, y+h], [x, y+h]), ([x, y+h], [x, y])] {
+        line(b, a, p, q, rgba(188, 100, 255, 235));
+    }
+    fitted_sprite(b, a, "ui/more-dots", [x + 4.0, y + 4.0, w - 8.0, h - 8.0], rgba(255,255,255,255));
 }
 
 pub fn hotbar_slot(width: f32, height: f32, point: [f32; 2]) -> Option<usize> {
@@ -1797,5 +1814,18 @@ mod tests {
         touch.update(2, center, false, true);
         touch.poll_state(); // consume the queued tap
         assert!(!touch.poll_state().held(Button::LeftStick));
+    }
+}
+
+#[cfg(test)]
+mod more_button_tests {
+    use super::*;
+    #[test]
+    fn more_button_is_separate_from_hotbar() {
+        let rect = more_rect(400.0, 225.0);
+        let point = [rect[0] + rect[2] / 2.0, rect[1] + rect[3] / 2.0];
+        assert!(more_at(400.0, 225.0, point));
+        assert_eq!(hotbar_slot(400.0, 225.0, point), None);
+        assert!(!more_at(400.0, 225.0, [200.0, 220.0]));
     }
 }

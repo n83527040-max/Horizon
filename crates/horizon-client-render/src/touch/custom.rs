@@ -39,6 +39,21 @@ impl CustomIcon {
         }
     }
 }
+/// Contexts in which a configured key is eligible to receive touch.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CustomVisibility { #[default] Always, Gameplay, Inventory }
+impl CustomVisibility {
+    pub fn next(self) -> Self {
+        match self { Self::Always => Self::Gameplay, Self::Gameplay => Self::Inventory, Self::Inventory => Self::Always }
+    }
+    pub fn label(self) -> &'static str {
+        match self { Self::Always => "Always", Self::Gameplay => "Gameplay", Self::Inventory => "Inventory" }
+    }
+    fn permits(self, inventory: bool) -> bool {
+        match self { Self::Always => true, Self::Gameplay => !inventory, Self::Inventory => inventory }
+    }
+}
 fn enabled_by_default() -> bool { true }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -51,6 +66,8 @@ pub struct CustomButton {
     pub icon: CustomIcon,
     #[serde(default = "enabled_by_default")]
     pub enabled: bool,
+    #[serde(default)]
+    pub visibility: CustomVisibility,
 }
 impl CustomButton {
     pub fn new(key: String, index: usize) -> Self {
@@ -59,6 +76,7 @@ impl CustomButton {
             name: String::new(),
             icon: CustomIcon::Text,
             enabled: true,
+            visibility: CustomVisibility::Always,
             layouts: [Placement::new(
                 0.68 + (index % 3) as f32 * 0.1,
                 0.35 + (index / 3 % 3) as f32 * 0.12,
@@ -164,7 +182,9 @@ impl TouchControls {
     pub(super) fn custom_at_with_placeholders(&self, point: [f32; 2], include: bool) -> Option<usize> {
         (0..self.settings.custom_buttons.len()).rev().find(|&i| {
             (include || (self.settings.custom_buttons[i].enabled
-                && self.settings.custom_buttons[i].key != "key.keyboard.unknown"))
+                && self.settings.custom_buttons[i].key != "key.keyboard.unknown"
+                && self.settings.custom_buttons[i].visibility.permits(self.inventory_mode)
+                && self.custom_placement(i).opacity > 0.0))
                 && layout::contains(self.custom_placement(i).rect(self.aspect()), point)
         })
     }
@@ -218,7 +238,8 @@ impl TouchControls {
         for (i, button) in self.settings.custom_buttons.iter().enumerate() {
             // Unassigned placeholders are useful in the editor only; outside
             // it they neither pretend to work nor block camera gestures.
-            if self.editor.is_none() && (!button.enabled || button.key == "key.keyboard.unknown") {
+            if self.editor.is_none() && (!button.enabled || button.key == "key.keyboard.unknown"
+                || !button.visibility.permits(self.inventory_mode)) {
                 continue;
             }
             let p = self.custom_placement(i);
@@ -316,15 +337,34 @@ mod tests {
         assert_eq!(touch.custom_at_with_placeholders(point, true), Some(0));
     }
     #[test]
+    fn contextual_visibility_controls_hit_testing() {
+        let mut touch = TouchControls::default();
+        touch.viewport(1920, 1080);
+        let mut button = CustomButton::new("key.keyboard.m".into(), 0);
+        button.visibility = CustomVisibility::Inventory;
+        touch.settings.custom_buttons.push(button);
+        let point = touch.custom_placement(0).center;
+        assert_eq!(touch.custom_at(point), None);
+        touch.inventory_mode = true;
+        assert_eq!(touch.custom_at(point), Some(0));
+        touch.update(1, point, true, false);
+        touch.update(1, point, false, true);
+        assert_eq!(touch.key_events(), [("key.keyboard.m".into(), true), ("key.keyboard.m".into(), false)]);
+        touch.settings.custom_buttons[0].layouts[0].opacity = 0.0;
+        assert_eq!(touch.custom_at(point), None);
+    }
+    #[test]
     fn legacy_button_defaults_to_enabled_text() {
         let b = CustomButton::new("key.keyboard.z".into(), 0);
         let mut value = serde_json::to_value(b).unwrap();
         value.as_object_mut().unwrap().remove("enabled");
         value.as_object_mut().unwrap().remove("name");
         value.as_object_mut().unwrap().remove("icon");
+        value.as_object_mut().unwrap().remove("visibility");
         let loaded: CustomButton = serde_json::from_value(value).unwrap();
         assert!(loaded.enabled);
         assert_eq!(loaded.icon, CustomIcon::Text);
+        assert_eq!(loaded.visibility, CustomVisibility::Always);
         assert!(loaded.name.is_empty());
     }
     #[test]

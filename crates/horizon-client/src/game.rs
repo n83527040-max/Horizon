@@ -13962,6 +13962,9 @@ impl Game<'_> {
             self.pad.touch.sneaking = self.keys.contains(&KeyCode::ShiftLeft);
             self.pad.touch.break_progress = self.touch_mining_progress();
             self.pad.touch.draw(&mut hud, &self.gui.atlas);
+            if self.pad.touch.editor.is_none() && !self.pad_in_menu() {
+                horizon_client::touch::draw_more(&mut hud, &self.gui.atlas);
+            }
         }
         #[cfg(target_os = "android")]
         {
@@ -15162,6 +15165,24 @@ impl ApplicationHandler for Game<'_> {
                     self.audio.play_button_click();
                 }
                 return;
+            }
+            // This is separate from the legacy top-left auxiliary keyboard;
+            // keep that feature while exposing the custom editor by the hotbar.
+            if !self.pad_in_menu() && (crate::touch_visible() || self.settings.keypad.enabled)
+                && touch.phase == TouchPhase::Started
+            {
+                let batch = HudBatch::new([size.width, size.height]);
+                let point = [touch.location.x as f32 / batch.scale, touch.location.y as f32 / batch.scale];
+                let normalized = [touch.location.x as f32 / size.width.max(1) as f32,
+                    touch.location.y as f32 / size.height.max(1) as f32];
+                if horizon_client::touch::more_at(batch.width, batch.height, point)
+                    && !self.pad.touch.control_at_point(normalized)
+                {
+                    self.android_release_touch_keys(true);
+                    self.pad.touch.open_custom_manager();
+                    self.audio.play_button_click();
+                    return;
+                }
             }
             match self.android_aux_touch(touch, event_loop, id) {
                 Ok(true) => return,
