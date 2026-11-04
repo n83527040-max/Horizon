@@ -103,14 +103,53 @@ pub fn screen_direction(
 }
 
 /// The extra editor button shares the HUD's GUI-pixel coordinates with hotbar hit testing.
-pub fn more_rect(width: f32, height: f32) -> [f32; 4] {
-    [width / 2.0 - 117.0, height - 23.0, 22.0, 22.0]
+pub fn more_rect(width: f32, height: f32, avoid_left: bool) -> [f32; 4] {
+    [width / 2.0 - 117.0, height - if avoid_left { 48.0 } else { 23.0 }, 22.0, 22.0]
 }
-pub fn more_at(width: f32, height: f32, point: [f32; 2]) -> bool {
-    layout::contains(more_rect(width, height), point)
+pub fn more_at(width: f32, height: f32, point: [f32; 2], avoid_left: bool) -> bool {
+    layout::contains(more_rect(width, height, avoid_left), point)
 }
-pub fn draw_more(b: &mut HudBatch, a: &HudAtlas) {
-    let [x, y, w, h] = more_rect(b.width, b.height);
+/// Compact actual player status; original vanilla survival bars remain intact.
+pub fn draw_player_card(b: &mut HudBatch, a: &HudAtlas, name: &str, health: f32, max_health: f32, armor: i32) {
+    let x = 40.0;
+    let width = (b.width / 2.0 - x - 14.0).clamp(0.0, 112.0);
+    if width < 75.0 { return; }
+    let y = 3.0;
+    b.fill(a, x, y, width, 30.0, rgba(12, 9, 25, 218));
+    line(b, a, [x, y + 30.0], [x + width, y + 30.0], rgba(170, 95, 235, 200));
+    let mut label = name.to_owned();
+    while HudBatch::text_width(a, &label) > width - 6.0 && !label.is_empty() { label.pop(); }
+    b.text(a, &label, x + 3.0, y + 2.0, rgba(255, 255, 255, 255), false);
+    for i in 0..10 {
+        let x = x + 3.0 + i as f32 * 7.0;
+        let remaining = health - i as f32 * 2.0;
+        b.sprite_scaled(a, "hud/heart/container", x, y + 11.0, 7.0, 7.0, u32::MAX);
+        if remaining > 0.0 {
+            b.sprite_scaled(a, if remaining >= 2.0 { "hud/heart/full" } else { "hud/heart/half" }, x, y + 11.0, 7.0, 7.0, u32::MAX);
+        }
+        let remaining_armor = armor - i * 2;
+        b.sprite_scaled(a, if remaining_armor >= 2 { "hud/armor_full" } else if remaining_armor == 1 { "hud/armor_half" } else { "hud/armor_empty" },
+            x, y + 20.0, 7.0, 7.0, u32::MAX);
+    }
+    if max_health > 20.0 || health > 20.0 || armor > 20 {
+        b.text(a, &format!("{:.0}/{:.0}", health, max_health), x + 75.0, y + 11.0, rgba(255,255,255,255), false);
+    }
+}
+
+/// Overlay only the slot borders: item sprites and the engine's selected slot
+/// remain authoritative, and the geometry matches `hotbar_slot`.
+pub fn draw_hotbar_neon(b: &mut HudBatch, a: &HudAtlas, selected: usize) {
+    let start = b.width / 2.0 - 90.0;
+    let y = b.height - 22.0;
+    for slot in 0..9 {
+        let x = start + slot as f32 * 20.0;
+        let color = if slot == selected { rgba(226, 174, 255, 245) } else { rgba(166, 103, 224, 175) };
+        for (p, q) in [([x, y], [x+20.0, y]), ([x+20.0, y], [x+20.0, y+20.0]),
+            ([x+20.0, y+20.0], [x, y+20.0]), ([x, y+20.0], [x, y])] { line(b, a, p, q, color); }
+    }
+}
+pub fn draw_more(b: &mut HudBatch, a: &HudAtlas, avoid_left: bool) {
+    let [x, y, w, h] = more_rect(b.width, b.height, avoid_left);
     b.fill(a, x, y, w, h, rgba(15, 8, 30, 210));
     for (p, q) in [([x, y], [x+w, y]), ([x+w, y], [x+w, y+h]),
         ([x+w, y+h], [x, y+h]), ([x, y+h], [x, y])] {
@@ -1822,10 +1861,13 @@ mod more_button_tests {
     use super::*;
     #[test]
     fn more_button_is_separate_from_hotbar() {
-        let rect = more_rect(400.0, 225.0);
+        let rect = more_rect(400.0, 225.0, false);
         let point = [rect[0] + rect[2] / 2.0, rect[1] + rect[3] / 2.0];
-        assert!(more_at(400.0, 225.0, point));
+        assert!(more_at(400.0, 225.0, point, false));
         assert_eq!(hotbar_slot(400.0, 225.0, point), None);
-        assert!(!more_at(400.0, 225.0, [200.0, 220.0]));
+        assert!(!more_at(400.0, 225.0, [200.0, 220.0], false));
+        let shifted = more_rect(400.0, 225.0, true);
+        assert!(shifted[1] + shifted[3] < 225.0 - 23.0);
+        assert!(!more_at(400.0, 225.0, point, true));
     }
 }

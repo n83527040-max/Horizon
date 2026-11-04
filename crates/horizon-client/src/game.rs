@@ -7553,6 +7553,10 @@ impl Game<'_> {
                 let attack_left = None;
                 let draws = hud_layout::hotbar_with_attack_side(wi, hi, &inputs, attack_left);
                 hud_layout::paint(&mut batch, &self.gui.atlas, &draws);
+                #[cfg(target_os = "android")]
+                if crate::touch_visible() {
+                    horizon_client::touch::draw_hotbar_neon(&mut batch, &self.gui.atlas, self.selected);
+                }
                 for d in &draws {
                     if let hud_layout::GuiDraw::Item { slot, x, y, .. } = *d {
                         let stack = if slot == 40 {
@@ -13944,6 +13948,15 @@ impl Game<'_> {
             };
         let mut hud = horizon_client::spans::time("hud", || self.hud(size));
         #[cfg(target_os = "android")]
+        if crate::touch_visible() && !self.pad_in_menu() && !self.pad.touch_ui.expanded
+            && !self.ui.hide_gui && !self.creative && !self.spectator()
+            && let Some(player) = &self.player
+        {
+            horizon_client::touch::draw_player_card(&mut hud, &self.gui.atlas, self.acting_player_name(),
+                player.health.health(), player.attribute("minecraft:max_health").unwrap_or(20.0) as f32,
+                player.attribute("minecraft:armor").or_else(|_| player.attribute("armor")).unwrap_or(0.0) as i32);
+        }
+        #[cfg(target_os = "android")]
         {
             self.pad.touch.auxiliary_only =
                 self.settings.keypad.enabled && self.pad.touch.editor.is_none();
@@ -13963,7 +13976,8 @@ impl Game<'_> {
             self.pad.touch.break_progress = self.touch_mining_progress();
             self.pad.touch.draw(&mut hud, &self.gui.atlas);
             if self.pad.touch.editor.is_none() && !self.pad_in_menu() {
-                horizon_client::touch::draw_more(&mut hud, &self.gui.atlas);
+                horizon_client::touch::draw_more(&mut hud, &self.gui.atlas,
+                    self.touch_more_avoid_left());
             }
         }
         #[cfg(target_os = "android")]
@@ -15175,10 +15189,12 @@ impl ApplicationHandler for Game<'_> {
                 let point = [touch.location.x as f32 / batch.scale, touch.location.y as f32 / batch.scale];
                 let normalized = [touch.location.x as f32 / size.width.max(1) as f32,
                     touch.location.y as f32 / size.height.max(1) as f32];
-                if horizon_client::touch::more_at(batch.width, batch.height, point)
+                if horizon_client::touch::more_at(batch.width, batch.height, point,
+                    self.touch_more_avoid_left())
                     && !self.pad.touch.control_at_point(normalized)
                 {
-                    self.android_release_touch_keys(true);
+                    self.pad.touch.clear();
+                    self.android_custom_events();
                     self.pad.touch.open_custom_manager();
                     self.audio.play_button_click();
                     return;

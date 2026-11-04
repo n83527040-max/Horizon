@@ -21,6 +21,7 @@ pub struct Editor {
     manager_page: usize,
     manager_slider: Option<(u64, usize)>,
     layout_slot: u8,
+    confirm_reset: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -55,6 +56,7 @@ impl TouchControls {
             manager_page: 0,
             manager_slider: None,
             layout_slot: 1,
+            confirm_reset: false,
         });
     }
     pub fn open_custom_manager(&mut self) {
@@ -144,8 +146,19 @@ impl TouchControls {
                     e.layout_request = Some(LayoutRequest::SaveSlot(e.layout_slot));
                 } else if cfg!(target_os = "android") && layout::contains([0.56, 0.50, 0.16, 0.08], p) {
                     e.layout_request = Some(LayoutRequest::LoadSlot(e.layout_slot));
-                } else if layout::contains([0.4, 0.62, 0.2, 0.08], p) {
+                } else if layout::contains([0.28, 0.62, 0.44, 0.07], p) {
+                    if e.confirm_reset {
+                        self.settings.apply_control_preset(false);
+                        self.settings.custom_buttons.clear();
+                        e.confirm_reset = false;
+                        e.error = Some("Defaults restored. Tap Done to save.".into());
+                    } else {
+                        e.confirm_reset = true;
+                        e.error = Some("Tap Confirm reset to remove custom buttons.".into());
+                    }
+                } else if layout::contains([0.4, 0.71, 0.2, 0.07], p) {
                     e.layout_menu = false;
+                    e.confirm_reset = false;
                     e.manager = e.return_to_manager;
                     e.return_to_manager = false;
                     e.error = None;
@@ -311,6 +324,7 @@ impl TouchControls {
             } else if layout::contains([0.20, 0.29, 0.12, 0.07], p) {
                 e.manager = false;
                 e.return_to_manager = true;
+                e.selected_custom = None;
                 e.layout_menu = true;
                 e.error = None;
             } else if layout::contains([0.20, 0.38, 0.12, 0.07], p) {
@@ -435,7 +449,7 @@ impl TouchControls {
             return;
         }
         if e.layout_menu {
-            b.fill(a, w * 0.24, h * 0.19, w * 0.52, h * 0.62, rgba(15, 10, 25, 245));
+            b.fill(a, w * 0.24, h * 0.19, w * 0.52, h * 0.70, rgba(15, 10, 25, 245));
             plate(b, a, [0.28, 0.26, 0.2, 0.08], "Standard", false);
             plate(b, a, [0.52, 0.26, 0.2, 0.08], "Left-handed", false);
             if cfg!(target_os = "android") {
@@ -445,9 +459,11 @@ impl TouchControls {
                 plate(b, a, [0.42, 0.50, 0.13, 0.08], "Save", false);
                 plate(b, a, [0.56, 0.50, 0.16, 0.08], "Load", false);
             }
-            plate(b, a, [0.4, 0.62, 0.2, 0.08], "Back", false);
+            plate(b, a, [0.28, 0.62, 0.44, 0.07],
+                if e.confirm_reset { "Confirm reset (removes custom buttons)" } else { "Restore defaults..." }, e.confirm_reset);
+            plate(b, a, [0.4, 0.71, 0.2, 0.07], "Back", false);
             if let Some(message) = &e.error {
-                b.text(a, message, w * 0.26, h * 0.75, text, true);
+                b.text(a, message, w * 0.26, h * 0.82, text, true);
             }
             return;
         }
@@ -981,6 +997,20 @@ mod tests {
         t.edit_touch(1, [0.9, 0.7], false, true);
         assert!(t.key_events().is_empty());
         assert_eq!(t.state().left, [0.0, 0.0]);
+    }
+    #[test]
+    fn restore_all_requires_confirmation_and_is_reversible() {
+        let mut t = TouchControls::default();
+        t.viewport(1920, 1080);
+        t.settings.custom_buttons.push(CustomButton::new("key.keyboard.m".into(), 0));
+        t.open_custom_manager();
+        t.edit_touch(1, [0.24, 0.32], true, true);
+        t.edit_touch(2, [0.50, 0.65], true, true);
+        assert_eq!(t.settings.custom_buttons.len(), 1);
+        t.edit_touch(3, [0.50, 0.65], true, true);
+        assert!(t.settings.custom_buttons.is_empty());
+        t.cancel_editor();
+        assert_eq!(t.settings.custom_buttons.len(), 1);
     }
     #[test]
     fn presets_are_editor_transactions() {

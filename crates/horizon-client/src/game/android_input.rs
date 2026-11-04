@@ -63,6 +63,13 @@ pub(super) fn android_transfer_control_layout(controls: &mut horizon_client::tou
 }
 
 impl Game<'_> {
+    /// Keep the hotbar-side button away from an offhand slot or left attack gauge.
+    pub(super) fn touch_more_avoid_left(&self) -> bool {
+        (self.offhand.is_some() && !self.settings.main_hand_left)
+            || (self.settings.touch.attack_indicator_left
+                && horizon_client::touch::attack_indicator(self.settings.attack_indicator, self.interaction_crosshair()) == 2)
+    }
+
     pub(crate) fn android_apply_display_scale(&mut self) {
         if let (Some(window), Some(renderer)) = (&self.window, &mut self.renderer)
             && let Err(error) = crate::display::apply(window, renderer)
@@ -154,6 +161,8 @@ impl Game<'_> {
             .action(batch.width, batch.height, point, self.pad_in_menu())
             .is_some()
             || self.pad.touch_ui.owns_key(POINTER)
+            || (!self.pad_in_menu() && horizon_client::touch::more_at(batch.width, batch.height, point,
+                self.touch_more_avoid_left()))
             || self.pad.touch.owns_pointer(POINTER)
             || (!self.pad_in_menu() && self.pad.touch.auxiliary_at(normalized));
         if !utility {
