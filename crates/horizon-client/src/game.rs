@@ -13950,11 +13950,14 @@ impl Game<'_> {
         #[cfg(target_os = "android")]
         if crate::touch_visible() && !self.pad_in_menu() && !self.pad.touch_ui.expanded
             && !self.ui.hide_gui && !self.creative && !self.spectator()
-            && let Some(player) = &self.player
         {
-            horizon_client::touch::draw_player_card(&mut hud, &self.gui.atlas, self.acting_player_name(),
-                player.health.health(), player.attribute("minecraft:max_health").unwrap_or(20.0) as f32,
-                player.attribute("minecraft:armor").or_else(|_| player.attribute("armor")).unwrap_or(0.0) as i32);
+            let name = self.acting_player_name().to_owned();
+            if let Some(player) = &mut self.player {
+                let health = player.health.health();
+                let max_health = player.attribute("minecraft:max_health").unwrap_or(20.0) as f32;
+                let armor = player.attribute("minecraft:armor").or_else(|_| player.attribute("armor")).unwrap_or(0.0) as i32;
+                horizon_client::touch::draw_player_card(&mut hud, &self.gui.atlas, &name, health, max_health, armor);
+            }
         }
         #[cfg(target_os = "android")]
         {
