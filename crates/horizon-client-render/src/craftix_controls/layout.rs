@@ -369,7 +369,7 @@ impl Layout {
     /// top bar. Offsets are fractions of the surface so every aspect works.
     pub fn factory(name: &str) -> Self {
         let mut buttons = vec![
-            Button::new(Id::Joystick, None, [0.12, 0.68], 0.16),
+            Button::new(Id::Joystick, None, [0.13, 0.68], 0.16),
             Button::new(Id::Sprint, Some(Action::Sprint), [0.29, 0.74], 0.055),
             Button::new(Id::Jump, Some(Action::Jump), [0.93, 0.54], 0.062),
             Button::new(Id::Sneak, Some(Action::Sneak), [0.93, 0.72], 0.062),
@@ -464,10 +464,11 @@ mod tests {
     #[test]
     fn visibility_and_disabled_state_remove_hit_targets() {
         let mut layout = Layout::default();
+        layout.button_mut(Id::Attack).unwrap().visibility = Visibility::Gameplay;
         let point = layout.button(Id::Attack).unwrap().circle.center;
         assert!(layout.hit_in(point, 16.0 / 9.0, true).is_none());
-        let attack = layout.button_mut(Id::Attack).unwrap();
-        attack.visibility = Visibility::Always;
+        assert_eq!(layout.hit_in(point, 16.0 / 9.0, false).unwrap().id, Id::Attack);
+        layout.button_mut(Id::Attack).unwrap().visibility = Visibility::Always;
         assert_eq!(layout.hit_in(point, 16.0 / 9.0, true).unwrap().id, Id::Attack);
         layout.button_mut(Id::Attack).unwrap().enabled = false;
         assert!(layout.hit(point, 16.0 / 9.0).is_none());

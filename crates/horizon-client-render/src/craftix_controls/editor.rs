@@ -309,7 +309,7 @@ mod tests {
         e.duplicate("Gaming").unwrap(); assert_eq!(e.staged.active,1);
         e.rename("Creative").unwrap(); assert!(e.create("creative").is_err());
         e.staged.items[1].buttons[0].circle.radius=0.2; e.reset();
-        assert_eq!(e.staged.items[1].buttons[0].circle.radius,0.15);
+        assert_eq!(e.staged.items[1].buttons[0].circle.radius, Layout::default().buttons[0].circle.radius);
         e.delete().unwrap(); assert_eq!(e.cancel(),original);
     }
     #[test]

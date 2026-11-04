@@ -1676,6 +1676,8 @@ mod tests {
     #[test]
     fn a_short_tap_aims_and_requests_interaction_without_turning_the_camera() {
         let mut controls = TouchControls::default();
+        // Tap mode has no fixed crosshair, so a world touch can aim where it lands.
+        controls.settings.mode = Mode::Tap;
         assert_eq!(controls.update(1, [0.5, 0.45], true, false), [0.0, 0.0]);
         controls.update(1, [0.5, 0.45], false, true);
         assert_eq!(controls.take_tap(), Some(false));
