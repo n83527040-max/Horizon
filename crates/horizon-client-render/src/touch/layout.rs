@@ -683,8 +683,6 @@ pub enum CustomVisibility {
 fn enabled_by_default() -> bool {
     true
 }
-/// The 0.8.x custom button record, kept only so an upgrade can migrate it.
-#[derive(Clone, Debug, Serialize, Deserialize)]
 impl CustomButton {
     pub fn new(key: String, index: usize) -> Self {
         Self {
