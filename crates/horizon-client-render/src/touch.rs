@@ -522,23 +522,23 @@ impl TouchControls {
         }
         let layout = self.layout_now();
         let aspect = self.aspect();
-        if ended {
-            self.router.end(id);
-        } else if started {
-            if self.inventory_mode
-                && let Some(token) = self.inventory_token(point)
-                && self.router.begin_mapped(id, Action::Key(token.into()), point)
-            {
-                self.tick_events();
-                return [0.0; 2];
+        if started {
+            let mapped = self.inventory_mode
+                && self
+                    .inventory_token(point)
+                    .is_some_and(|token| self.router.begin_mapped(id, Action::Key(token.into()), point));
+            if !mapped {
+                let now = self.now_ms();
+                self.router.begin(&layout, id, point, aspect, now);
             }
-            let now = self.now_ms();
-            self.router.begin(&layout, id, point, aspect, now);
-        } else {
+        } else if !ended {
             self.router.moved(&layout, id, point, aspect);
             if let Some(look) = self.gestures.get_mut(&id) {
                 look.last = point;
             }
+        }
+        if ended {
+            self.router.end(id);
         }
         self.tick_events();
         std::mem::take(&mut self.look_delta)
