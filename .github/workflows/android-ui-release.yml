@@ -117,16 +117,9 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          trap 'printf "::error::"; tail -c 4000 /tmp/check.log | base64 -w0; echo' ERR
+          trap 'printf "::error::"; grep -aE "FAILED|panicked|assertion|left:|right:|^error" /tmp/check.log | tail -c 3900 | base64 -w0; echo' ERR
           cargo test -p horizon-client-render --lib touch:: -- --nocapture 2>&1 | tee /tmp/check.log
           cargo test -p horizon-client-render --lib craftix_controls:: -- --nocapture --test-threads=1 2>&1 | tee /tmp/check.log
-      - name: Upload the controls test log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: controls-test-log
-          path: /tmp/check.log
-          if-no-files-found: ignore
   controls-android-check:
     if: ${{ !inputs.native_checks && !inputs.build_apk }}
     runs-on: ubuntu-latest
