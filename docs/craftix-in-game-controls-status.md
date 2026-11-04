@@ -65,7 +65,7 @@ No Minecraft Java mod integration is included or implied.
 
 * `tools/check_public_tree.py` and nine Python identity/responsive checks passed
   locally. They do not test Rust interaction or Android.
-* GitHub Actions controls-only run 41900397784 at commit `e1ee256` passed the
+* GitHub Actions controls-only run 41900991959 at commit `95832ad` passed the
   Rust touch tests and Android arm64 type-check, including player-list, shared
   key and bounded neon geometry changes. These jobs do not build or run an APK.
 * Cargo, Flutter and ADB are unavailable locally. No actual device tests have
