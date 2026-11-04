@@ -51,7 +51,7 @@ jobs:
         if: always()
         run: rm -f "$RUNNER_TEMP/craftix-release.jks"
   emulator-update:
-    runs-on: ubuntu-latest
+    runs-on: macos-14
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
@@ -65,16 +65,11 @@ jobs:
           mkdir -p /tmp/previous /tmp/current
           gh release download craftix-0.7.9-beta --pattern 'CRAFTIX-0.7.9-arm64-v8a.apk' --dir /tmp/previous
           gh release download craftix-0.8.0-beta --pattern 'CRAFTIX-0.8.0-arm64-v8a.apk' --dir /tmp/current
-      - name: Enable emulator acceleration
-        run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
       - name: Install the old APK and update in an Android emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 33
-          target: google_apis_playstore
-          arch: x86_64
+          target: google_apis
+          arch: arm64-v8a
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
           script: bash tools/test_craftix_apk_update.sh /tmp/previous/CRAFTIX-0.7.9-arm64-v8a.apk /tmp/current/CRAFTIX-0.8.0-arm64-v8a.apk
