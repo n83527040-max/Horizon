@@ -8,7 +8,7 @@ use horizon_client::{
 use winit::event::{Touch, TouchPhase};
 
 fn transfer_control_layout(
-    settings: &mut horizon_client::touch::Settings,
+    controls: &mut horizon_client::touch::TouchControls,
     request: horizon_client::touch::LayoutRequest,
 ) -> std::io::Result<()> {
     use std::io::Read;
@@ -25,7 +25,7 @@ fn transfer_control_layout(
     };
     match request {
         LayoutRequest::Export | LayoutRequest::SaveSlot(_) => {
-            let data = settings.layout_json()?;
+            let data = controls.export_layout()?;
             let temp = dir.join(".transfer.tmp");
             // A fresh temporary file plus rename avoids corrupting an earlier export.
             let _ = std::fs::remove_file(&temp);
@@ -41,7 +41,7 @@ fn transfer_control_layout(
             }
             let mut data = Vec::new();
             std::fs::File::open(path)?.take(128 * 1024 + 1).read_to_end(&mut data)?;
-            settings.import_layout_json(&data)?;
+            controls.import_layout(&data)?;
         }
     }
     Ok(())
@@ -50,12 +50,12 @@ fn transfer_control_layout(
 pub(super) fn android_transfer_control_layout(controls: &mut horizon_client::touch::TouchControls) {
     use horizon_client::touch::LayoutRequest;
     let Some(request) = controls.take_layout_request() else { return; };
-    let message = match transfer_control_layout(&mut controls.settings, request) {
+    let message = match transfer_control_layout(controls, request) {
         Ok(()) => match request {
             LayoutRequest::Export => "Exported transfer.json in Control layouts".to_owned(),
-            LayoutRequest::Import => "Imported. Tap Done to save.".to_owned(),
+            LayoutRequest::Import => "Imported. Tap Save to keep it.".to_owned(),
             LayoutRequest::SaveSlot(n) => format!("Saved layout slot {n}."),
-            LayoutRequest::LoadSlot(n) => format!("Loaded slot {n}. Tap Done to apply."),
+            LayoutRequest::LoadSlot(n) => format!("Loaded slot {n}. Tap Save to apply."),
         },
         Err(error) => format!("Layout transfer failed: {error}"),
     };

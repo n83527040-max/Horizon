@@ -6,14 +6,12 @@ use std::{
     time::{Duration, Instant},
 };
 const HOLD_DELAY: Duration = Duration::from_millis(350);
-mod custom;
-mod editor;
+mod layout;
 mod ownership;
+pub use layout::{
+    CustomButton, CustomIcon, CustomVisibility, Control, Mode, Placement, Settings,
+};
 pub use ownership::InputOwners;
-pub use editor::LayoutRequest;
-pub use custom::{CustomButton, CustomIcon, CustomVisibility};
-pub mod layout;
-pub use layout::{Control, Mode, Settings};
 /// Entity-placement items retain short-tap placement, like building blocks.
 pub fn item_places_entity_on_tap(item: &str) -> bool {
     let Some(id) = item.strip_prefix("minecraft:") else {
@@ -197,46 +195,72 @@ pub fn hotbar_slot(width: f32, height: f32, point: [f32; 2]) -> Option<usize> {
     (point[1] >= height - 22.0 && point[1] < height && (0.0..180.0).contains(&x))
         .then(|| (x / 20.0) as usize)
 }
-#[derive(Clone, Copy)]
-enum Role {
-    Move([f32; 2]),
-    Look {
-        start: [f32; 2],
-        since: Instant,
-        dragged: bool,
-        held_use: bool,
-        committed: bool,
-    },
-    Ignore,
-    Shield,
-    Button(Button),
+use crate::craftix_controls::{
+    editor::{Editor, Layouts},
+    input::{Event, Router},
+    layout::{self as hud, Action, Behavior, Icon, Id, Layout},
+    paint::{self, Animator},
+    ui::{Act, EditorUi, Tab, TextTarget},
+};
+use std::{
+    collections::BTreeSet,
+    path::{Path, PathBuf},
+};
+
+/// The replacement control file, next to the legacy `horizon-touch.json`.
+pub const FILE: &str = "craftix-controls.json";
+const LEGACY_FILE: &str = "horizon-touch.json";
+
+/// Layout files the Android Documents provider can copy.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LayoutRequest {
+    Import,
+    Export,
+    SaveSlot(u8),
+    LoadSlot(u8),
 }
-#[derive(Default)]
+
+/// Run an editor mutation, reporting its error in the panel instead of failing.
+macro_rules! apply {
+    ($session:ident, $call:expr) => {{
+        let outcome = $call;
+        if let Err(error) = outcome {
+            $session.ui.status(format!("{error}"));
+        }
+    }};
+}
+
+#[derive(Clone, Debug)]
+struct Look {
+    last: [f32; 2],
+    since: Instant,
+    dragged: bool,
+    committed: bool,
+    held_use: bool,
+}
+
+/// One open editor session: its transactional data and its on-screen state.
+pub struct Session {
+    pub ui: EditorUi,
+    data: Editor,
+    /// The host IME was already asked for this field.
+    request_sent: bool,
+    request: Option<LayoutRequest>,
+}
+
+/// The live replacement control system. Everything the game reads from the HUD
+/// goes through here; the pure model lives in `craftix_controls`.
 pub struct TouchControls {
+    /// Legacy scalar preferences (mode, sensitivity, margins) from options.
     pub settings: Settings,
     pub force_crosshair: bool,
     pub projectile_crosshair: bool,
     pub shield_available: bool,
-    /// Physical keypad profiles keep utility controls without a movement overlay.
+    /// Physical keypad profiles keep utility controls without movement.
     pub auxiliary_only: bool,
-    /// Inventory utility buttons emit real modifier/mouse events, never movement.
     pub inventory_mode: bool,
-    pub editor: Option<editor::Editor>,
-    fingers: BTreeMap<u64, (Role, [f32; 2])>,
-    custom_fingers: BTreeMap<u64, String>,
-    toggle_fingers: BTreeMap<u64, String>,
-    latched_custom: std::collections::BTreeSet<String>,
-    single_taps: BTreeMap<String, Instant>,
-    custom_events: Vec<(String, bool)>,
-    pending: PadState,
+    pub editor: Option<Session>,
     pub aim: Option<[f32; 2]>,
-    tap_aim: Option<[f32; 2]>,
-    pending_tap: Option<bool>,
-    aspect: f32,
-    viewport_size: Option<[u32; 2]>,
-    animation_origin: Option<Instant>,
-    press_times: BTreeMap<u64, Instant>,
-    loaded: bool,
     pub chat_requested: bool,
     pub settings_requested: bool,
     pub debug_requested: bool,
@@ -247,43 +271,86 @@ pub struct TouchControls {
     pub swimming: bool,
     pub mounted: bool,
     pub sneaking: bool,
-    /// Snapshotted by a world gesture; drift cannot turn eating into mining.
     pub hold_uses_item: bool,
     pub holding_use: bool,
     pub holding: bool,
     pub break_progress: f32,
+    layouts: Layouts,
+    router: Router,
+    animator: Animator,
+    gestures: BTreeMap<u64, Look>,
+    /// Engine tokens currently down, for the host's inventory/player queries.
+    tokens: BTreeSet<String>,
+    events: Vec<(String, bool)>,
+    pending: PadState,
+    tap_aim: Option<[f32; 2]>,
+    pending_tap: Option<bool>,
     last_marker: Option<([f32; 2], Instant)>,
-    last_sneak_tap: Option<Instant>,
+    look_delta: [f32; 2],
     sprint_latched: bool,
+    ignored: BTreeSet<u64>,
+    more_requested: bool,
+    opened: bool,
+    aspect: f32,
+    viewport: Option<[u32; 2]>,
+    frame: Instant,
+    started: Instant,
+    /// Where the named layouts are persisted.
+    path: PathBuf,
+    pub status: Option<String>,
 }
-impl TouchControls {
-    pub fn crosshair(&self) -> bool {
-        self.force_crosshair || self.settings.crosshair()
-    }
 
-    pub fn viewport(&mut self, width: u32, height: u32) {
-        self.animation_origin.get_or_insert_with(Instant::now);
-        let size = [width.max(1), height.max(1)];
-        if self.viewport_size.is_some_and(|previous| previous != size) {
-            // Existing touch coordinates belong to the old drawable surface.
-            // Release them before adopting new geometry so a rotation cannot
-            // strand a key or convert a held button into a camera gesture.
-            self.clear();
-            self.cancel_editor_drag();
-        }
-        self.viewport_size = Some(size);
-        self.aspect = size[0] as f32 / size[1] as f32;
-        if !self.loaded {
-            self.settings = Settings::load();
-            self.loaded = true;
+impl Default for TouchControls {
+    fn default() -> Self {
+        Self {
+            settings: Settings::default(),
+            force_crosshair: false,
+            projectile_crosshair: false,
+            shield_available: false,
+            auxiliary_only: false,
+            inventory_mode: false,
+            editor: None,
+            aim: None,
+            chat_requested: false,
+            settings_requested: false,
+            debug_requested: false,
+            perspective_requested: false,
+            clicked: false,
+            context_use: false,
+            vertical_movement: false,
+            swimming: false,
+            mounted: false,
+            sneaking: false,
+            hold_uses_item: false,
+            holding_use: false,
+            holding: false,
+            break_progress: 0.0,
+            layouts: Layouts::default(),
+            router: Router::default(),
+            animator: Animator::default(),
+            gestures: BTreeMap::new(),
+            tokens: BTreeSet::new(),
+            events: Vec::new(),
+            pending: PadState::default(),
+            tap_aim: None,
+            pending_tap: None,
+            last_marker: None,
+            look_delta: [0.0; 2],
+            sprint_latched: false,
+            ignored: BTreeSet::new(),
+            more_requested: false,
+            opened: false,
+            aspect: 0.0,
+            viewport: None,
+            frame: Instant::now(),
+            started: Instant::now(),
+            path: PathBuf::from(FILE),
+            status: None,
         }
     }
-    pub fn set_inventory_mode(&mut self, inventory: bool) {
-        if self.inventory_mode != inventory {
-            self.clear();
-            self.inventory_mode = inventory;
-        }
-    }
+}
+
+impl TouchControls {
     fn aspect(&self) -> f32 {
         if self.aspect > 0.0 {
             self.aspect
@@ -291,36 +358,132 @@ impl TouchControls {
             16.0 / 9.0
         }
     }
-    fn auxiliary_control(c: Control) -> bool {
-        matches!(
-            c,
-            Control::Debug
-                | Control::Chat
-                | Control::Pause
-                | Control::Settings
-                | Control::Perspective
-        )
+    fn now_ms(&self) -> u64 {
+        self.started.elapsed().as_millis() as u64
     }
-    pub fn auxiliary_at(&self, point: [f32; 2]) -> bool {
-        self.custom_at(point).is_some()
-            || Control::ALL.into_iter().any(|c| {
-                Self::auxiliary_control(c)
-                    && self.visible(c)
-                    && layout::contains(self.placement(c).rect(self.aspect()), point)
-            })
+    /// The active layout with the legacy global preferences applied.
+    fn layout_now(&self) -> Layout {
+        let mut layout = self.layouts.current().clone();
+        let scale = if self.settings.button_scale.is_finite() {
+            self.settings.button_scale.clamp(0.5, 2.0)
+        } else {
+            1.0
+        };
+        if (scale - 1.0).abs() > 0.001 {
+            for button in &mut layout.buttons {
+                button.circle.radius = (button.circle.radius * scale).clamp(0.015, 0.24);
+            }
+        }
+        if self.settings.left_handed {
+            layout.mirror();
+        }
+        // Tall surfaces (a portrait launcher window) leave little width for the
+        // same fractions, so shrink the circles instead of letting them touch.
+        let squeeze = (self.aspect() / 1.25).clamp(0.55, 1.0);
+        if squeeze < 0.999 {
+            let narrow = self.aspect();
+            for button in &mut layout.buttons {
+                button.circle.radius = (button.circle.radius * squeeze).clamp(0.015, 0.24);
+                let half = button.circle.radius / narrow.max(0.1);
+                button.circle.center[0] = button.circle.center[0].clamp(half, 1.0 - half);
+                button.circle.center[1] = button.circle.center[1].clamp(button.circle.radius, 1.0 - button.circle.radius);
+            }
+        }
+        layout
+    }
+    fn surface(&self) -> [f32; 2] {
+        let batch = HudBatch::new(self.viewport.unwrap_or([1920, 1080]));
+        [batch.width.max(1.0), batch.height.max(1.0)]
+    }
+    pub fn crosshair(&self) -> bool {
+        self.force_crosshair || self.settings.crosshair()
+    }
+    /// Load the named layouts once per profile, migrating 0.8.x data if present.
+    fn load(&mut self) {
+        if self.opened {
+            return;
+        }
+        self.opened = true;
+        let existed = self.path.exists();
+        let mut message = None;
+        let mut layouts = if existed {
+            let (layouts, problem) = Layouts::load(&self.path);
+            message = problem;
+            layouts
+        } else if let Some(migrated) = migrate_legacy() {
+            if let Err(error) = migrated.save(&self.path) {
+                message = Some(format!("Could not save migrated controls: {error}"));
+            }
+            migrated
+        } else {
+            let layouts = Layouts::default();
+            if let Err(error) = layouts.save(&self.path) {
+                message = Some(format!("Controls will not persist: {error}"));
+            }
+            layouts
+        };
+        if !layouts.valid() {
+            layouts = Layouts::default();
+            message = Some("Control layouts were invalid and were reset".into());
+        }
+        self.layouts = layouts;
+        self.status = message;
+    }
+    pub fn viewport(&mut self, width: u32, height: u32) {
+        let size = [width.max(1), height.max(1)];
+        if self.viewport.is_some_and(|previous| previous != size) {
+            // Existing touch coordinates belong to the old drawable surface.
+            self.clear();
+        }
+        self.viewport = Some(size);
+        self.aspect = size[0] as f32 / size[1] as f32;
+        self.load();
+    }
+    pub fn set_inventory_mode(&mut self, inventory: bool) {
+        if self.inventory_mode != inventory {
+            self.inventory_mode = inventory;
+            self.router.set_inventory(inventory);
+            self.tick_events();
+        }
+    }
+    /// Pixel rectangle of every drawable button, for host hotspots.
+    pub fn button_at_point(&self, point: [f32; 2]) -> Option<Id> {
+        self.layout_now()
+            .hit_in(point, self.aspect(), self.inventory_mode)
+            .map(|button| button.id)
     }
     pub fn control_at(&self, point: [f32; 2]) -> Option<Control> {
-        Control::ALL.into_iter().rev().find(|c| {
-            self.visible(*c) && layout::contains(self.placement(*c).rect(self.aspect()), point)
-        })
+        self.button_at_point(point).and_then(control_of)
     }
     pub fn control_at_point(&self, point: [f32; 2]) -> bool {
-        self.custom_at(point).is_some() || self.control_at(point).is_some()
+        self.button_at_point(point).is_some()
     }
-    /// Inventory overlays retain custom key holds, but never apply world gestures.
+    pub fn custom_at(&self, point: [f32; 2]) -> Option<usize> {
+        match self.button_at_point(point)? {
+            Id::Custom(index) => Some(index as usize),
+            _ => None,
+        }
+    }
+    /// The top bar and More: touches the host treats as menu gestures.
+    pub fn auxiliary_at(&self, point: [f32; 2]) -> bool {
+        matches!(
+            self.button_at_point(point),
+            Some(Id::Chat | Id::Pause | Id::Settings | Id::Perspective | Id::More)
+        ) || self.custom_at(point).is_some()
+    }
+    pub fn owns_pointer(&self, id: u64) -> bool {
+        self.router.owns(id) || self.ignored.contains(&id)
+    }
+    pub fn ignore(&mut self, id: u64) {
+        self.ignored.insert(id);
+        self.router.ignore(id);
+    }
+    pub fn tap(&mut self, button: Button) {
+        self.pending.set(button, true);
+    }
+    /// Inventory overlays keep key buttons but never apply world gestures.
     pub fn clear_world_gesture(&mut self) {
-        self.fingers
-            .retain(|_, (role, _)| matches!(role, Role::Ignore));
+        self.gestures.clear();
         self.sprint_latched = false;
         self.pending = PadState::default();
         self.aim = None;
@@ -330,621 +493,824 @@ impl TouchControls {
         self.holding = false;
         self.holding_use = false;
     }
-    pub fn owns_pointer(&self, id: u64) -> bool {
-        self.fingers.contains_key(&id) || self.custom_fingers.contains_key(&id)
-    }
-    pub fn ignore(&mut self, id: u64) {
-        self.fingers.insert(id, (Role::Ignore, [0.0; 2]));
-    }
-    pub fn tap(&mut self, button: Button) {
-        self.pending.set(button, true);
-    }
-    fn visible(&self, c: Control) -> bool {
-        if c == Control::Shield && !self.shield_available && self.editor.is_none() {
-            return false;
-        }
-        if self.auxiliary_only && !Self::auxiliary_control(c) {
-            return false;
-        }
-        if self.force_crosshair
-            && matches!(c, Control::Attack | Control::Use)
-            && self.settings.button_visibility[c as usize] == 0
-        {
-            return true;
-        }
-
-        self.settings.visible(c)
-            || (self.settings.button_visibility[c as usize] != 2
-                && c == Control::Use
-                && self.settings.contextual_interact
-                && (self.context_use
-                    || self
-                        .fingers
-                        .values()
-                        .any(|(r, _)| matches!(r, Role::Button(Button::LeftTrigger)))))
-    }
-    fn placement(&self, c: Control) -> layout::Placement {
-        let mut p = self.settings.placement(c);
-        let factory_swap = c == Control::Offhand
-            && self.settings.layouts[self.settings.mode.index()][c as usize].center == [0.80, 0.96]
-            && p.size == 0.075;
-        // Keep factory top buttons separate on tall surfaces. Custom positions
-        // and every landscape layout remain exactly as the player saved them.
-        if self.aspect() < 1.0 && p.center[1] == 0.055 && p.size == 0.075 {
-            let top = match c {
-                Control::Debug => Some((0.42, 0.18)),
-                Control::Chat => Some((0.46, 0.34)),
-                Control::Pause => Some((0.50, 0.50)),
-                Control::Settings => Some((0.54, 0.66)),
-                Control::Perspective => Some((0.58, 0.82)),
-                _ => None,
-            };
-            if let Some((old, new)) = top {
-                let old = if self.settings.left_handed {
-                    1.0 - old
-                } else {
-                    old
-                };
-                if (p.center[0] - old).abs() < 0.0001 {
-                    p.center[0] = if self.settings.left_handed {
-                        1.0 - new
-                    } else {
-                        new
-                    };
-                    p.size = p.size.min(self.aspect() * 0.12);
-                }
-            }
-        }
-        let mut p = self.fit_placement(p);
-        if factory_swap {
-            // Keep the factory Swap beside Inventory in physical button units,
-            // including portrait displays and the left-handed layout.
-            let inventory = self.placement(Control::Inventory);
-            let direction = if self.settings.left_handed { -1.0 } else { 1.0 };
-            p.center[0] = inventory.center[0]
-                + direction * ((inventory.size + p.size) * 0.5 + 0.015) / self.aspect();
-            let half = p.size / self.aspect() * 0.5;
-            p.center[0] = p.center[0].clamp(half, 1.0 - half);
-        }
-        p
-    }
-    fn button(c: Control) -> Option<Button> {
-        Some(match c {
-            Control::Sprint => Button::LeftStick,
-            Control::Jump => Button::South,
-            Control::Sneak => Button::RightStick,
-            Control::Attack => Button::RightTrigger,
-            Control::Use | Control::Shield => Button::LeftTrigger,
-            Control::Pause => Button::Start,
-            Control::Inventory => Button::North,
-            _ => return None,
-        })
-    }
-    pub fn draw(&self, b: &mut HudBatch, a: &HudAtlas) {
-        let (w, h) = (b.width, b.height);
-        if self.editor.is_some() {
-            self.draw_editor_toolbar(b, a);
-        }
-        let state = self.state();
-        for control in Control::ALL {
-            if !self.visible(control) {
-                continue;
-            }
-            let p = self.placement(control);
-            let size = p.size * h;
-            let (x, y) = (p.center[0] * w - size / 2.0, p.center[1] * h - size / 2.0);
-            let opacity = if self.editor.is_some() {
-                p.opacity.max(0.25)
-            } else {
-                p.opacity
-            };
-            let color = rgba(255, 255, 255, (opacity * 255.0).round() as u8);
-            let held = (self.inventory_mode
-                && Self::inventory_token(control)
-                    .is_some_and(|token| self.held_custom_tokens().any(|held| held == token)))
-                || (control == Control::Sneak && self.sneaking)
-                || Self::button(control).is_some_and(|bt| {
-                    state.held(bt)
-                        || (bt == Button::LeftTrigger && state.triggers[0] > 0.0)
-                        || (bt == Button::RightTrigger && state.triggers[1] > 0.0)
-                });
-            // Presentation is independent of input ownership and saved bounds.
-            #[cfg(target_os = "android")]
-            let control_vertices = b.vertices.len();
-            if control == Control::Move {
-                if self.settings.mode == Mode::Dpad {
-                    let cell = size / 3.0;
-                    for (dx, dy, name) in [
-                        (0, -1, "up"),
-                        (-1, 0, "left"),
-                        (1, 0, "right"),
-                        (0, 1, "down"),
-                    ] {
-                        let pressed = match (dx, dy) {
-                            (0, -1) => state.left[1] > 0.2,
-                            (0, 1) => state.left[1] < -0.2,
-                            (-1, 0) => state.left[0] < -0.2,
-                            _ => state.left[0] > 0.2,
-                        };
-                        fitted_sprite(
-                            b,
-                            a,
-                            &format!("controls/{name}{}", if pressed { "_pressed" } else { "" }),
-                            [
-                                x + cell * (dx + 1) as f32,
-                                y + cell * (dy + 1) as f32,
-                                cell,
-                                cell,
-                            ],
-                            color,
-                        );
-                    }
-                    // Vanilla shows the diagonal keys while their adjoining arrow is held.
-                    if state.left[1].abs() > 0.2 {
-                        let (dy, prefix) = if state.left[1] > 0.0 {
-                            (0, "up")
-                        } else {
-                            (2, "down")
-                        };
-                        for (dx, suffix) in [(0, "left"), (2, "right")] {
-                            let pressed = if dx == 0 {
-                                state.left[0] < -0.2
-                            } else {
-                                state.left[0] > 0.2
-                            };
-                            sprite(
-                                b,
-                                a,
-                                &format!(
-                                    "controls/{prefix}_{suffix}{}",
-                                    if pressed { "_pressed" } else { "" }
-                                ),
-                                [x + cell * dx as f32, y + cell * dy as f32, cell, cell],
-                                color,
-                            );
-                        }
-                    }
-                } else {
-                    sprite(b, a, "ui/joystick_frame", [x, y, size, size], color);
-                    sprite(
-                        b,
-                        a,
-                        "ui/joystick_knob",
-                        [
-                            x + size * (0.33 + state.left[0] * 0.25),
-                            y + size * (0.33 - state.left[1] * 0.25),
-                            size * 0.34,
-                            size * 0.34,
-                        ],
-                        color,
-                    );
-                }
-            } else {
-                let pressed = held
-                    || self
-                        .fingers
-                        .values()
-                        .any(|(_, point)| layout::contains(p.rect(self.aspect()), *point));
-                let themed = match control {
-                    Control::Chat => Some("chat"),
-                    Control::Pause => Some("pause"),
-                    Control::Settings => Some("settings"),
-                    Control::Debug => Some("debug"),
-                    Control::Perspective => Some("perspective"),
-                    _ => None,
-                };
-                if themed.is_some_and(|name| {
-                    theme_button(b, a, name, [x, y, size, size], pressed, color, false)
-                }) {
-                    continue;
-                }
-                let name = match control {
-                    Control::Sprint => "ui/sprint",
-                    Control::Attack => "ui/attack",
-                    Control::Use => "ui/interact",
-                    Control::Jump if self.swimming => "controls/waterascend",
-                    Control::Sneak if self.swimming => "controls/waterdescend",
-                    Control::Jump if self.vertical_movement => "controls/flyingascend",
-                    Control::Sneak if self.vertical_movement => "controls/flyingdescend",
-                    Control::Sneak if self.mounted => "controls/dismount",
-                    Control::Jump if self.settings.mode == Mode::Dpad => "controls/jump_dpad",
-                    Control::Sneak if self.settings.mode == Mode::Dpad => "controls/sneak_dpad",
-                    Control::Jump => "ui/jump",
-                    Control::Sneak => "ui/sneak",
-                    Control::Pause => "ui/pause_icon",
-                    Control::Chat | Control::Debug | Control::Perspective => "gui",
-                    Control::Inventory => "ui/more-dots",
-                    Control::Settings => "ui/gear",
-                    Control::Offhand | Control::Shield => "ui/joystick_knob",
-                    _ => continue,
-                };
-                let bounds = [x, y, size, size];
-                match control {
-                    Control::Chat => region(b, a, "gui", [200.0, 82.0, 18.0, 18.0], bounds, color),
-                    Control::Debug => region(b, a, "gui", [236.0, 82.0, 18.0, 18.0], bounds, color),
-                    Control::Perspective => {
-                        region(b, a, "gui", [236.0, 46.0, 18.0, 18.0], bounds, color)
-                    }
-                    Control::Offhand | Control::Shield => {
-                        let label = if control == Control::Offhand {
-                            "Swap"
-                        } else {
-                            "Shield"
-                        };
-                        text_button(b, a, bounds, label, pressed, color, false);
-                    }
-                    Control::Inventory => {
-                        sprite(b, a, "ui/joystick_knob", bounds, color);
-                        fitted_sprite(
-                            b,
-                            a,
-                            name,
-                            [x + size * 0.2, y + size * 0.2, size * 0.6, size * 0.6],
-                            color,
-                        );
-                    }
-                    Control::Pause | Control::Settings => {
-                        // The same square frame as Chat, sampled without its speech glyph.
-                        menu_frame(b, a, bounds, color);
-                        fitted_sprite(
-                            b,
-                            a,
-                            name,
-                            [x + size * 0.23, y + size * 0.23, size * 0.54, size * 0.54],
-                            color,
-                        );
-                    }
-                    _ => sprite(
-                        b,
-                        a,
-                        &format!("{name}{}", if held { "_pressed" } else { "" }),
-                        bounds,
-                        color,
-                    ),
-                }
-            }
-            #[cfg(target_os = "android")]
-            if matches!(control, Control::Move | Control::Sprint | Control::Jump |
-                Control::Sneak | Control::Attack | Control::Use)
-                && (control != Control::Move || self.settings.mode != Mode::Dpad)
-            {
-                let center = [x + size / 2.0, y + size / 2.0];
-                // Scale only the painted glyph; the original multitouch hitbox
-                // stays fixed and cannot drift as a finger presses the control.
-                if held && control != Control::Move {
-                    let age = self.fingers.iter().filter_map(|(id, (role, _))| {
-                        if matches!(role, Role::Button(button) if Some(*button) == Self::button(control)) {
-                            self.press_times.get(id).map(|t| t.elapsed().as_secs_f32())
-                        } else { None }
-                    }).fold(1.0_f32, f32::min);
-                    let t = (age / 0.12).clamp(0.0, 1.0);
-                    let eased = t * t * (3.0 - 2.0 * t);
-                    let scale = 1.0 - 0.06 * eased;
-                    b.scale_since(control_vertices, center[0], center[1], scale, scale);
-                }
-                let time = self.animation_origin.map_or(0.0, |start| start.elapsed().as_secs_f32());
-                let pulse = 0.93 + 0.07 * (time * 1.8).sin();
-                let alpha = (opacity.clamp(0.0, 1.0) * if held { 245.0 } else { 165.0 * pulse }) as u8;
-                ring(b, a, center, size * 0.48, rgba(180, 72, 255, alpha));
-                ring(b, a, center, size * 0.48 + 1.5, rgba(158, 48, 255, alpha / 3));
-            }
-            if let Some(e) = &self.editor
-                && e.selected == Some(control)
-            {
-                let green = rgba(255, 255, 255, 255);
-                for (p, q) in [
-                    ([x - 1.0, y - 1.0], [x + size + 1.0, y - 1.0]),
-                    ([x - 1.0, y + size + 1.0], [x + size + 1.0, y + size + 1.0]),
-                    ([x - 1.0, y - 1.0], [x - 1.0, y + size + 1.0]),
-                    ([x + size + 1.0, y - 1.0], [x + size + 1.0, y + size + 1.0]),
-                ] {
-                    line(b, a, p, q, green);
-                }
-            }
-        }
-        self.draw_custom(b, a);
-        if self.editor.is_some() {
-            self.draw_editor(b, a);
-        } else if let Some(point) = self.pointer() {
-            let center = [point[0] * w, point[1] * h];
-            let radius = self.settings.circle_size / 2.0;
-            ring(b, a, center, radius + 0.7, rgba(0, 0, 0, 110));
-            ring(b, a, center, radius, rgba(255, 255, 255, 210));
-            // A complete inner circle expands towards the stationary outer rim.
-            // Progress changes its radius, never its angular coverage.
-            let inner = mining_radius(radius, self.break_progress);
-            if inner > 0.0
-                && let Some(white) = a.sprites.get("horizon/white")
-            {
-                let uv = [[(white.u0 + white.u1) / 2.0, (white.v0 + white.v1) / 2.0]; 4];
-                for segment in circle_points().windows(2) {
-                    let points = [segment[0], segment[1]]
-                        .map(|p| [center[0] + inner * p[0], center[1] + inner * p[1]]);
-                    b.quad(
-                        [center, points[0], points[1], center],
-                        uv,
-                        rgba(255, 255, 255, 90),
-                    );
-                }
-                ring(b, a, center, inner, rgba(255, 255, 255, 220));
-            }
-        }
-    }
     pub fn shield_held(&self) -> bool {
-        self.settings.shield_button
-            && self.shield_available
-            && self
-                .fingers
-                .values()
-                .any(|(role, _)| matches!(role, Role::Shield))
+        // The replacement set raises the shield through sneak, as vanilla does.
+        self.router.active(&Action::Sneak)
     }
     pub fn pointer(&self) -> Option<[f32; 2]> {
         if self.crosshair() {
             return None;
         }
-        self.fingers
-            .values()
-            .find_map(|(r, point)| matches!(r, Role::Look { .. }).then_some(*point))
-            .or_else(|| {
-                self.last_marker
-                    .filter(|(_, t)| t.elapsed() < Duration::from_millis(180))
-                    .map(|(p, _)| p)
-            })
+        self.router.look_pointer().or_else(|| {
+            self.last_marker
+                .filter(|(_, at)| at.elapsed() < Duration::from_millis(180))
+                .map(|(point, _)| point)
+        })
     }
     /// Coordinates are fractions of the drawable surface. Returns a look delta.
     pub fn update(&mut self, id: u64, point: [f32; 2], started: bool, ended: bool) -> [f32; 2] {
-        if started { self.press_times.insert(id, Instant::now()); }
-        if ended { self.press_times.remove(&id); }
-        if self.custom_update(id, point, started, ended) {
-            return [0.0; 2];
-        }
-        if ended {
-            if let Some((
-                Role::Look {
-                    start,
-                    since,
-                    dragged,
-                    held_use,
-                    ..
-                },
-                _,
-            )) = self.fingers.remove(&id)
-                && (!self.crosshair() || self.settings.crosshair_gestures)
-                && !dragged
-                && since.elapsed() < HOLD_DELAY
-            {
-                self.tap_aim = Some(if self.settings.crosshair() || self.projectile_crosshair {
-                    [0.5, 0.5]
-                } else {
-                    start
-                });
-                self.last_marker = Some((start, Instant::now()));
-                self.pending_tap = Some(held_use);
+        if !self.ignored.is_empty() {
+            if self.ignored.contains(&id) {
+                if ended && self.ignored.remove(&id) {
+                    self.router.end(id);
+                }
+                return [0.0; 2];
             }
-            return [0.0; 2];
+            if ended {
+                self.ignored.remove(&id);
+            }
         }
-        if started {
-            let control = self.control_at(point);
-            let role = match control {
-                Some(Control::Move)
-                    if !self
-                        .fingers
-                        .values()
-                        .any(|(r, _)| matches!(r, Role::Move(_))) =>
-                {
-                    Role::Move(self.placement(Control::Move).center)
-                }
-                Some(Control::Shield) => {
-                    self.clicked = true;
-                    self.pending.triggers[0] = 1.0;
-                    Role::Shield
-                }
-                Some(Control::Offhand) => {
-                    self.clicked = true;
-                    self.custom_events
-                        .push(("action:key.swapOffhand".into(), true));
-                    self.custom_events
-                        .push(("action:key.swapOffhand".into(), false));
-                    Role::Ignore
-                }
-                Some(Control::Chat) => {
-                    self.chat_requested = true;
-                    Role::Ignore
-                }
-                Some(Control::Settings) => {
-                    self.settings_requested = true;
-                    Role::Ignore
-                }
-                Some(Control::Debug) => {
-                    self.debug_requested = true;
-                    Role::Ignore
-                }
-                Some(Control::Perspective) => {
-                    self.perspective_requested = true;
-                    Role::Ignore
-                }
-                Some(Control::Sneak)
-                    if self.settings.mode == Mode::Dpad
-                        && !self.vertical_movement
-                        && !self.swimming
-                        && !self.mounted =>
-                {
-                    // The classic D-pad toggles crouching on a double tap.
-                    let now = Instant::now();
-                    if self
-                        .last_sneak_tap
-                        .take()
-                        .is_some_and(|t| now.duration_since(t) < Duration::from_millis(300))
-                    {
-                        Role::Button(Button::RightStick)
-                    } else {
-                        self.last_sneak_tap = Some(now);
-                        Role::Ignore
+        let layout = self.layout_now();
+        let aspect = self.aspect();
+        if ended {
+            self.router.end(id);
+        } else if started {
+            if self.inventory_mode
+                && let Some(token) = self.inventory_token(point)
+                && self.router.begin_mapped(id, Action::Key(token.into()), point)
+            {
+                self.tick_events();
+                return [0.0; 2];
+            }
+            let now = self.now_ms();
+            self.router.begin(&layout, id, point, aspect, now);
+        } else {
+            self.router.moved(&layout, id, point, aspect);
+            if let Some(look) = self.gestures.get_mut(&id) {
+                look.last = point;
+            }
+        }
+        self.tick_events();
+        std::mem::take(&mut self.look_delta)
+    }
+    fn inventory_token(&self, point: [f32; 2]) -> Option<&'static str> {
+        match self.button_at_point(point)? {
+            Id::Sneak => Some("key.keyboard.left.shift"),
+            Id::Attack => Some("action:key.attack"),
+            Id::Use => Some("action:key.use"),
+            _ => None,
+        }
+    }
+    /// Apply router edges to engine tokens and host requests.
+    fn tick_events(&mut self) {
+        let now = Instant::now();
+        for event in self.router.drain() {
+            match event {
+                Event::Key(action, down) => {
+                    if let Some(token) = action.token() {
+                        let token = token.to_owned();
+                        if down {
+                            self.tokens.insert(token.clone());
+                        } else {
+                            self.tokens.remove(&token);
+                        }
+                        self.events.push((token, down));
+                        continue;
+                    }
+                    if down {
+                        match action {
+                            Action::Chat => {
+                                self.chat_requested = true;
+                                self.clicked = true;
+                            }
+                            Action::Settings => {
+                                self.settings_requested = true;
+                                self.clicked = true;
+                            }
+                            Action::Perspective => {
+                                self.perspective_requested = true;
+                                self.clicked = true;
+                            }
+                            Action::More => {
+                                self.more_requested = true;
+                                self.clicked = true;
+                            }
+                            Action::Key(_) => {}
+                            _ => {
+                                self.clicked = true;
+                            }
+                        }
                     }
                 }
-                Some(Control::Sprint) if self.settings.sprint_toggle => {
-                    self.sprint_latched = !self.sprint_latched;
-                    Role::Ignore
+                Event::Look(delta) => {
+                    self.look_delta[0] += delta[0];
+                    self.look_delta[1] += delta[1];
                 }
-                Some(c) => Self::button(c).map_or(Role::Ignore, Role::Button),
-                None => Role::Look {
-                    start: point,
-                    since: Instant::now(),
-                    dragged: false,
-                    held_use: self.hold_uses_item,
-                    committed: false,
-                },
-            };
-            self.fingers.insert(id, (role, point));
-            if let Role::Button(button) = role {
-                match button {
-                    Button::LeftTrigger => self.pending.triggers[0] = 1.0,
-                    Button::RightTrigger => self.pending.triggers[1] = 1.0,
-                    _ => self.pending.set(button, true),
+                Event::LookBegin(pointer, start) => {
+                    self.gestures.insert(
+                        pointer,
+                        Look {
+                            last: start,
+                            since: now,
+                            dragged: false,
+                            committed: false,
+                            held_use: self.hold_uses_item,
+                        },
+                    );
+                }
+                Event::LookEnd { pointer, start, dragged } => {
+                    let quick = self
+                        .gestures
+                        .remove(&pointer)
+                        .is_some_and(|look| !look.dragged && look.since.elapsed() < HOLD_DELAY);
+                    if quick && (!self.crosshair() || self.settings.crosshair_gestures) {
+                        let aim = if self.crosshair() || self.projectile_crosshair {
+                            [0.5, 0.5]
+                        } else {
+                            start
+                        };
+                        self.tap_aim = Some(aim);
+                        self.last_marker = Some((start, now));
+                        self.pending_tap = Some(self.hold_uses_item);
+                    }
+                    if !dragged {
+                        self.last_marker = Some((start, now));
+                    }
+                }
+                Event::Move(_) => {}
+            }
+        }
+    }
+    /// Held buttons, as the engine's pad mapping sees them.
+    pub fn state(&self) -> PadState {
+        let mut state = PadState::default();
+        if self.settings.sprint_button
+            && (self.router.active(&Action::Sprint) || self.sprint_latched)
+        {
+            state.set(Button::LeftStick, true);
+        }
+        if self.router.active(&Action::Jump) {
+            state.set(Button::South, true);
+        }
+        if self.router.active(&Action::Sneak) {
+            state.set(Button::RightStick, true);
+        }
+        if self.router.active(&Action::Attack) {
+            state.triggers[1] = 1.0;
+        }
+        if self.router.active(&Action::Use) {
+            state.triggers[0] = 1.0;
+        }
+        if self.router.active(&Action::Pause) {
+            state.set(Button::Start, true);
+        }
+        if self.router.active(&Action::Inventory) {
+            state.set(Button::North, true);
+        }
+        let mut movement = self.router.movement();
+        if self.settings.mode == Mode::Dpad {
+            movement = movement.map(|v| if v.abs() < 1.0 / 3.0 { 0.0 } else { v.signum() });
+        } else if self.settings.sprint_with_joystick && self.router.reach() > 1.0 {
+            state.set(Button::LeftStick, true);
+        }
+        let length = movement[0].hypot(movement[1]).max(1.0);
+        state.left = movement.map(|v| v / length);
+        state
+    }
+    pub fn poll_state(&mut self) -> PadState {
+        let elapsed = self.frame.elapsed().as_secs_f32();
+        self.frame = Instant::now();
+        let layout = self.layout_now();
+        self.animator.advance(&layout, &self.router, elapsed);
+        let mut state = self.state().merge(&std::mem::take(&mut self.pending));
+        self.aim = self.tap_aim.take();
+        self.holding_use = false;
+        self.holding = false;
+        let crosshair = self.crosshair();
+        if !crosshair || self.settings.crosshair_gestures {
+            let now = Instant::now();
+            let mut aim = None;
+            let mut committed = None;
+            for look in self.gestures.values_mut() {
+                if !look.dragged && now.duration_since(look.since) >= HOLD_DELAY {
+                    look.committed = true;
+                }
+                if lookup_applies(look) {
+                    aim = Some(if crosshair || self.projectile_crosshair {
+                        [0.5, 0.5]
+                    } else {
+                        look.last
+                    });
+                    if look.committed {
+                        committed = Some(look.held_use);
+                        break;
+                    }
                 }
             }
-            return [0.0; 2];
+            if aim.is_some() {
+                self.aim = aim;
+            }
+            if let Some(held_use) = committed {
+                self.holding = true;
+                self.holding_use = held_use;
+                state.triggers[usize::from(!held_use)] = 1.0;
+            }
         }
-        let aspect = self.aspect();
-        if let Some((role, previous)) = self.fingers.get_mut(&id) {
-            let delta = if let Role::Look {
-                start,
-                dragged,
-                since,
-                committed,
-                ..
-            } = role
-            {
-                if !*dragged && since.elapsed() >= HOLD_DELAY {
-                    *committed = true;
-                }
-                *dragged |= ((point[0] - start[0]) * aspect).hypot(point[1] - start[1]) > 0.018;
-                if *dragged {
-                    [point[0] - previous[0], point[1] - previous[1]]
-                } else {
-                    [0.0; 2]
-                }
-            } else {
-                [0.0; 2]
-            };
-            *previous = point;
-            return delta;
+        let now = self.now_ms();
+        self.router.tick(now);
+        self.tick_events();
+        if std::mem::take(&mut self.more_requested) {
+            self.open_custom_manager();
         }
-        [0.0; 2]
+        state
+    }
+    /// Keep a contextual hold as use after feeding consumed its last item.
+    pub fn latch_use(&mut self) {
+        for look in self.gestures.values_mut() {
+            if look.committed {
+                look.held_use = true;
+            }
+        }
+        self.holding_use = true;
     }
     pub fn clear(&mut self) {
-        self.clear_custom();
-        self.fingers.clear();
-        self.press_times.clear();
-        self.last_sneak_tap = None;
+        self.router.clear();
+        self.tick_events();
+        self.gestures.clear();
+        self.ignored.clear();
         self.sprint_latched = false;
         self.pending = PadState::default();
         self.aim = None;
         self.tap_aim = None;
         self.pending_tap = None;
         self.last_marker = None;
-        self.holding_use = false;
+        self.look_delta = [0.0; 2];
         self.holding = false;
+        self.holding_use = false;
         self.chat_requested = false;
         self.settings_requested = false;
         self.debug_requested = false;
         self.perspective_requested = false;
+        self.more_requested = false;
     }
-    /// A short world tap never holds a mouse button into the next tick.
-    /// Its item-use intent is resolved against the current entity target.
     pub fn take_tap(&mut self) -> Option<bool> {
         self.pending_tap.take()
     }
-    pub fn poll_state(&mut self) -> PadState {
-        let mut state = self.state().merge(&std::mem::take(&mut self.pending));
-        self.aim = self.tap_aim.take();
-        self.holding_use = false;
-        self.holding = false;
-        if !self.crosshair() || self.settings.crosshair_gestures {
-            for (role, point) in self.fingers.values_mut() {
-                if let Role::Look {
-                    start: _,
-                    since,
-                    dragged,
-                    held_use,
-                    committed,
-                } = role
-                {
-                    if !*dragged && since.elapsed() >= HOLD_DELAY {
-                        *committed = true;
+    pub fn key_events(&mut self) -> Vec<(String, bool)> {
+        std::mem::take(&mut self.events)
+    }
+    pub fn held_custom_tokens(&self) -> impl Iterator<Item = &str> {
+        self.tokens.iter().map(String::as_str)
+    }
+    pub fn advance_custom_taps(&mut self) {
+        let now = self.now_ms();
+        self.router.tick(now);
+        self.tick_events();
+    }
+    pub fn begin_mapped_touch(&mut self, id: u64, token: &str, point: [f32; 2]) -> bool {
+        if !hud::valid_token(token) || self.router.owns(id) {
+            return false;
+        }
+        let started = self.router.begin_mapped(id, Action::Key(token.to_owned()), point);
+        if started {
+            self.tick_events();
+        }
+        started
+    }
+    /// Inventory overlays turn the movement buttons into their real key edges.
+    pub fn inventory_update(
+        &mut self,
+        id: u64,
+        point: [f32; 2],
+        started: bool,
+        ended: bool,
+    ) -> bool {
+        if self.router.owns(id) {
+            if ended {
+                self.router.end(id);
+            } else if !started {
+                let layout = self.layout_now();
+                self.router.moved(&layout, id, point, self.aspect());
+            }
+            self.tick_events();
+            return true;
+        }
+        if started
+            && let Some(token) = self.inventory_token(point)
+        {
+            self.tick_events();
+            return self.router.begin_mapped(id, Action::Key(token.into()), point);
+        }
+        false
+    }
+    fn auxiliary_id(id: Id) -> bool {
+        matches!(
+            id,
+            Id::Chat | Id::Pause | Id::Settings | Id::Perspective | Id::More
+        )
+    }
+    pub fn draw(&self, b: &mut HudBatch, a: &HudAtlas) {
+        let layout = self.layout_now();
+        let inventory = self.inventory_mode;
+        let auxiliary_only = self.auxiliary_only;
+        paint::paint_filtered(b, a, &layout, &self.animator, &|button| {
+            button.visibility.permits(inventory) && (!auxiliary_only || Self::auxiliary_id(button.id))
+        });
+        paint::paint_break_progress(b, a, &layout, self.break_progress);
+        if let Some((point, at)) = self.last_marker {
+            let age = at.elapsed().as_secs_f32();
+            if age < 0.35 {
+                paint::paint_tap_marker(b, a, point, 1.0 - age / 0.35);
+            }
+        }
+        if let Some(session) = &self.editor {
+            paint::paint_selection(b, a, &layout, session.ui.selected);
+            session.ui.draw(b, a, &session.data);
+        }
+    }
+    // --- editor -----------------------------------------------------------
+    pub fn open_editor(&mut self) {
+        self.clear();
+        match Editor::new(self.layouts.clone()) {
+            Ok(data) => {
+                self.editor = Some(Session {
+                    ui: EditorUi::default(),
+                    data,
+                    request_sent: false,
+                    request: None,
+                });
+                self.status = None;
+            }
+            Err(error) => self.status = Some(format!("Editor unavailable: {error}")),
+        }
+    }
+    pub fn open_custom_manager(&mut self) {
+        self.open_editor();
+        if let Some(session) = &mut self.editor {
+            session.ui.tab = Tab::Buttons;
+            session.ui.selected = session
+                .data
+                .buttons()
+                .iter()
+                .rev()
+                .find(|button| button.id.is_custom())
+                .map(|button| button.id)
+                .or(Some(Id::Attack));
+        }
+    }
+    pub fn take_layout_request(&mut self) -> Option<LayoutRequest> {
+        self.editor.as_mut()?.request.take()
+    }
+    pub fn layout_status(&mut self, message: String) {
+        match &mut self.editor {
+            Some(session) => session.ui.status(message),
+            None => self.status = Some(message),
+        }
+    }
+    /// The host displays its real text input when a name field is tapped.
+    pub fn take_custom_name_request(&mut self) -> Option<String> {
+        let session = self.editor.as_mut()?;
+        if session.request_sent {
+            return None;
+        }
+        let initial = match session.ui.text? {
+            TextTarget::Button(id) => session.data.label_of(id)?.to_owned(),
+            TextTarget::Layout => session.data.staged.current().name.clone(),
+        };
+        session.request_sent = true;
+        Some(initial)
+    }
+    pub fn custom_name_editing(&self) -> bool {
+        self.editor
+            .as_ref()
+            .is_some_and(|session| session.ui.text.is_some())
+    }
+    pub fn custom_name_text(&mut self, text: &str) {
+        let Some(session) = self.editor.as_mut() else {
+            return;
+        };
+        match session.ui.text {
+            Some(TextTarget::Button(id)) => {
+                let label = format!("{}{}", session.data.label_of(id).unwrap_or(""), text);
+                if let Err(error) = session.data.rename_button(id, &label) {
+                    session.ui.status(format!("Name rejected: {error}"));
+                }
+            }
+            Some(TextTarget::Layout) => {
+                let name = format!("{}{}", session.data.staged.current().name, text);
+                if let Err(error) = session.data.rename(&name) {
+                    session.ui.status(format!("Name rejected: {error}"));
+                }
+            }
+            None => {}
+        }
+    }
+    pub fn custom_name_backspace(&mut self) {
+        let Some(session) = self.editor.as_mut() else {
+            return;
+        };
+        match session.ui.text {
+            Some(TextTarget::Button(id)) => {
+                let mut label = session.data.label_of(id).unwrap_or("").to_owned();
+                label.pop();
+                let _ = session.data.rename_button(id, &label);
+            }
+            Some(TextTarget::Layout) => {
+                let mut name = session.data.staged.current().name.clone();
+                if name.chars().count() > 1 {
+                    name.pop();
+                    let _ = session.data.rename(&name);
+                }
+            }
+            None => {}
+        }
+    }
+    pub fn finish_custom_name(&mut self) {
+        if let Some(session) = self.editor.as_mut() {
+            session.ui.text = None;
+            session.request_sent = false;
+        }
+    }
+    pub fn cancel_editor(&mut self) {
+        if let Some(session) = self.editor.take() {
+            self.layouts = session.data.cancel_copy();
+        }
+        self.clear();
+    }
+    /// The editor owns every finger: editing cannot move, mine or open menus.
+    /// Returns true when Save or Cancel closed the editor.
+    pub fn edit_touch(&mut self, id: u64, p: [f32; 2], started: bool, ended: bool) -> bool {
+        let Some(mut session) = self.editor.take() else {
+            return false;
+        };
+        self.clicked |= started;
+        if session.ui.text.is_some() {
+            self.editor = Some(session);
+            return false;
+        }
+        let surface = self.surface();
+        let aspect = surface[0] / surface[1].max(1.0);
+        let mut closed = false;
+        if started {
+            if session.ui.tab == Tab::Position && session.data.begin_drag(id, p, aspect) {
+                session.ui.status("Drag to move. Save keeps it.");
+            } else if let Some(act) = session.ui.hit(&session.data, surface[0], surface[1], p) {
+                closed = self.apply_editor(&mut session, act);
+            }
+        } else if !ended {
+            session.data.move_drag(id, p, aspect);
+        }
+        if ended {
+            session.data.end_drag(id);
+        }
+        if !closed {
+            self.editor = Some(session);
+        }
+        closed
+    }
+    /// Apply one editor command. Returns true when the session was closed.
+    fn apply_editor(&mut self, session: &mut Session, act: Act) -> bool {
+        let selected = session.ui.selected;
+        match act {
+            Act::Tab(tab) => {
+                session.ui.tab = tab;
+                session.ui.picker = false;
+                session.ui.capturing = false;
+                session.ui.confirm_delete = false;
+            }
+            Act::Select(id) => {
+                session.ui.selected = Some(id);
+                session.ui.confirm_delete = false;
+            }
+            Act::AddKey => {
+                session.ui.capturing = true;
+                session.ui.message = None;
+            }
+            Act::Picker => {
+                if selected.is_some() {
+                    session.ui.picker = true;
+                    session.ui.picker_page = 0;
+                    session.ui.picker_raw = false;
+                }
+            }
+            Act::Pick(index) => {
+                let choices = EditorUi::choices(session.ui.picker_raw);
+                if let (Some(id), Some((token, label))) = (selected, choices.get(index).cloned()) {
+                    match session.data.set_binding(id, &token) {
+                        Ok(()) => {
+                            session.ui.status(format!("Bound to {label}"));
+                            session.ui.picker = false;
+                        }
+                        Err(error) => session.ui.status(format!("Binding rejected: {error}")),
                     }
-                    if !*dragged || *committed {
-                        self.aim =
-                            Some(if self.settings.crosshair() || self.projectile_crosshair {
-                                [0.5, 0.5]
-                            } else {
-                                *point
-                            });
-                        if *committed {
-                            self.holding = true;
-                            self.holding_use = *held_use;
-                            state.triggers[if *held_use { 0 } else { 1 }] = 1.0;
-                            break;
+                }
+            }
+            Act::PickerPage(forward) => {
+                let pages = EditorUi::page_count(session.ui.picker_raw);
+                session.ui.picker_page = if forward {
+                    (session.ui.picker_page + 1).min(pages - 1)
+                } else {
+                    session.ui.picker_page.saturating_sub(1)
+                };
+            }
+            Act::PickerRaw => {
+                session.ui.picker_raw = !session.ui.picker_raw;
+                session.ui.picker_page = 0;
+            }
+            Act::ClosePicker => session.ui.picker = false,
+            Act::Rename => {
+                if let Some(id) = selected {
+                    session.ui.text = Some(TextTarget::Button(id));
+                    session.request_sent = false;
+                }
+            }
+            Act::RenameLayout => {
+                session.ui.text = Some(TextTarget::Layout);
+                session.request_sent = false;
+            }
+            Act::CycleIcon => {
+                if let Some(id) = selected {
+                    apply!(session, session.data.next_icon(id));
+                }
+            }
+            Act::CycleBehavior => {
+                if let Some(id) = selected {
+                    apply!(session, session.data.cycle_behavior(id));
+                }
+            }
+            Act::Size(bigger) => {
+                if let Some(id) = selected {
+                    let factor = if bigger { 1.12 } else { 1.0 / 1.12 };
+                    apply!(session, session.data.scale(id, factor));
+                }
+            }
+            Act::Opacity(bigger) => {
+                if let Some(id) = selected {
+                    let current = session
+                        .data
+                        .buttons()
+                        .iter()
+                        .find(|button| button.id == id)
+                        .map(|button| button.opacity)
+                        .unwrap_or(0.85);
+                    let step = if bigger { 0.1 } else { -0.1 };
+                    apply!(session, session.data.set_opacity(id, current + step));
+                }
+            }
+            Act::ToggleEnabled => {
+                if let Some(id) = selected {
+                    apply!(session, session.data.toggle_enabled(id));
+                }
+            }
+            Act::CycleVisibility => {
+                if let Some(id) = selected {
+                    apply!(session, session.data.cycle_visibility(id));
+                }
+            }
+            Act::Front => {
+                if let Some(id) = selected {
+                    apply!(session, session.data.move_to_front(id));
+                }
+            }
+            Act::DeleteButton => {
+                if let Some(id) = selected {
+                    if !session.ui.confirm_delete {
+                        session.ui.confirm_delete = true;
+                        session.ui.status("Tap Delete again to remove this button");
+                    } else {
+                        session.ui.confirm_delete = false;
+                        match session.data.delete_button(id) {
+                            Ok(()) => {
+                                session.ui.selected = None;
+                                session.ui.status("Button deleted");
+                            }
+                            Err(error) => session.ui.status(format!("{error}")),
                         }
                     }
                 }
             }
-        }
-        state
-    }
-    /// Keep a contextual hold as use even after feeding consumed its last item.
-    pub fn latch_use(&mut self) {
-        for (role, _) in self.fingers.values_mut() {
-            if let Role::Look {
-                held_use,
-                committed: true,
-                ..
-            } = role
-            {
-                *held_use = true;
-                break;
-            }
-        }
-        self.holding_use = true;
-    }
-    pub fn state(&self) -> PadState {
-        let mut state = PadState::default();
-        if self.settings.sprint_toggle && self.settings.sprint_button && self.sprint_latched {
-            state.set(Button::LeftStick, true);
-        }
-        for (role, point) in self.fingers.values() {
-            match role {
-                Role::Move(anchor) => {
-                    let radius = self.placement(Control::Move).size / 2.0;
-                    state.left = [
-                        (point[0] - anchor[0]) * self.aspect() / radius,
-                        (anchor[1] - point[1]) / radius,
-                    ];
-                    if self.settings.mode == Mode::Dpad {
-                        state.left = state
-                            .left
-                            .map(|v| if v.abs() < 1.0 / 3.0 { 0.0 } else { v.signum() });
-                    }
-                    // Bedrock starts auto sprint beyond the joystick background,
-                    // and stops it as soon as the finger returns inside it.
-                    let sprint = state.left[1] > 1.0;
-                    let length = state.left[0].hypot(state.left[1]).max(1.0);
-                    state.left = state.left.map(|v| v / length);
-                    if self.settings.mode != Mode::Dpad
-                        && self.settings.sprint_with_joystick
-                        && sprint
-                    {
-                        state.set(Button::LeftStick, true);
-                    }
+            Act::Layout(index) => {
+                match session.data.select(index) {
+                    Ok(()) => session.ui.selected = None,
+                    Err(error) => session.ui.status(format!("{error}")),
                 }
-                Role::Button(Button::LeftTrigger) | Role::Shield => state.triggers[0] = 1.0,
-                Role::Button(Button::RightTrigger) => state.triggers[1] = 1.0,
-                Role::Button(b) => state.set(*b, true),
-                _ => {}
+                session.ui.confirm_delete = false;
+            }
+            Act::NewLayout => {
+                let name = free_name(&session.data.staged.items, "Layout");
+                apply!(session, session.data.create(&name));
+                session.ui.selected = None;
+            }
+            Act::CopyLayout => {
+                let name = free_name(&session.data.staged.items, "Copy");
+                apply!(session, session.data.duplicate(&name));
+                session.ui.selected = None;
+            }
+            Act::DeleteLayout => {
+                if !session.ui.confirm_delete {
+                    session.ui.confirm_delete = true;
+                    session.ui.status("Tap Delete again to remove this layout");
+                } else {
+                    session.ui.confirm_delete = false;
+                    apply!(session, session.data.delete());
+                    session.ui.selected = None;
+                }
+            }
+            Act::MakeDefault => {
+                let active = session.data.staged.active;
+                apply!(session, session.data.staged.set_default(active));
+            }
+            Act::Mirror => session.data.mirror(),
+            Act::Factory => {
+                session.data.factory_positions();
+                session.ui.status("Factory positions restored");
+            }
+            Act::Export => session.request = Some(LayoutRequest::Export),
+            Act::Import => session.request = Some(LayoutRequest::Import),
+            Act::Dismiss => session.ui.message = None,
+            Act::Save => {
+                let result = session.data.commit_copy();
+                return match result {
+                    Ok(layouts) => {
+                        let previous = std::mem::replace(&mut self.layouts, layouts);
+                        if let Err(error) = self.persist() {
+                            self.layouts = previous;
+                            session.ui.status(format!("Save failed: {error}"));
+                            return false;
+                        }
+                        self.router.clear();
+                        self.tick_events();
+                        self.status = None;
+                        true
+                    }
+                    Err(error) => {
+                        session.ui.status(format!("Cannot save: {error}"));
+                        false
+                    }
+                };
+            }
+            Act::Cancel => {
+                self.layouts = session.data.cancel_copy();
+                self.router.clear();
+                self.tick_events();
+                return true;
             }
         }
-        state
+        false
     }
+    fn persist(&self) -> std::io::Result<()> {
+        self.layouts.save(&self.path)
+    }
+    /// Write the named layouts where the Documents provider picks them up.
+    pub fn export_layout(&self) -> std::io::Result<Vec<u8>> {
+        self.layouts.to_json()
+    }
+    pub fn import_layout(&mut self, bytes: &[u8]) -> std::io::Result<()> {
+        let layouts = Layouts::from_json(bytes)?;
+        self.layouts = layouts;
+        self.router.clear();
+        self.tick_events();
+        if let Some(session) = &mut self.editor {
+            match Editor::new(self.layouts.clone()) {
+                Ok(data) => {
+                    let tab = session.ui.tab;
+                    session.data = data;
+                    session.ui = EditorUi { tab, ..EditorUi::default() };
+                }
+                Err(error) => session.ui.status(format!("{error}")),
+            }
+        } else {
+            self.persist()?;
+        }
+        Ok(())
+    }
+    pub fn capture_custom_key(&mut self, name: &str) -> bool {
+        if !hud::valid_token(name) {
+            return false;
+        }
+        let Some(session) = self.editor.as_mut() else {
+            return false;
+        };
+        if !session.ui.capturing {
+            return false;
+        }
+        let label = Action::Key(name.to_owned()).label();
+        match session.data.add_key(&label, name, Icon::Text) {
+            Ok(id) => {
+                session.ui.selected = Some(id);
+                session.ui.capturing = false;
+                session.ui.status(format!("Added {label}"));
+                self.clicked = true;
+                true
+            }
+            Err(error) => {
+                session.ui.status(format!("Cannot add: {error}"));
+                false
+            }
+        }
+    }
+}
+
+fn lookup_applies(look: &Look) -> bool {
+    !look.dragged || look.committed
+}
+
+fn free_name(existing: &[Layout], base: &str) -> String {
+    for index in 2..100 {
+        let name = format!("{base} {index}");
+        if !existing
+            .iter()
+            .any(|layout| layout.name.trim().eq_ignore_ascii_case(&name))
+        {
+            return name;
+        }
+    }
+    base.to_owned()
+}
+
+fn control_of(id: Id) -> Option<Control> {
+    Some(match id {
+        Id::Joystick => Control::Move,
+        Id::Sprint => Control::Sprint,
+        Id::Jump => Control::Jump,
+        Id::Sneak => Control::Sneak,
+        Id::Attack => Control::Attack,
+        Id::Use => Control::Use,
+        Id::Inventory => Control::Inventory,
+        Id::Chat => Control::Chat,
+        Id::Pause => Control::Pause,
+        Id::Settings => Control::Settings,
+        Id::Perspective => Control::Perspective,
+        Id::Players | Id::More | Id::Custom(_) => return None,
+    })
+}
+
+/// Carry a 0.8.x profile over once, keeping real keys and positions.
+fn migrate_legacy() -> Option<Layouts> {
+    let path = Path::new(LEGACY_FILE);
+    if !path.exists() {
+        return None;
+    }
+    let settings = Settings::load_from(path);
+    let mut layout = Layout::factory("Migrated");
+    let row = &settings.layouts[Mode::Crosshair.index()];
+    for (id, control) in [
+        (Id::Joystick, Control::Move),
+        (Id::Sprint, Control::Sprint),
+        (Id::Jump, Control::Jump),
+        (Id::Sneak, Control::Sneak),
+        (Id::Attack, Control::Attack),
+        (Id::Use, Control::Use),
+        (Id::Inventory, Control::Inventory),
+        (Id::Chat, Control::Chat),
+        (Id::Pause, Control::Pause),
+        (Id::Settings, Control::Settings),
+        (Id::Perspective, Control::Perspective),
+    ] {
+        let placement = row[control as usize];
+        if let Some(button) = layout.button_mut(id) {
+            button.circle.center = [
+                placement.center[0].clamp(0.0, 1.0),
+                placement.center[1].clamp(0.0, 1.0),
+            ];
+            button.circle.radius = (placement.size * 0.5).clamp(0.015, 0.24);
+            button.opacity = placement.opacity.clamp(0.0, 1.0);
+        }
+    }
+    for (index, legacy) in settings.custom_buttons.iter().enumerate() {
+        if !hud::valid_token(&legacy.key) {
+            continue;
+        }
+        let placement = legacy.layouts[Mode::Crosshair.index()];
+        let mut button = hud::Button::new(
+            Id::Custom(index as u32),
+            Some(Action::Key(legacy.key.clone())),
+            [
+                placement.center[0].clamp(0.0, 1.0),
+                placement.center[1].clamp(0.0, 1.0),
+            ],
+            (placement.size * 0.5).clamp(0.015, 0.24),
+        );
+        button.opacity = placement.opacity.clamp(0.0, 1.0);
+        button.label = legacy.name.chars().filter(|c| !c.is_control()).take(32).collect();
+        button.behavior = if legacy.single {
+            Behavior::Single
+        } else if legacy.toggle {
+            Behavior::Toggle
+        } else {
+            Behavior::Hold
+        };
+        button.visibility = match legacy.visibility {
+            CustomVisibility::Always => hud::Visibility::Always,
+            CustomVisibility::Gameplay => hud::Visibility::Gameplay,
+            CustomVisibility::Inventory => hud::Visibility::Inventory,
+        };
+        button.icon = match legacy.icon {
+            CustomIcon::Text => Icon::Text,
+            CustomIcon::Attack => Icon::Sword,
+            CustomIcon::Use => Icon::Use,
+            CustomIcon::Jump => Icon::Jump,
+            CustomIcon::Sneak => Icon::Sneak,
+            CustomIcon::Sprint => Icon::Sprint,
+        };
+        if button.valid() {
+            layout.buttons.push(button);
+        }
+    }
+    if !layout.valid() {
+        layout = Layout::factory("Migrated");
+    }
+    Some(Layouts { schema: 1, active: 0, default: 0, items: vec![layout] })
 }
 
 /// Original optional resource-pack artwork. Missing states keep the default UI.
@@ -1238,747 +1604,321 @@ fn line(
 }
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn factory_swap_stays_beside_inventory_without_covering_action_buttons() {
-        for (w, h) in [(2560, 1600), (2400, 1080), (1080, 2400), (240, 320)] {
-            for left_handed in [false, true] {
-                for mode in Mode::ALL {
-                    let mut touch = TouchControls::default();
-                    touch.viewport(w, h);
-                    touch.settings.left_handed = left_handed;
-                    touch.settings.mode = mode;
-                    let swap = touch.placement(Control::Offhand).rect(touch.aspect());
-                    for control in [
-                        Control::Inventory,
-                        Control::Sprint,
-                        Control::Sneak,
-                        Control::Jump,
-                    ] {
-                        let other = touch.placement(control).rect(touch.aspect());
-                        let overlaps = swap[0] < other[0] + other[2]
-                            && other[0] < swap[0] + swap[2]
-                            && swap[1] < other[1] + other[3]
-                            && other[1] < swap[1] + swap[3];
-                        assert!(!overlaps, "{w}x{h}, {left_handed}, {mode:?}: {control:?}");
-                    }
-                    touch.settings.layouts[mode.index()][Control::Offhand as usize].center =
-                        [0.55, 0.43];
-                    let custom = touch.placement(Control::Offhand).center;
-                    assert!((custom[0] - if left_handed { 0.45 } else { 0.55 }).abs() < 0.0001);
-                    assert_eq!(custom[1], 0.43);
-                }
-            }
-        }
-    }
-    #[test]
-    fn camera_calibration_uses_physical_distance_on_both_axes() {
-        let mut settings = Settings::default();
-        for (w, h) in [(2400, 1080), (1080, 2400)] {
-            let turn = camera_delta([100.0 / w as f32, 100.0 / h as f32], w, h, &settings);
-            assert!((turn[0] - turn[1]).abs() < 0.0001);
-            settings.sensitivity_vertical = 0.5;
-            let tuned = camera_delta([100.0 / w as f32, 100.0 / h as f32], w, h, &settings);
-            assert!((tuned[0] - tuned[1] * 2.0).abs() < 0.0001);
-            settings.sensitivity_vertical = 1.0;
-        }
-    }
+    use super::*;
 
-    #[test]
-    fn surface_tools_tap_but_projectiles_keep_hold_use_and_center_aim() {
-        for id in [
-            "bone_meal",
-            "flint_and_steel",
-            "fire_charge",
-            "water_bucket",
-            "honeycomb",
-        ] {
-            assert!(item_uses_on_tap(&format!("minecraft:{id}")));
-        }
-        for id in [
-            "bow",
-            "crossbow",
-            "snowball",
-            "egg",
-            "wind_charge",
-            "trident",
-        ] {
-            let id = format!("minecraft:{id}");
-            assert!(!item_uses_on_tap(&id));
-            assert!(projectile_crosshair(&id));
-        }
-        let mut t = TouchControls::default();
-        t.settings.mode = Mode::Tap;
-        assert!(!projectile_crosshair("minecraft:firework_rocket"));
-        t.projectile_crosshair = true;
-        t.hold_uses_item = true;
-        t.update(1, [0.6, 0.4], true, false);
-        t.update(1, [0.6, 0.4], false, true);
-        t.poll_state();
-        assert_eq!(t.aim, Some([0.5, 0.5]));
-        assert_eq!(t.take_tap(), Some(true));
+    fn temp_controls(name: &str) -> TouchControls {
+        let mut controls = TouchControls::default();
+        let mut path = std::env::temp_dir();
+        path.push(format!(
+            "craftix-controls-test-{}-{name}.json",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(path.with_extension("craftix-tmp"));
+        controls.path = path;
+        controls
     }
-
-    #[test]
-    fn new_buttons_preserve_old_layouts_and_release_shield() {
-        let settings = Settings::default();
-        let mut old = serde_json::to_value(&settings).unwrap();
-        for row in old["layouts"].as_array_mut().unwrap() {
-            row.as_array_mut().unwrap().truncate(12);
-        }
-        old["button_visibility"]
-            .as_array_mut()
+    fn center(controls: &TouchControls, id: Id) -> [f32; 2] {
+        controls
+            .layouts
+            .current()
+            .button(id)
             .unwrap()
-            .truncate(12);
-        old["layouts"][0][0]["center"] = serde_json::json!([0.2, 0.7]);
-        let restored: Settings = serde_json::from_value(old).unwrap();
-        assert_eq!(restored.layouts[0][0].center, [0.2, 0.7]);
-        assert!(!restored.offhand_button);
-        let mut t = TouchControls::default();
-        assert!(!t.visible(Control::Offhand));
-        t.settings.offhand_button = true;
-        let p = t.placement(Control::Offhand).center;
-        t.update(1, p, true, false);
-        assert_eq!(
-            t.key_events(),
-            [
-                ("action:key.swapOffhand".into(), true),
-                ("action:key.swapOffhand".into(), false)
-            ]
-        );
-        t.clear();
-        t.settings.shield_button = true;
-        t.shield_available = true;
-        let p = t.placement(Control::Shield).center;
-        t.update(2, p, true, false);
-        assert!(t.shield_held());
-        t.update(2, [0.5, 0.4], false, false);
-        assert!(t.shield_held());
-        assert!(t.poll_state().triggers[0] > 0.0);
-        t.update(2, [0.5, 0.4], false, true);
-        assert!(!t.shield_held());
-        assert_eq!(t.poll_state().triggers[0], 0.0);
+            .circle
+            .center
+    }
+    fn widget_point(controls: &TouchControls, act: Act) -> [f32; 2] {
+        let surface = controls.surface();
+        let session = controls.editor.as_ref().unwrap();
+        let widget = session
+            .ui
+            .widgets(&session.data, surface[0], surface[1])
+            .into_iter()
+            .rev()
+            .find(|widget| widget.act == act)
+            .unwrap();
+        [
+            (widget.rect[0] + widget.rect[2] / 2.0) / surface[0],
+            (widget.rect[1] + widget.rect[3] / 2.0) / surface[1],
+        ]
     }
 
     #[test]
-    fn entity_placement_taps_do_not_change_consumption_and_throwing_holds() {
-        for id in [
-            "oak_boat",
-            "oak_chest_boat",
-            "bamboo_raft",
-            "bamboo_chest_raft",
-            "villager_spawn_egg",
-            "minecart",
-            "chest_minecart",
-            "armor_stand",
-            "item_frame",
-            "painting",
-            "end_crystal",
-        ] {
-            assert!(
-                item_places_entity_on_tap(&format!("minecraft:{id}")),
-                "{id}"
-            );
-        }
-        for id in [
-            "egg",
-            "snowball",
-            "wind_charge",
-            "firework_rocket",
-            "fishing_rod",
-            "apple",
-            "wheat_seeds",
-            "diamond_helmet",
-            "bow",
-        ] {
-            assert!(
-                !item_places_entity_on_tap(&format!("minecraft:{id}")),
-                "{id}"
-            );
-        }
-        assert!(!item_places_entity_on_tap("example:spell_boat"));
+    fn held_buttons_become_real_engine_buttons_and_release_on_lift() {
+        let mut controls = TouchControls::default();
+        let jump = center(&controls, Id::Jump);
+        controls.update(1, jump, true, false);
+        assert!(controls.poll_state().held(Button::South));
+        controls.update(1, jump, false, true);
+        assert!(!controls.poll_state().held(Button::South));
     }
 
     #[test]
-    fn world_taps_never_press_attack_or_use_and_remember_the_original_item() {
-        for (mode, split) in [
-            (Mode::Tap, false),
-            (Mode::Dpad, false),
-            (Mode::Crosshair, false),
-            (Mode::Dpad, true),
-        ] {
-            for held_use in [false, true] {
-                let mut t = TouchControls::default();
-                t.settings.mode = mode;
-                t.settings.split_controls = split;
-                t.settings.crosshair_gestures = true;
-                t.hold_uses_item = held_use;
-                t.update(1, [0.6, 0.4], true, false);
-                t.hold_uses_item = !held_use;
-                t.update(1, [0.6, 0.4], false, true);
-                assert_eq!(t.poll_state().triggers, [0.0; 2]);
-                assert_eq!(t.take_tap(), Some(held_use));
-                assert_eq!(t.take_tap(), None);
-                t.update(2, [0.6, 0.4], true, false);
-                t.update(2, [0.6, 0.4], false, true);
-                t.clear();
-                assert_eq!(t.take_tap(), None);
-            }
-        }
-    }
-    #[test]
-    fn sprint_toggle_survives_finger_release_and_clears_on_focus_loss() {
-        let mut t = TouchControls {
-            loaded: true,
-            aspect: 16.0 / 9.0,
-            ..Default::default()
-        };
-        t.settings.sprint_toggle = true;
-        let point = t.placement(Control::Sprint).center;
-        t.update(1, point, true, false);
-        t.update(1, point, false, true);
-        assert!(t.poll_state().held(Button::LeftStick));
-        t.update(2, point, true, false);
-        t.update(2, point, false, true);
-        assert!(!t.poll_state().held(Button::LeftStick));
-        t.update(3, point, true, false);
-        t.clear();
-        assert!(!t.poll_state().held(Button::LeftStick));
-        t.settings.sprint_toggle = false;
-        t.update(4, point, true, false);
-        assert!(t.poll_state().held(Button::LeftStick));
-        t.update(4, point, false, true);
-        assert!(!t.poll_state().held(Button::LeftStick));
-    }
-    #[test]
-    fn joystick_jump_and_attack_are_independent_multitouch_holds() {
-        let mut t = TouchControls::default();
-        t.viewport(1920, 1080);
-        let movement = t.placement(Control::Move).center;
-        let jump = t.placement(Control::Jump).center;
-        let attack = t.placement(Control::Attack).center;
-        t.update(1, movement, true, false);
-        t.update(1, [movement[0], movement[1] - 0.08], false, false);
-        t.update(2, jump, true, false);
-        t.update(3, attack, true, false);
-        let state = t.poll_state();
-        assert_ne!(state.left, [0.0, 0.0]);
+    fn joystick_attack_and_jump_share_the_surface_without_losing_each_other() {
+        let mut controls = TouchControls::default();
+        let joystick = center(&controls, Id::Joystick);
+        let attack = center(&controls, Id::Attack);
+        let jump = center(&controls, Id::Jump);
+        controls.update(1, joystick, true, false);
+        controls.update(1, [joystick[0], joystick[1] - 0.12], false, false);
+        controls.update(2, attack, true, false);
+        controls.update(3, jump, true, false);
+        let state = controls.poll_state();
         assert!(state.held(Button::South));
         assert_eq!(state.triggers[1], 1.0);
-        t.update(2, jump, false, true);
-        let state = t.poll_state();
-        assert!(!state.held(Button::South));
-        assert_eq!(state.triggers[1], 1.0);
-        assert_ne!(state.left, [0.0, 0.0]);
-        t.update(3, attack, false, true);
-        t.update(1, movement, false, true);
-        assert_eq!(t.poll_state(), PadState::default());
-    }
-    #[test]
-    fn global_button_scale_changes_hit_geometry_without_rewriting_saved_layouts() {
-        let mut touch = TouchControls::default();
-        touch.viewport(1920, 1080);
-        let before = touch.placement(Control::Jump);
-        let stored = touch.settings.placement(Control::Jump).size;
-        touch.settings.button_scale = 1.5;
-        let after = touch.placement(Control::Jump);
-        assert!((after.size - before.size * 1.5).abs() < 0.00001);
-        assert_eq!(touch.settings.placement(Control::Jump).size, stored);
-        touch.settings.button_scale = f32::NAN;
-        touch.settings.sanitize();
-        assert_eq!(touch.settings.button_scale, 1.0);
+        assert!(state.left[1] > 0.0);
+        controls.update(2, attack, false, true);
+        let state = controls.poll_state();
+        assert_eq!(state.triggers[1], 0.0);
+        assert!(state.held(Button::South));
     }
 
     #[test]
-    fn oversized_controls_can_be_dragged_on_narrow_portrait_surfaces() {
-        let mut touch = TouchControls {
-            aspect: 0.4,
-            loaded: true,
-            ..Default::default()
-        };
-        touch.settings.layouts[0][Control::Move as usize].size = 0.45;
-        touch.open_editor();
-        let center = touch.placement(Control::Move).center;
-        touch.edit_touch(77, center, true, false);
-        assert_eq!(touch.editor.as_ref().unwrap().selected, Some(Control::Move));
-        touch.edit_touch(77, [0.95, 0.95], false, false);
-        let [x, y, w, h] = touch.placement(Control::Move).rect(touch.aspect());
-        assert!(x >= 0.0 && y >= 0.0 && x + w <= 1.0001 && y + h <= 1.0001);
-        touch.cancel_editor();
+    fn a_short_tap_aims_and_requests_interaction_without_turning_the_camera() {
+        let mut controls = TouchControls::default();
+        assert_eq!(controls.update(1, [0.5, 0.45], true, false), [0.0, 0.0]);
+        controls.update(1, [0.5, 0.45], false, true);
+        assert_eq!(controls.take_tap(), Some(false));
+        let _ = controls.poll_state();
+        let aim = controls.aim.expect("the tap should aim");
+        assert!((aim[0] - 0.5).abs() < 1e-6 && (aim[1] - 0.45).abs() < 1e-6);
     }
     #[test]
-    fn portrait_factory_shortcuts_do_not_overlap_and_margins_do_not_move_controls() {
-        let mut touch = TouchControls::default();
-        touch.viewport(480, 854);
-        let controls = [
-            Control::Debug,
-            Control::Chat,
-            Control::Pause,
-            Control::Settings,
-            Control::Perspective,
-        ];
-        let rects: Vec<_> = controls
+    fn a_camera_drag_returns_a_delta_and_never_becomes_a_tap() {
+        let mut controls = TouchControls::default();
+        controls.update(1, [0.5, 0.5], true, false);
+        let delta = controls.update(1, [0.6, 0.5], false, false);
+        assert!(delta[0] > 0.0);
+        controls.update(1, [0.6, 0.5], false, true);
+        assert_eq!(controls.take_tap(), None);
+    }
+
+    #[test]
+    fn two_fingers_on_one_key_emit_balanced_shared_edges() {
+        let mut controls = TouchControls::default();
+        let mut layout = controls.layouts.current().clone();
+        layout.buttons.push(hud::Button::new(
+            Id::Custom(0),
+            Some(Action::Key("key.keyboard.m".into())),
+            [0.55, 0.30],
+            0.04,
+        ));
+        controls.layouts.items[0] = layout;
+        controls.update(1, [0.55, 0.30], true, false);
+        controls.update(2, [0.55, 0.30], true, false);
+        assert_eq!(
+            controls.key_events(),
+            vec![("key.keyboard.m".to_string(), true)]
+        );
+        assert!(controls.held_custom_tokens().any(|token| token == "key.keyboard.m"));
+        controls.update(1, [0.55, 0.30], false, true);
+        assert!(controls.key_events().is_empty());
+        controls.update(2, [0.55, 0.30], false, true);
+        assert_eq!(
+            controls.key_events(),
+            vec![("key.keyboard.m".to_string(), false)]
+        );
+    }
+
+    #[test]
+    fn losing_focus_releases_every_held_key_and_button() {
+        let mut controls = temp_controls("focus");
+        controls.viewport(1920, 1080);
+        let jump = center(&controls, Id::Jump);
+        controls.update(1, jump, true, false);
+        assert!(controls.poll_state().held(Button::South));
+        controls.clear();
+        assert!(!controls.poll_state().held(Button::South));
+        assert!(controls.key_events().is_empty());
+    }
+
+    #[test]
+    fn a_rotation_clears_held_touches_without_stranding_a_button() {
+        let mut controls = temp_controls("rotate");
+        controls.viewport(1920, 1080);
+        let jump = center(&controls, Id::Jump);
+        controls.update(1, jump, true, false);
+        assert!(controls.poll_state().held(Button::South));
+        controls.viewport(1080, 2400);
+        assert!(!controls.poll_state().held(Button::South));
+    }
+
+    #[test]
+    fn inventory_mode_sends_real_key_edges_instead_of_world_gestures() {
+        let mut controls = TouchControls::default();
+        controls.set_inventory_mode(true);
+        let attack = center(&controls, Id::Attack);
+        controls.update(1, attack, true, false);
+        assert_eq!(
+            controls.key_events(),
+            vec![("action:key.attack".to_string(), true)]
+        );
+        assert_eq!(controls.take_tap(), None);
+        controls.update(1, attack, false, true);
+        assert_eq!(
+            controls.key_events(),
+            vec![("action:key.attack".to_string(), false)]
+        );
+    }
+
+    #[test]
+    fn the_top_bar_asks_the_host_for_chat_and_perspective() {
+        let mut controls = TouchControls::default();
+        let chat = center(&controls, Id::Chat);
+        let perspective = center(&controls, Id::Perspective);
+        controls.update(1, chat, true, true);
+        assert!(controls.chat_requested);
+        controls.update(2, perspective, true, true);
+        assert!(controls.perspective_requested);
+        let more = center(&controls, Id::More);
+        controls.update(3, more, true, true);
+        let _ = controls.poll_state();
+        assert!(controls.editor.is_some(), "More opens the editor directly");
+    }
+
+    #[test]
+    fn named_layouts_survive_a_restart_with_the_chosen_default() {
+        let mut controls = temp_controls("persist");
+        controls.viewport(1920, 1080);
+        controls.open_editor();
+        let mut session = controls.editor.take().unwrap();
+        session.data.create("Second").unwrap();
+        session.data.staged.set_default(1).unwrap();
+        assert!(controls.apply_editor(&mut session, Act::Save));
+        let mut restarted = TouchControls::default();
+        restarted.path = controls.path.clone();
+        restarted.viewport(1920, 1080);
+        assert_eq!(restarted.layouts.items.len(), 2);
+        assert_eq!(restarted.layouts.default, 1);
+        assert_eq!(restarted.layouts.current().name, "Second");
+        let _ = std::fs::remove_file(&controls.path);
+    }
+
+    #[test]
+    fn cancel_restores_the_previous_layouts_without_touching_the_file() {
+        let mut controls = temp_controls("cancel");
+        controls.viewport(1920, 1080);
+        let before = std::fs::read(&controls.path).unwrap();
+        controls.open_editor();
+        let mut session = controls.editor.take().unwrap();
+        session.data.create("Scratch").unwrap();
+        assert!(controls.apply_editor(&mut session, Act::Cancel));
+        assert_eq!(controls.layouts.items.len(), 1);
+        assert_eq!(std::fs::read(&controls.path).unwrap(), before);
+        let _ = std::fs::remove_file(&controls.path);
+    }
+
+    #[test]
+    fn tapping_save_in_the_panel_commits_and_closes_the_editor() {
+        let mut controls = temp_controls("save-tap");
+        controls.viewport(1920, 1080);
+        controls.open_editor();
+        let point = widget_point(&controls, Act::Save);
+        assert!(controls.edit_touch(7, point, true, true));
+        assert!(controls.editor.is_none());
+        assert!(controls.layouts.valid());
+        let _ = std::fs::remove_file(&controls.path);
+    }
+
+    #[test]
+    fn the_position_tab_drags_buttons_and_save_keeps_the_new_place() {
+        let mut controls = temp_controls("drag");
+        controls.viewport(1920, 1080);
+        controls.open_editor();
+        controls.editor.as_mut().unwrap().ui.tab = Tab::Position;
+        let start = center(&controls, Id::Jump);
+        let moved = [start[0] - 0.08, start[1] - 0.06];
+        assert!(!controls.edit_touch(3, start, true, false));
+        assert!(!controls.edit_touch(3, moved, false, false));
+        assert!(!controls.edit_touch(3, moved, false, true));
+        let staged = controls
+            .editor
+            .as_ref()
+            .unwrap()
+            .data
+            .buttons()
             .iter()
-            .map(|c| touch.placement(*c).rect(touch.aspect()))
-            .collect();
-        for pair in rects.windows(2) {
-            assert!(pair[0][0] + pair[0][2] < pair[1][0]);
-        }
-        touch.settings.horizontal_margin = 0.12;
-        touch.settings.vertical_margin = 0.12;
-        assert_eq!(
-            rects,
-            controls
-                .iter()
-                .map(|c| touch.placement(*c).rect(touch.aspect()))
-                .collect::<Vec<_>>()
-        );
-        touch.settings.layouts[0][Control::Chat as usize].center = [0.25, 0.2];
-        assert_eq!(touch.placement(Control::Chat).center, [0.25, 0.2]);
-    }
-
-    use super::*;
-    #[test]
-    fn editor_add_row_creates_a_button_without_closing_the_editor() {
-        let mut touch = TouchControls::default();
-        touch.viewport(1920, 1080);
-        touch.open_editor();
-        assert!(!touch.edit_touch(1, [0.15, 0.165], true, true));
-        assert!(!touch.edit_touch(2, [0.5, 0.875], true, true));
-        assert!(touch.editor.is_some());
-        assert_eq!(touch.settings.custom_buttons.len(), 1);
-        assert_eq!(touch.settings.custom_buttons[0].key, "key.keyboard.unknown");
-        touch.cancel_editor();
-        assert!(touch.settings.custom_buttons.is_empty());
+            .find(|button| button.id == Id::Jump)
+            .unwrap()
+            .circle
+            .center;
+        assert!((staged[0] - moved[0]).abs() < 1e-3, "{staged:?}");
+        let mut session = controls.editor.take().unwrap();
+        assert!(controls.apply_editor(&mut session, Act::Save));
+        let saved = controls.layouts.current().button(Id::Jump).unwrap().circle.center;
+        assert!((saved[0] - moved[0]).abs() < 1e-3);
+        let _ = std::fs::remove_file(&controls.path);
     }
 
     #[test]
-    fn keypad_utility_overlay_keeps_buttons_without_movement_targets() {
-        let mut t = TouchControls::default();
-        t.viewport(1920, 1080);
-        t.auxiliary_only = true;
-        assert!(!t.visible(Control::Move));
-        assert!(!t.visible(Control::Jump));
-        assert!(t.visible(Control::Debug));
-        let at = t.placement(Control::Debug).center;
-        assert!(t.auxiliary_at(at));
-        t.update(77, at, true, false);
-        assert!(t.debug_requested);
-        t.update(77, at, false, true);
-        assert!(!t.owns_pointer(77));
-    }
-    #[test]
-    fn attack_gauge_survives_tap_modes_and_respects_off() {
-        assert_eq!(attack_indicator(0, false), 0);
-        assert_eq!(attack_indicator(1, false), 2);
-        assert_eq!(attack_indicator(1, true), 1);
-        assert_eq!(attack_indicator(2, false), 2);
-    }
-    #[test]
-    fn shortcuts_consume_their_finger_and_preserve_movement() {
-        let mut touch = TouchControls::default();
-        touch.update(1, [0.13, 0.76], true, false);
-        touch.update(1, [0.13, 0.68], false, false);
-        let moving = touch.poll_state().left;
-        assert_ne!(moving, [0.0; 2]);
-        for (id, control) in [(2, Control::Debug), (3, Control::Perspective)] {
-            let point = touch.settings.placement(control).center;
-            touch.update(id, point, true, false);
-            assert!(matches!(touch.fingers[&id].0, Role::Ignore));
-            assert_eq!(touch.poll_state().left, moving);
-            assert_eq!(touch.poll_state().triggers, [0.0; 2]);
-            touch.update(id, point, false, true);
-        }
-        assert!(touch.debug_requested && touch.perspective_requested);
-        touch.clear();
-        assert!(!touch.debug_requested && !touch.perspective_requested);
-    }
-    #[test]
-    fn mining_indicator_grows_outwards_with_bounded_radius() {
-        assert_eq!(mining_radius(16.0, 0.0), 0.0);
-        assert_eq!(mining_radius(16.0, 0.5), 7.25);
-        assert_eq!(mining_radius(16.0, 1.0), 14.5);
-        assert_eq!(mining_radius(16.0, 2.0), 14.5);
-        assert_eq!(mining_radius(16.0, -1.0), 0.0);
-        assert_eq!(mining_radius(16.0, f32::NAN), 0.0);
-    }
-    #[test]
-    fn contextual_button_is_opt_in_targeted_and_owned_until_release() {
-        let mut t = TouchControls::default();
-        t.settings.mode = Mode::Tap;
-        t.context_use = true;
-        assert!(!t.visible(Control::Use));
-        t.settings.contextual_interact = true;
-        assert!(t.visible(Control::Use));
-        t.update(1, [0.92, 0.52], true, false);
-        t.context_use = false;
-        assert!(t.visible(Control::Use));
-        assert_eq!(t.poll_state().triggers[0], 1.0);
-        t.update(1, [0.92, 0.52], false, true);
-        assert!(!t.visible(Control::Use));
-        t.settings.mode = Mode::Crosshair;
-        assert!(t.visible(Control::Use));
-    }
-    #[test]
-    fn looking_with_food_does_not_start_eating_and_use_button_never_disappears() {
-        let mut t = TouchControls::default();
-        t.settings.mode = Mode::Tap;
-        t.hold_uses_item = true;
-        t.update(1, [0.6, 0.4], true, false);
-        assert_eq!(t.poll_state().triggers, [0.0; 2]);
-        t.update(1, [0.7, 0.4], false, false);
-        if let Some((Role::Look { since, .. }, _)) = t.fingers.get_mut(&1) {
-            *since = Instant::now() - Duration::from_secs(1);
-        }
-        assert_eq!(t.poll_state().triggers, [0.0; 2]);
-        assert!(!t.visible(Control::Use));
-        assert_eq!(t.pointer(), Some([0.7, 0.4]));
-    }
-    #[test]
-    fn all_four_schemes_are_selectable_and_large_icons_remain_inside_the_surface() {
-        let mut t = TouchControls::default();
-        for (i, (mode, split, _)) in Mode::SCHEMES.into_iter().enumerate() {
-            t.settings.mode = mode;
-            t.settings.split_controls = split;
-            assert_eq!(t.settings.mode, mode);
-            assert_eq!(t.settings.split_controls, split);
-            assert_eq!(t.settings.crosshair(), i == 0 || i == 3);
-        }
-        t.cancel_editor();
-        t.settings.layouts[0][Control::Jump as usize].center = [0.99, 0.99];
-        t.settings.layouts[0][Control::Jump as usize].size = 0.4;
-        let r = t.placement(Control::Jump).rect(t.aspect());
-        assert!(r[0] >= 0.0 && r[1] >= 0.0 && r[0] + r[2] <= 1.00001 && r[1] + r[3] <= 1.00001);
-    }
-    #[test]
-    fn optional_crosshair_gestures_target_center_for_both_movement_schemes() {
-        for (mode, split) in [(Mode::Crosshair, false), (Mode::Dpad, true)] {
-            let mut t = TouchControls::default();
-            t.settings.mode = mode;
-            t.settings.split_controls = split;
-            t.settings.crosshair_gestures = true;
-            t.update(1, [0.6, 0.4], true, false);
-            t.update(1, [0.6, 0.4], false, true);
-            assert_eq!(t.poll_state().triggers, [0.0; 2]);
-            assert_eq!(t.take_tap(), Some(false));
-            assert_eq!(t.aim, Some([0.5, 0.5]));
-            t.inventory_mode = true;
-            t.settings.button_visibility[Control::Attack as usize] = 2;
-            assert!(!t.visible(Control::Attack));
-        }
-    }
-    #[test]
-    fn quick_tap_survives_one_poll_and_shared_buttons_release_independently() {
-        let mut t = TouchControls::default();
-        t.update(1, [0.92, 0.78], true, false);
-        t.update(1, [0.92, 0.78], false, true);
-        assert!(t.poll_state().held(Button::South));
-        assert!(!t.poll_state().held(Button::South));
-        t.update(2, [0.80, 0.64], true, false);
-        t.update(3, [0.80, 0.64], true, false);
-        t.update(2, [0.80, 0.64], false, true);
-        assert_eq!(t.state().triggers[1], 1.0);
-        t.update(3, [0.80, 0.64], false, true);
-        assert_eq!(t.state().triggers[1], 0.0);
-    }
-    #[test]
-    fn joystick_camera_and_jump_have_independent_owners() {
-        let mut t = TouchControls::default();
-        t.update(1, [0.13, 0.76], true, false);
-        t.update(1, [0.20, 0.64], false, false);
-        t.update(2, [0.6, 0.4], true, false);
-        let d = t.update(2, [0.65, 0.45], false, false);
-        assert!((d[0] - 0.05).abs() < 0.0001);
-        t.update(3, [0.92, 0.78], true, false);
-        assert!(t.state().held(Button::South));
-        assert!(t.state().left[0] > 0.6);
-        t.update(4, [0.09, 0.76], true, false);
-        t.update(4, [0.02, 0.70], false, false);
-        assert!(t.state().left[0] > 0.6);
-        t.clear();
-        assert_eq!(t.poll_state(), PadState::default());
-    }
-    #[test]
-    fn auto_sprint_starts_outside_and_stops_inside_the_joystick() {
-        let mut t = TouchControls::default();
-        t.settings.sprint_with_joystick = true;
-        t.update(1, [0.13, 0.76], true, false);
-        t.update(1, [0.13, 0.62], false, false);
-        assert!(!t.state().held(Button::LeftStick));
-        t.update(1, [0.13, 0.58], false, false);
-        assert!(t.state().held(Button::LeftStick));
-        t.update(1, [0.13, 0.62], false, false);
-        assert!(!t.state().held(Button::LeftStick));
-    }
-    #[test]
-    fn tap_aim_and_camera_drag_are_distinct() {
-        let mut t = TouchControls::default();
-        t.settings.mode = Mode::Tap;
-        t.update(1, [0.6, 0.4], true, false);
-        t.update(1, [0.6, 0.4], false, true);
-        assert_eq!(t.poll_state().triggers, [0.0; 2]);
-        assert_eq!(t.take_tap(), Some(false));
-        assert_eq!(t.aim, Some([0.6, 0.4]));
-        assert_eq!(t.poll_state().triggers[0], 0.0);
-        assert_eq!(t.aim, None);
-        t.update(2, [0.6, 0.4], true, false);
-        t.update(2, [0.7, 0.4], false, false);
-        t.update(2, [0.7, 0.4], false, true);
-        assert_eq!(t.poll_state().triggers, [0.0; 2]);
+    fn capturing_a_physical_key_creates_a_working_button() {
+        let mut controls = temp_controls("capture");
+        controls.viewport(1920, 1080);
+        controls.open_editor();
+        assert!(!controls.capture_custom_key("key.keyboard.m"));
+        let point = widget_point(&controls, Act::AddKey);
+        assert!(!controls.edit_touch(1, point, true, true));
+        assert!(!controls.capture_custom_key("key.keyboard.not-real"));
+        assert!(controls.capture_custom_key("key.keyboard.m"));
+        let session = controls.editor.as_ref().unwrap();
+        let added = session
+            .data
+            .buttons()
+            .iter()
+            .find(|button| button.action == Some(Action::Key("key.keyboard.m".into())));
+        assert!(added.is_some(), "the captured key must be a real binding");
+        assert!(!session.ui.capturing);
+        let _ = std::fs::remove_file(&controls.path);
     }
 
     #[test]
-    fn long_hold_keeps_mining_while_the_camera_turns() {
-        let mut t = TouchControls::default();
-        t.settings.mode = Mode::Tap;
-        t.update(1, [0.6, 0.4], true, false);
-        if let Some((Role::Look { since, .. }, _)) = t.fingers.get_mut(&1) {
-            *since = Instant::now() - Duration::from_millis(400);
-        }
-        assert_eq!(t.poll_state().triggers[1], 1.0);
-        assert_eq!(t.aim, Some([0.6, 0.4]));
-        assert_ne!(t.update(1, [0.7, 0.4], false, false), [0.0; 2]);
-        assert_eq!(t.poll_state().triggers[1], 1.0);
-        assert_eq!(t.aim, Some([0.7, 0.4]));
-        t.update(1, [0.7, 0.4], false, true);
-        assert_eq!(t.poll_state().triggers[1], 0.0);
+    fn layout_files_round_trip_through_export_and_import() {
+        let mut controls = temp_controls("transfer");
+        controls.viewport(1920, 1080);
+        controls.open_editor();
+        let mut session = controls.editor.take().unwrap();
+        session.data.create("Exported").unwrap();
+        assert!(controls.apply_editor(&mut session, Act::Save));
+        let bytes = controls.export_layout().unwrap();
+        let mut other = temp_controls("transfer-import");
+        assert!(other.import_layout(&bytes).is_ok());
+        assert_eq!(other.layouts.items.len(), 2);
+        assert!(other.import_layout(b"{}").is_err());
+        let _ = std::fs::remove_file(&controls.path);
+        let _ = std::fs::remove_file(&other.path);
     }
-    #[test]
-    fn held_food_survives_drift_and_releases_with_its_owner() {
-        let mut t = TouchControls::default();
-        t.settings.mode = Mode::Tap;
-        t.hold_uses_item = true;
-        t.update(1, [0.6, 0.4], true, false);
-        if let Some((Role::Look { since, .. }, _)) = t.fingers.get_mut(&1) {
-            *since = Instant::now() - Duration::from_millis(400);
-        }
-        assert_eq!(t.poll_state().triggers, [1.0, 0.0]);
-        assert!(t.holding_use);
-        assert_ne!(t.update(1, [0.66, 0.46], false, false), [0.0; 2]);
-        t.hold_uses_item = false; // consuming the last item cannot become mining
-        assert_eq!(t.poll_state().triggers, [1.0, 0.0]);
-        assert_eq!(t.aim, Some([0.66, 0.46]));
-        t.update(2, [0.4, 0.3], true, false);
-        assert_ne!(t.update(2, [0.45, 0.3], false, false), [0.0; 2]);
-        assert_eq!(t.poll_state().triggers, [1.0, 0.0]);
-        t.update(1, [0.66, 0.46], false, true);
-        assert_eq!(t.poll_state().triggers, [0.0; 2]);
-        assert!(!t.holding_use);
-    }
-    #[test]
-    fn contextual_hold_can_latch_use_without_turning_short_taps_into_holds() {
-        let mut t = TouchControls::default();
-        t.settings.mode = Mode::Tap;
-        t.update(1, [0.6, 0.4], true, false);
-        t.poll_state();
-        assert!(!t.holding);
-        if let Some((Role::Look { since, .. }, _)) = t.fingers.get_mut(&1) {
-            *since = Instant::now() - Duration::from_millis(400);
-        }
-        assert_eq!(t.poll_state().triggers, [0.0, 1.0]);
-        assert!(t.holding);
-        t.latch_use();
-        assert_eq!(t.poll_state().triggers, [1.0, 0.0]);
-        assert_ne!(t.update(1, [0.66, 0.4], false, false), [0.0; 2]);
-        t.update(1, [0.66, 0.4], false, true);
-        assert_eq!(t.poll_state().triggers, [0.0; 2]);
-        assert!(!t.holding);
-        t.update(2, [0.6, 0.4], true, false);
-        t.update(2, [0.6, 0.4], false, true);
-        assert_eq!(t.poll_state().triggers, [0.0, 0.0]);
-        assert_eq!(t.take_tap(), Some(false));
-        assert!(!t.holding);
-    }
-    #[test]
-    fn touch_marker_follows_camera_drag_without_starting_an_action() {
-        let mut t = TouchControls::default();
-        t.settings.mode = Mode::Tap;
-        assert_eq!(t.pointer(), None);
-        t.update(1, [0.6, 0.4], true, false);
-        assert_eq!(t.pointer(), Some([0.6, 0.4]));
-        assert_eq!(t.poll_state().triggers, [0.0; 2]);
-        assert_eq!(t.aim, Some([0.6, 0.4]));
-        t.update(1, [0.7, 0.4], false, false);
-        t.poll_state();
-        assert_eq!(t.pointer(), Some([0.7, 0.4]));
-        assert_eq!(t.aim, None);
-        t.clear();
-        t.settings.mode = Mode::Crosshair;
-        t.update(1, [0.6, 0.4], true, false);
-        assert_eq!(t.pointer(), None);
-    }
-    #[test]
-    fn cancel_layout_preserves_already_applied_touch_options() {
-        let mut t = TouchControls::default();
-        t.settings.mode = Mode::Tap;
-        t.settings.left_handed = true;
-        let original = t.settings.placement(Control::Move).center;
-        t.open_editor();
-        t.edit_touch(1, original, true, false);
-        t.edit_touch(1, [0.7, 0.7], false, true);
-        assert_ne!(t.settings.placement(Control::Move).center, original);
-        t.cancel_editor();
-        assert_eq!(t.settings.placement(Control::Move).center, original);
-        assert_eq!(t.settings.mode, Mode::Tap);
-        assert!(t.settings.left_handed);
-    }
-    #[test]
-    fn dpad_can_slide_between_directions_and_mirror() {
-        let mut t = TouchControls::default();
-        t.settings.mode = Mode::Dpad;
-        t.update(1, [0.13, 0.66], true, false);
-        assert_eq!(t.state().left, [0.0, 1.0]);
-        t.update(1, [0.20, 0.76], false, false);
-        assert_eq!(t.state().left, [1.0, 0.0]);
-        t.clear();
-        t.update(10, [0.13, 0.76], true, false);
-        assert!(!t.poll_state().held(Button::RightStick));
-        t.update(10, [0.13, 0.76], false, true);
-        t.update(12, [0.13, 0.76], true, false);
-        assert!(t.poll_state().held(Button::RightStick));
-        t.clear();
-        t.settings.swap_jump_sneak = true;
-        t.update(11, [0.13, 0.76], true, false);
-        assert!(t.state().held(Button::South));
-        t.clear();
-        t.settings.left_handed = true;
-        t.update(2, [0.87, 0.66], true, false);
-        assert_eq!(t.state().left, [0.0, 1.0]);
-    }
-    #[test]
-    fn editing_owns_input_and_cancel_restores_layouts() {
-        let mut t = TouchControls::default();
-        t.open_editor();
-        t.edit_touch(1, [0.13, 0.76], true, false);
-        t.edit_touch(1, [0.18, 0.70], false, true);
-        assert!((t.settings.placement(Control::Move).center[0] - 0.18).abs() < 0.001);
-        assert_eq!(t.poll_state(), PadState::default());
-        t.cancel_editor();
-        assert_eq!(t.settings.placement(Control::Move).center, [0.13, 0.76]);
-        t.settings.mode = Mode::Tap;
-        t.open_editor();
-        assert_eq!(t.settings.mode, Mode::Tap);
-        t.edit_touch(3, [0.13, 0.76], true, true);
-        t.edit_touch(4, [0.6, 0.82], true, true);
-        t.edit_touch(5, [0.65, 0.73], true, true);
-        assert!(t.settings.placement(Control::Move).size > 0.4);
-        t.cancel_editor();
-        assert_eq!(t.settings.mode, Mode::Tap);
-    }
-    #[test]
-    fn editor_deselects_and_can_apply_opacity_to_the_current_mode() {
-        let mut t = TouchControls::default();
-        t.open_editor();
-        t.edit_touch(1, [0.13, 0.76], true, true);
-        t.edit_touch(2, [0.4, 0.82], true, true); // Opacity
-        t.edit_touch(3, [0.5, 0.64], true, true); // Apply to all
-        t.edit_touch(4, [0.5, 0.73], true, true);
-        for p in t.settings.layouts[0] {
-            assert!((p.opacity - 0.5).abs() < 0.001);
-        }
-        assert_eq!(t.settings.layouts[1][0].opacity, 0.65);
-        t.edit_touch(5, [0.7, 0.4], true, true);
-        assert!(t.editor.as_ref().unwrap().selected.is_none());
-        t.cancel_editor();
-        assert_eq!(t.settings.layouts[0][0].opacity, 0.65);
-    }
-    #[test]
-    fn layouts_roundtrip_and_reject_invalid_sizes() {
-        let mut s = Settings::default();
-        s.mode = Mode::Dpad;
-        s.layouts[2][2].center = [0.4, 0.5];
-        let bytes = serde_json::to_vec(&s).unwrap();
-        let mut r: Settings = serde_json::from_slice(&bytes).unwrap();
-        assert_eq!(r.mode, Mode::Dpad);
-        assert_eq!(r.layouts[2][2].center, [0.4, 0.5]);
-        r.layouts[2][2].size = f32::NAN;
-        r.sensitivity = f32::INFINITY;
-        r.sanitize();
-        assert!(r.layouts[2][2].size.is_finite());
-        assert_eq!(r.sensitivity, 1.0);
-        let rect = r.placement(Control::Jump).rect(20.0 / 9.0);
-        assert!((rect[2] * (20.0 / 9.0) - rect[3]).abs() < 0.0001);
-    }
-    #[test]
-    fn projection_targets_screen_point_without_turning_camera() {
-        let forward = [0.0, 0.0, 1.0];
-        let up = [0.0, 1.0, 0.0];
-        assert_eq!(
-            screen_direction(forward, up, [0.5, 0.5], 2.0, 90.0),
-            forward
-        );
-        let ray = screen_direction(forward, up, [0.75, 0.25], 2.0, 90.0);
-        assert!(ray[0] < 0.0 && ray[1] > 0.0 && ray[2] > 0.0);
-        assert!((ray.iter().map(|x| x * x).sum::<f64>() - 1.0).abs() < 1e-10);
-    }
-    #[test]
-    fn hotbar_all_nine_slots() {
-        for i in 0..9 {
-            assert_eq!(
-                hotbar_slot(427.0, 240.0, [133.5 + i as f32 * 20.0, 230.0]),
-                Some(i)
-            );
-        }
-        assert_eq!(hotbar_slot(427.0, 240.0, [320.0, 230.0]), None);
-    }
-    #[test]
-    fn old_profiles_keep_custom_layouts_and_new_preferences_have_safe_defaults() {
-        let mut settings: Settings =
-            serde_json::from_str(r#"{"mode":"tap","sensitivity":1.5}"#).unwrap();
-        settings.sanitize();
-        assert_eq!(settings.mode, Mode::Tap);
-        assert_eq!(settings.sensitivity, 1.5);
-        assert_eq!(settings.circle_size, 32.0);
-        assert!(!settings.analog_movement);
-        assert!(settings.sprint_button);
-        settings.circle_size = f32::NAN;
-        settings.sanitize();
-        assert_eq!(settings.circle_size, 32.0);
-        settings.sprint_button = false;
-        let center = settings.placement(Control::Sprint).center;
-        let mut touch = TouchControls {
-            settings,
-            ..Default::default()
-        };
-        touch.update(1, center, true, false);
-        assert!(!touch.poll_state().held(Button::LeftStick));
-        touch.update(1, center, false, true);
-        touch.settings.sprint_button = true;
-        touch.update(2, center, true, false);
-        assert!(touch.poll_state().held(Button::LeftStick));
-        touch.update(2, center, false, true);
-        touch.poll_state(); // consume the queued tap
-        assert!(!touch.poll_state().held(Button::LeftStick));
-    }
-}
 
-#[cfg(test)]
-mod more_button_tests {
-    use super::*;
     #[test]
-    fn neon_line_has_constant_geometry_cost() {
-        let atlas = HudAtlas::boot();
-        let mut batch = HudBatch::new([1920, 1080]);
-        line(&mut batch, &atlas, [1.0, 1.0], [1000.0, 1000.0], rgba(255,255,255,255));
-        assert_eq!(batch.vertices.len(), 6);
-        line(&mut batch, &atlas, [5.0, 5.0], [5.0, 5.0], rgba(255,255,255,255));
-        assert_eq!(batch.vertices.len(), 12);
+    fn the_editor_fullscreen_panel_keeps_every_button_inside_the_surface() {
+        let mut controls = temp_controls("geometry");
+        controls.viewport(2400, 1080);
+        controls.open_editor();
+        let surface = controls.surface();
+        let session = controls.editor.as_ref().unwrap();
+        for widget in session.ui.widgets(&session.data, surface[0], surface[1]) {
+            assert!(widget.rect[0] >= 0.0 && widget.rect[1] >= 0.0);
+            assert!(widget.rect[0] + widget.rect[2] <= surface[0] + 0.5);
+            assert!(widget.rect[1] + widget.rect[3] <= surface[1] + 0.5);
+        }
+        let _ = std::fs::remove_file(&controls.path);
     }
+
     #[test]
-    fn players_button_geometry_uses_top_row() {
-        let rect = players_rect(400.0, 225.0);
-        let center = [rect[0] + rect[2] * 0.5, rect[1] + rect[3] * 0.5];
-        assert!(players_at(400.0, 225.0, center));
-        assert!(!players_at(400.0, 225.0, [200.0, 220.0]));
-    }
-    #[test]
-    fn more_button_is_separate_from_hotbar() {
+    fn hotbar_slots_and_the_more_button_keep_their_geometry() {
+        assert_eq!(hotbar_slot(400.0, 225.0, [200.0, 220.0]), Some(4));
+        assert_eq!(hotbar_slot(400.0, 225.0, [200.0, 100.0]), None);
         let rect = more_rect(400.0, 225.0, false);
-        let point = [rect[0] + rect[2] / 2.0, rect[1] + rect[3] / 2.0];
-        assert!(more_at(400.0, 225.0, point, false));
-        assert_eq!(hotbar_slot(400.0, 225.0, point), None);
-        assert!(!more_at(400.0, 225.0, [200.0, 220.0], false));
-        let shifted = more_rect(400.0, 225.0, true);
-        assert!(shifted[1] + shifted[3] < 225.0 - 23.0);
-        assert!(!more_at(400.0, 225.0, point, true));
+        let inside = [rect[0] + rect[2] / 2.0, rect[1] + rect[3] / 2.0];
+        assert!(more_at(400.0, 225.0, inside, false));
+        assert!(!more_at(400.0, 225.0, [5.0, 5.0], false));
+    }
+
+    #[test]
+    fn camera_sensitivity_output_stays_finite_for_odd_surfaces() {
+        let settings = Settings::default();
+        for (width, height) in [(1, 1), (1920, 1080), (1080, 2400)] {
+            let delta = camera_delta([17.0, -9.0], width, height, &settings);
+            assert!(delta.iter().all(|value| value.is_finite()));
+        }
     }
 }

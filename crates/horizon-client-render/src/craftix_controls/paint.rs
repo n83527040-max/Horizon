@@ -1,5 +1,5 @@
 //! Vector-only round glass HUD artwork; no legacy square button sprites.
-use super::{input::Router, layout::{Icon, Id, Layout}};
+use super::{input::Router, layout::{Button, Icon, Id, Layout}};
 use crate::hud::{HudAtlas, HudBatch, rgba};
 use std::f32::consts::TAU;
 
@@ -75,8 +75,18 @@ impl Animator {
 /// Draw the entire replacement HUD from its data model. The caller controls
 /// the frame timing and routes pointer events separately.
 pub fn paint(b: &mut HudBatch, a: &HudAtlas, layout: &Layout, animation: &Animator) {
+    paint_filtered(b, a, layout, animation, &|_| true);
+}
+/// The same painting with a host-side filter (inventory context, keypad mode).
+pub fn paint_filtered(
+    b: &mut HudBatch,
+    a: &HudAtlas,
+    layout: &Layout,
+    animation: &Animator,
+    keep: &dyn Fn(&Button) -> bool,
+) {
     for button in &layout.buttons {
-        if !button.enabled || button.opacity <= 0.0 { continue; }
+        if !button.enabled || button.opacity <= 0.0 || !keep(button) { continue; }
         let center=[button.circle.center[0]*b.width,button.circle.center[1]*b.height];
         let press=animation.press(button.id);
         let radius=button.circle.radius*b.height*(1.0-0.05*press);
@@ -113,6 +123,47 @@ pub fn paint(b: &mut HudBatch, a: &HudAtlas, layout: &Layout, animation: &Animat
         } else { icon(b,a,button.id,center,radius*0.95,alpha); }
     }
 }
+/// Mining progress drawn as an outward ring on the attack button, which keeps
+/// the round silhouette instead of the legacy square gauge.
+pub fn paint_break_progress(b: &mut HudBatch, a: &HudAtlas, layout: &Layout, progress: f32) {
+    if !progress.is_finite() || progress <= 0.0 { return; }
+    let Some(attack) = layout.button(Id::Attack) else { return; };
+    if !attack.enabled { return; }
+    let center = [attack.circle.center[0] * b.width, attack.circle.center[1] * b.height];
+    let radius = attack.circle.radius * b.height;
+    let progress = progress.clamp(0.0, 1.0);
+    ring(b, a, center, radius + 4.0, 2.5, rgba(255, 255, 255, (40.0 * progress) as u8));
+    let filled = std::f32::consts::TAU * progress;
+    const N: usize = 40;
+    let steps = ((N as f32 * progress).ceil() as usize).clamp(1, N);
+    for i in 0..steps {
+        let t = |j: usize| filled * j as f32 / steps as f32 - std::f32::consts::FRAC_PI_2;
+        let point = |j: usize, r: f32| [center[0] + r * t(j).cos(), center[1] + r * t(j).sin()];
+        b.fill_quad(
+            a,
+            [point(i, radius + 2.0), point(i, radius + 6.0), point(i + 1, radius + 6.0), point(i + 1, radius + 2.0)],
+            rgba(226, 176, 255, 210),
+        );
+    }
+}
+
+/// A short-lived marker showing where the last world tap landed.
+pub fn paint_tap_marker(b: &mut HudBatch, a: &HudAtlas, point: [f32; 2], strength: f32) {
+    let strength = strength.clamp(0.0, 1.0);
+    let center = [point[0] * b.width, point[1] * b.height];
+    let radius = (b.height * 0.018) * (0.6 + 0.4 * strength);
+    ring(b, a, center, radius, 1.5, rgba(220, 190, 255, (200.0 * strength) as u8));
+    disk(b, a, center, radius * 0.22, rgba(240, 225, 255, (220.0 * strength) as u8));
+}
+
+/// Highlight the button the editor has selected.
+pub fn paint_selection(b: &mut HudBatch, a: &HudAtlas, layout: &Layout, selected: Option<Id>) {
+    let Some(id) = selected else { return; };
+    let Some(button) = layout.button(id) else { return; };
+    let center = [button.circle.center[0] * b.width, button.circle.center[1] * b.height];
+    ring(b, a, center, button.circle.radius * b.height + 5.0, 2.0, rgba(255, 236, 140, 220));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

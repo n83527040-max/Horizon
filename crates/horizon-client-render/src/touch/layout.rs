@@ -1,3 +1,8 @@
+//! Legacy per-profile touch settings. The replacement control system keeps
+//! its own named layouts in `craftix-controls.json`; this file remains the
+//! source of the scalar preferences the options screen edits, and of the old
+//! layout data that is migrated once.
+//!
 //! Per-profile touch layouts. Coordinates are normalized; sizes are fractions
 //! of surface height, so a button stays square on wide phones and tablets.
 use serde::{Deserialize, Serialize};
@@ -143,7 +148,7 @@ pub struct Settings {
     pub shield_button: bool,
     pub circle_size: f32,
     pub button_scale: f32,
-    pub custom_buttons: Vec<super::CustomButton>,
+    pub custom_buttons: Vec<CustomButton>,
     pub analog_movement: bool,
     pub sprint_button: bool,
     pub sprint_toggle: bool,
@@ -535,12 +540,12 @@ mod tests {
             "action:no-such-action"
         ));
         assert!(
-            super::super::custom::choices(false)
+            crate::craftix_controls::ui::EditorUi::choices(false)
                 .iter()
                 .any(|(token, _)| token == "action:key.attack")
         );
         assert!(
-            super::super::custom::choices(true)
+            crate::craftix_controls::ui::EditorUi::choices(true)
                 .iter()
                 .any(|(token, _)| token == "key.keyboard.z")
         );
@@ -651,4 +656,74 @@ mod portable_layout_tests {
         assert!(target.import_layout_json(&serde_json::to_vec(&json).unwrap()).is_err());
         assert!(target.left_handed);
     }
+}
+
+// --- Legacy custom-button data (migrated into the new named layouts) ---
+/// Icon is presentation only: the bound engine token remains authoritative.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CustomIcon {
+    #[default]
+    Text,
+    Attack,
+    Use,
+    Jump,
+    Sneak,
+    Sprint,
+}
+/// Contexts in which a configured key was allowed to receive touch.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CustomVisibility {
+    #[default]
+    Always,
+    Gameplay,
+    Inventory,
+}
+fn enabled_by_default() -> bool {
+    true
+}
+/// The 0.8.x custom button record, kept only so an upgrade can migrate it.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+impl CustomButton {
+    pub fn new(key: String, index: usize) -> Self {
+        Self {
+            key,
+            name: String::new(),
+            icon: CustomIcon::Text,
+            enabled: true,
+            visibility: CustomVisibility::Always,
+            toggle: false,
+            single: false,
+            layouts: [Placement {
+                center: [
+                    (0.68 + (index % 3) as f32 * 0.1).min(1.0),
+                    (0.35 + (index / 3 % 3) as f32 * 0.12).min(1.0),
+                ],
+                size: 0.105,
+                opacity: 0.65,
+            }; 3],
+        }
+    }
+    /// A blank placeholder or a real engine token; nothing else is accepted.
+    pub fn valid_token(token: &str) -> bool {
+        token == "key.keyboard.unknown" || crate::craftix_controls::layout::valid_token(token)
+    }
+}
+
+pub struct CustomButton {
+    pub key: String,
+    pub layouts: [Placement; 3],
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub icon: CustomIcon,
+    #[serde(default = "enabled_by_default")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub visibility: CustomVisibility,
+    #[serde(default)]
+    pub toggle: bool,
+    #[serde(default)]
+    pub single: bool,
 }

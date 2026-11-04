@@ -1,8 +1,10 @@
-//! New CRAFTIX controls, developed independently of the existing touch stack.
+//! CRAFTIX controls: the replacement touch/HUD system.
 //!
-//! Not wired into the game yet: keeping the current controls live until this
-//! replacement has editor, engine integration and device verification avoids
-//! losing input or a player's saved layouts during migration.
+//! `layout` is the versioned data model, `input` the per-pointer router,
+//! `paint` the round glass/neon HUD, `editor` the transactional named layouts
+//! and `ui` the on-screen editor. `crate::touch` hosts them: it owns the live
+//! instance, applies engine semantics and persists `craftix-controls.json`.
+//! The old sprite-based touch stack was removed from the active path.
 pub mod editor;
 pub mod input;
 pub mod layout;

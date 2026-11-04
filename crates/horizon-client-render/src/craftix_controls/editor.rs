@@ -5,15 +5,25 @@ use std::{collections::BTreeSet, io::{self, Write}, path::Path};
 const MAX_BYTES: usize = 128 * 1024;
 const MAX_LAYOUTS: usize = 16;
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Layouts { pub schema: u8, pub active: usize, pub items: Vec<Layout> }
+pub struct Layouts {
+    pub schema: u8,
+    pub active: usize,
+    /// The layout applied at startup.
+    #[serde(default)]
+    pub default: usize,
+    pub items: Vec<Layout>,
+}
 impl Default for Layouts {
-    fn default() -> Self { Self { schema: 1, active: 0, items: vec![Layout::default()] } }
+    fn default() -> Self {
+        Self { schema: 1, active: 0, default: 0, items: vec![Layout::default()] }
+    }
 }
 impl Layouts {
     pub fn valid(&self) -> bool {
         let mut names = BTreeSet::new();
         self.schema == 1 && !self.items.is_empty() && self.items.len() <= MAX_LAYOUTS
             && self.active < self.items.len()
+            && self.default < self.items.len()
             && self.items.iter().all(|l| l.valid() && names.insert(l.name.trim().to_lowercase()))
     }
     pub fn from_json(bytes: &[u8]) -> io::Result<Self> {
@@ -27,6 +37,35 @@ impl Layouts {
         let data = serde_json::to_vec_pretty(self)?;
         if data.len() > MAX_BYTES { return Err(invalid("layout file too large")); }
         Ok(data)
+    }
+    /// The layout the game is currently playing with.
+    pub fn current(&self) -> &Layout {
+        &self.items[self.active.min(self.items.len().saturating_sub(1))]
+    }
+    pub fn current_mut(&mut self) -> &mut Layout {
+        let index = self.active.min(self.items.len().saturating_sub(1));
+        &mut self.items[index]
+    }
+    pub fn set_default(&mut self, index: usize) -> io::Result<()> {
+        if index >= self.items.len() {
+            return Err(invalid("invalid index"));
+        }
+        self.default = index;
+        Ok(())
+    }
+    /// Read a stored file, falling back to the factory set on any damage.
+    pub fn load(path: &Path) -> (Self, Option<String>) {
+        match std::fs::read(path) {
+            Ok(bytes) => match Self::from_json(&bytes) {
+                Ok(data) => (data, None),
+                Err(error) => (
+                    Self::default(),
+                    Some(format!("Layouts reset: {error}")),
+                ),
+            },
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => (Self::default(), None),
+            Err(error) => (Self::default(), Some(format!("Layouts unreadable: {error}"))),
+        }
     }
     /// Write a fresh temporary sibling and replace only after successful sync.
     pub fn save(&self, path: &Path) -> io::Result<()> {
@@ -133,11 +172,126 @@ impl Editor {
         let name = self.staged.items[self.staged.active].name.clone();
         self.staged.items[self.staged.active] = Layout { name, ..Layout::default() };
     }
+    /// The layout being edited.
+    pub fn active(&self) -> &Layout {
+        &self.staged.items[self.staged.active]
+    }
+    pub fn buttons(&self) -> &[Button] {
+        &self.staged.items[self.staged.active].buttons
+    }
+    /// Replace a custom button's binding with a real engine token.
+    pub fn set_binding(&mut self, id: Id, token: &str) -> io::Result<()> {
+        if !super::layout::valid_token(token) {
+            return Err(invalid("unsupported key"));
+        }
+        let button = self.button_mut(id)?;
+        button.action = Some(Action::Key(token.into()));
+        Ok(())
+    }
+    pub fn set_behavior(&mut self, id: Id, behavior: Behavior) -> io::Result<()> {
+        self.button_mut(id)?.behavior = behavior;
+        Ok(())
+    }
+    pub fn cycle_behavior(&mut self, id: Id) -> io::Result<()> {
+        let button = self.button_mut(id)?;
+        button.behavior = match button.behavior {
+            Behavior::Hold => Behavior::Toggle,
+            Behavior::Toggle => Behavior::Single,
+            Behavior::Single => Behavior::Hold,
+        };
+        Ok(())
+    }
+    pub fn next_icon(&mut self, id: Id) -> io::Result<()> {
+        let button = self.button_mut(id)?;
+        button.icon = button.icon.next();
+        Ok(())
+    }
+    pub fn set_enabled(&mut self, id: Id, enabled: bool) -> io::Result<()> {
+        self.button_mut(id)?.enabled = enabled;
+        Ok(())
+    }
+    pub fn toggle_enabled(&mut self, id: Id) -> io::Result<()> {
+        let button = self.button_mut(id)?;
+        button.enabled = !button.enabled;
+        Ok(())
+    }
+    pub fn cycle_visibility(&mut self, id: Id) -> io::Result<()> {
+        let button = self.button_mut(id)?;
+        button.visibility = button.visibility.next();
+        Ok(())
+    }
+    /// Scale with bounds so no button can leave the surface.
+    pub fn scale(&mut self, id: Id, factor: f32) -> io::Result<()> {
+        let button = self.button_mut(id)?;
+        let radius = (button.circle.radius * factor).clamp(0.015, 0.24);
+        button.circle.radius = radius;
+        Ok(())
+    }
+    pub fn set_opacity(&mut self, id: Id, opacity: f32) -> io::Result<()> {
+        if !opacity.is_finite() {
+            return Err(invalid("invalid opacity"));
+        }
+        self.button_mut(id)?.opacity = opacity.clamp(0.0, 1.0);
+        Ok(())
+    }
+    pub fn rename_button(&mut self, id: Id, label: &str) -> io::Result<()> {
+        let label: String = label.chars().filter(|c| !c.is_control()).take(32).collect();
+        self.button_mut(id)?.label = label;
+        Ok(())
+    }
+    /// Move a custom button to the front so overlapping buttons stay reachable.
+    pub fn move_to_front(&mut self, id: Id) -> io::Result<()> {
+        let index = self.staged.items[self.staged.active]
+            .buttons
+            .iter()
+            .position(|b| b.id == id)
+            .ok_or_else(|| invalid("button not found"))?;
+        let button = self.staged.items[self.staged.active].buttons.remove(index);
+        self.staged.items[self.staged.active].buttons.push(button);
+        Ok(())
+    }
+    /// Apply the factory arrangement while keeping custom buttons and the name.
+    pub fn factory_positions(&mut self) {
+        let name = self.staged.items[self.staged.active].name.clone();
+        let custom = self.staged.items[self.staged.active]
+            .buttons
+            .iter()
+            .filter(|b| b.id.is_custom())
+            .cloned()
+            .collect::<Vec<_>>();
+        let mut layout = Layout::factory(&name);
+        layout.buttons.extend(custom);
+        self.staged.items[self.staged.active] = layout;
+        self.drag = None;
+    }
+    pub fn mirror(&mut self) {
+        self.staged.items[self.staged.active].mirror();
+        self.drag = None;
+    }
+    /// Session text entry: the host shows its real IME for this button.
+    pub fn begin_label(&mut self, id: Id) -> io::Result<()> {
+        self.button_mut(id)?;
+        Ok(())
+    }
+    pub fn label_of(&self, id: Id) -> Option<&str> {
+        self.active().button(id).map(|b| b.label.as_str())
+    }
+    fn button_mut(&mut self, id: Id) -> io::Result<&mut Button> {
+        self.staged.items[self.staged.active]
+            .button_mut(id)
+            .ok_or_else(|| invalid("button not found"))
+    }
     pub fn commit(self) -> io::Result<Layouts> {
         if !self.staged.valid() { return Err(invalid("invalid staged layouts")); }
         Ok(self.staged)
     }
     pub fn cancel(self) -> Layouts { self.original }
+    /// Validate without consuming the session (the editor stays open on error).
+    pub fn commit_copy(&self) -> io::Result<Layouts> {
+        if !self.staged.valid() { return Err(invalid("invalid staged layouts")); }
+        Ok(self.staged.clone())
+    }
+    pub fn cancel_copy(&self) -> Layouts { self.original.clone() }
 }
 #[cfg(test)]
 mod tests {
