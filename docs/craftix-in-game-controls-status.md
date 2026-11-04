@@ -1,7 +1,8 @@
 # CRAFTIX in-game controls — implementation status
 
-**Work in progress, not a release sign-off. No new APK was built.** The supplied
-images are the visual target; the present implementation is not pixel-matched.
+**Device-test candidate, not a final release sign-off.** The supplied images
+are the visual target; the present implementation is not pixel-matched and has
+not been tested on an Android device.
 
 ## Implemented in source
 
@@ -14,7 +15,8 @@ images are the visual target; the present implementation is not pixel-matched.
   manager; the older auxiliary keyboard remains accessible. The manager can
   add or delete a button, assign an engine action or supported physical key,
   edit its name with the Android IME, cycle icons, enable/disable it, select
-  Hold or Toggle behavior, set size and opacity, and choose Always / Gameplay / Inventory visibility. Position is
+  Hold, Toggle or timed Single Press behavior, set size and opacity, and choose
+  Always / Gameplay / Inventory visibility. Position is
   edited in the existing drag editor; select Custom in its toolbar to return.
   Onscreen slots can be reordered using that editor's Order controls.
 * Save commits the settings, Cancel restores the original editor snapshot.
@@ -43,8 +45,10 @@ images are the visual target; the present implementation is not pixel-matched.
 * Neon line segments use one quad each rather than a quad per pixel; this bounds
   the geometry cost without claiming a measured frame-rate improvement.
 * Per-finger custom key ownership provides down/up events, shared-key holds,
-  and latched toggles for the same binding token. Resize and inventory-context
-  transitions clear touches.
+  timed single presses, and latched toggles. Distinct custom bindings resolving
+  to the same engine key or mouse button, and mapped controller actions, share
+  event-order ownership; last-owner release is covered by Rust unit tests.
+  Resize and inventory-context transitions clear touches.
   The auxiliary overlay no longer swallows the end of an already-owned HUD
   touch merely because the finger moved over it. Transitions clear held keys.
 * There are Rust tests for editor interactions, keys, context visibility,
@@ -63,10 +67,9 @@ still need further work and visual/device validation. The fixed
 More/Tab buttons are not yet individually movable/resizable. Inventory-only
 buttons require enabling inventory controls. Layout slots are numbered, not
 user-named, and transfer uses the Files provider rather than a native picker.
-Different binding tokens that resolve to the same engine action (for example,
-a mapped action and its raw key) do not yet share an ownership counter; releasing
-one while the other is held can interrupt that action. Mixed physical, built-in,
-and custom input ownership needs further integration tests.
+Mixed physical, built-in, and custom input ownership still needs real-device
+integration testing. Multi-touch, backgrounding, rotation, IME, transfer and
+persistence after process restart have not been verified on Android hardware.
 
 The underlying engine supports specific mappings and raw keyboard events; a raw
 M/R/G key does not provide a map, replay, or any other missing functionality.
@@ -74,19 +77,26 @@ No Minecraft Java mod integration is included or implied.
 
 ## Verification and release gate
 
-* `tools/check_public_tree.py` and nine Python identity/responsive checks passed
-  locally. They do not test Rust interaction or Android.
-* GitHub Actions controls-only run 41900991959 at commit `95832ad` passed the
-  Rust touch tests and Android arm64 type-check. Run 41902824058 at `62550d8`
-  passed desktop tests; its Android job was cancelled when the newer run started,
-  not reported as a success. Run 41903433421 at `c334e02` and run 41904207257
-  at `f53eb17` both passed desktop touch tests and the Android arm64 type-check.
-  These jobs do not build or run an APK; source and native jobs were skipped.
-* Cargo, Flutter and ADB are unavailable locally. No actual device tests have
-  been performed for each button, multitouch, keyboard/IME, appearance,
-  persistence after process restart, transfer, orientation, or performance.
-  Android Landscape and launcher Portrait still require device verification.
-* No APK or signing operation was produced for these changes, and no release
-  signing key or GitHub Secret was changed. A release requires completion,
-  real Android tests, an APK built with the existing CRAFTIX Release key, and
-  a certificate comparison. Previous 0.7.9 does not contain this work.
+* Local `tools/check_public_tree.py`, `tools/android_ui_layout.py`,
+  `tools/android_ui_preview.py`, `git diff --check`, and all 35 Android Python
+  tests passed. The old launcher-only regression was updated to protect
+  unrelated engine/packaging paths rather than prohibit the requested touch
+  engine changes; its comparison starts at the CRAFTIX task baseline.
+* GitHub Actions controls-only run [41906693023](https://github.com/n83527040-max/Horizon/actions/runs/41906693023)
+  at `382f894` passed desktop touch tests and Android arm64 type-check.
+* Candidate run [41906796041](https://github.com/n83527040-max/Horizon/actions/runs/41906796041)
+  at `fe0f4c6` passed touch Rust tests, Android Python regressions, Flutter
+  analyze/tests, the Android arm64 release build, JNI checks, APK package and
+  signature verification, and static install diagnostics. It published the
+  prerelease below. The diagnostics do not install or run it.
+* [CRAFTIX 0.8.0 beta APK](https://github.com/n83527040-max/Horizon/releases/download/craftix-0.8.0-beta/CRAFTIX-0.8.0-arm64-v8a.apk)
+  is 87,431,498 bytes, SHA-256
+  `d17c19ac8870d69dee40f29ee51c2139b7eb87df004020568b15ed64ecc29318`.
+  CI compared its certificate with CRAFTIX 0.7.8 and verified they match;
+  the reference certificate SHA-256 is
+  `77:05:07:A6:EC:48:51:98:66:55:08:29:32:CA:C2:81:61:55:08:0F:D4:73:DB:7E:42:E9:A0:BF:FD:22:DD:2F`.
+  The existing release secrets were used without changing them.
+* Cargo, Flutter and ADB are unavailable locally; no actual device test or
+  installation was performed. Test controls, multitouch, keyboard/IME,
+  appearance, persistence after restart, transfer and both landscape rotations
+  on a phone before treating this candidate as final.
