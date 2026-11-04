@@ -7,7 +7,56 @@ use horizon_client::{
 };
 use winit::event::{Touch, TouchPhase};
 
+fn transfer_control_layout(
+    settings: &mut horizon_client::touch::Settings,
+    request: horizon_client::touch::LayoutRequest,
+) -> std::io::Result<()> {
+    use std::io::Read;
+    use horizon_client::touch::LayoutRequest;
+    let dir = std::env::current_dir()?.join("craftix-controls");
+    std::fs::create_dir_all(&dir)?;
+    if std::fs::symlink_metadata(&dir)?.file_type().is_symlink() {
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid layout folder"));
+    }
+    let path = dir.join("transfer.json");
+    match request {
+        LayoutRequest::Export => {
+            let data = settings.layout_json()?;
+            let temp = dir.join(".transfer.tmp");
+            // A fresh temporary file plus rename avoids corrupting an earlier export.
+            let _ = std::fs::remove_file(&temp);
+            let mut f = std::fs::OpenOptions::new().write(true).create_new(true).open(&temp)?;
+            use std::io::Write;
+            f.write_all(&data)?;
+            f.sync_all()?;
+            std::fs::rename(temp, path)?;
+        }
+        LayoutRequest::Import => {
+            if std::fs::symlink_metadata(&path)?.file_type().is_symlink() {
+                return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid layout file"));
+            }
+            let mut data = Vec::new();
+            std::fs::File::open(path)?.take(128 * 1024 + 1).read_to_end(&mut data)?;
+            settings.import_layout_json(&data)?;
+        }
+    }
+    Ok(())
+}
+
 impl Game<'_> {
+    pub(super) fn android_transfer_control_layout(&mut self) {
+        use horizon_client::touch::LayoutRequest;
+        let Some(request) = self.pad.touch.take_layout_request() else { return; };
+        let message = match transfer_control_layout(&mut self.pad.touch.settings, request) {
+            Ok(()) => match request {
+                LayoutRequest::Export => "Exported transfer.json in Control layouts".to_owned(),
+                LayoutRequest::Import => "Imported. Tap Done to save.".to_owned(),
+            },
+            Err(error) => format!("Layout transfer failed: {error}"),
+        };
+        self.pad.touch.layout_status(message);
+    }
+
     pub(crate) fn android_apply_display_scale(&mut self) {
         if let (Some(window), Some(renderer)) = (&self.window, &mut self.renderer)
             && let Err(error) = crate::display::apply(window, renderer)
@@ -306,6 +355,8 @@ impl Game<'_> {
         {
             if t.phase == TouchPhase::Started {
                 self.pad.touch.clear();
+                // Flush the release edges before opening another overlay.
+                self.android_custom_events();
                 self.pad.touch.ignore(t.id);
                 match action {
                     Action::LatchF3 => {
@@ -476,6 +527,17 @@ impl Game<'_> {
             ));
         }
         for out in crate::platform::poll() {
+            if self.pad.touch.custom_name_editing() {
+                match out {
+                    Output::Text(text) => self.pad.touch.custom_name_text(&text),
+                    Output::Backspace => self.pad.touch.custom_name_backspace(),
+                    Output::Enter | Output::Close => {
+                        self.pad.touch.finish_custom_name();
+                        crate::platform::hide();
+                    }
+                }
+                continue;
+            }
             let next_sign_line = self.sign_edit.is_some() && matches!(out, Output::Enter);
             let done =
                 matches!(out, Output::Close) || (matches!(out, Output::Enter) && !next_sign_line);
@@ -488,7 +550,7 @@ impl Game<'_> {
         }
         // Title screens also use Playing: their focused text fields must keep
         // the IME until the user confirms or closes the editor.
-        if !self.pad_in_menu() && crate::platform::active() {
+        if !self.pad_in_menu() && !self.pad.touch.custom_name_editing() && crate::platform::active() {
             crate::platform::hide();
         }
     }
@@ -559,7 +621,7 @@ impl Game<'_> {
             crate::platform::cancel_vibration();
             self.pad.touch.clear();
             self.pad.touch_aim = None;
-            if self.pad.touch.editor.is_some() {
+            if self.pad.touch.editor.is_some() && !self.pad.touch.custom_name_editing() {
                 self.pad.touch.cancel_editor();
                 self.pause = false;
             }

@@ -1150,10 +1150,16 @@ impl Loading {
     }
 
     pub(super) fn draw_menu(&mut self, batch: &mut HudBatch) {
+        #[cfg(not(target_os = "android"))]
         let logs = horizon_client::logging::recent_lines();
         let Some(gui) = &self.gui else {
             // The pack's screens do not exist yet: the boot screen holds the
             // window, the wordmark and the console's lines while they load.
+            #[cfg(target_os = "android")]
+            horizon_client::ui_theme::draw_craftix_boot(
+                &self.boot, batch, self.started.elapsed().as_secs_f32(),
+            );
+            #[cfg(not(target_os = "android"))]
             horizon_client::ui_theme::draw_boot(&self.boot, batch, &logs);
             return;
         };

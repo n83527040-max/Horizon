@@ -2,15 +2,63 @@
 use super::*;
 use layout::Placement;
 use serde::{Deserialize, Serialize};
+/// Icon is presentation only: the bound engine action/key remains authoritative.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CustomIcon {
+    #[default]
+    Text,
+    Attack,
+    Use,
+    Jump,
+    Sneak,
+    Sprint,
+}
+impl CustomIcon {
+    pub fn next(self) -> Self {
+        match self {
+            Self::Text => Self::Attack,
+            Self::Attack => Self::Use,
+            Self::Use => Self::Jump,
+            Self::Jump => Self::Sneak,
+            Self::Sneak => Self::Sprint,
+            Self::Sprint => Self::Text,
+        }
+    }
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Text => "Text", Self::Attack => "Sword", Self::Use => "Use",
+            Self::Jump => "Jump", Self::Sneak => "Sneak", Self::Sprint => "Sprint",
+        }
+    }
+    fn sprite(self) -> Option<&'static str> {
+        match self {
+            Self::Text => None, Self::Attack => Some("ui/attack"),
+            Self::Use => Some("ui/interact"), Self::Jump => Some("ui/jump"),
+            Self::Sneak => Some("ui/sneak"), Self::Sprint => Some("ui/sprint"),
+        }
+    }
+}
+fn enabled_by_default() -> bool { true }
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CustomButton {
     pub key: String,
     pub layouts: [Placement; 3],
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub icon: CustomIcon,
+    #[serde(default = "enabled_by_default")]
+    pub enabled: bool,
 }
 impl CustomButton {
     pub fn new(key: String, index: usize) -> Self {
         Self {
             key,
+            name: String::new(),
+            icon: CustomIcon::Text,
+            enabled: true,
             layouts: [Placement::new(
                 0.68 + (index % 3) as f32 * 0.1,
                 0.35 + (index / 3 % 3) as f32 * 0.12,
@@ -26,6 +74,12 @@ impl CustomButton {
                 .is_some_and(|name| crate::keybinds::MAPPINGS.iter().any(|m| m.0 == name))
     }
     pub fn label(&self) -> String {
+        if !self.name.trim().is_empty() {
+            return self.name.clone();
+        }
+        self.binding_label()
+    }
+    pub fn binding_label(&self) -> String {
         if self.key == "key.keyboard.unknown" {
             return "Button".into();
         }
@@ -105,9 +159,14 @@ impl TouchControls {
         self.fit_placement(p)
     }
     pub fn custom_at(&self, point: [f32; 2]) -> Option<usize> {
-        (0..self.settings.custom_buttons.len())
-            .rev()
-            .find(|&i| layout::contains(self.custom_placement(i).rect(self.aspect()), point))
+        self.custom_at_with_placeholders(point, false)
+    }
+    pub(super) fn custom_at_with_placeholders(&self, point: [f32; 2], include: bool) -> Option<usize> {
+        (0..self.settings.custom_buttons.len()).rev().find(|&i| {
+            (include || (self.settings.custom_buttons[i].enabled
+                && self.settings.custom_buttons[i].key != "key.keyboard.unknown"))
+                && layout::contains(self.custom_placement(i).rect(self.aspect()), point)
+        })
     }
     pub(super) fn custom_update(
         &mut self,
@@ -157,6 +216,11 @@ impl TouchControls {
     }
     pub(super) fn draw_custom(&self, b: &mut HudBatch, a: &HudAtlas) {
         for (i, button) in self.settings.custom_buttons.iter().enumerate() {
+            // Unassigned placeholders are useful in the editor only; outside
+            // it they neither pretend to work nor block camera gestures.
+            if self.editor.is_none() && (!button.enabled || button.key == "key.keyboard.unknown") {
+                continue;
+            }
             let p = self.custom_placement(i);
             let size = p.size * b.height;
             let rect = [
@@ -174,15 +238,21 @@ impl TouchControls {
             if opacity <= 0.0 {
                 continue;
             }
-            text_button(
-                b,
-                a,
-                rect,
-                &button.label(),
-                pressed,
-                rgba(255, 255, 255, (opacity * 255.0) as u8),
-                true,
-            );
+            let color = rgba(255, 255, 255, (opacity * 255.0) as u8);
+            if let Some(icon) = button.icon.sprite() {
+                text_button(b, a, rect, "", pressed, color, true);
+                fitted_sprite(b, a, icon,
+                    [rect[0] + size * 0.25, rect[1] + size * 0.08, size * 0.5, size * 0.5], color);
+                let label = button.label();
+                let width = HudBatch::text_width(a, &label);
+                let start = b.vertices.len();
+                b.text(a, &label, rect[0] + (size - width) / 2.0,
+                    rect[1] + size * 0.7, color, false);
+                let scale = ((size - 4.0).max(1.0) / width.max(1.0)).min(1.0);
+                b.scale_since(start, rect[0] + size / 2.0, rect[1] + size * 0.74, scale, scale);
+            } else {
+                text_button(b, a, rect, &button.label(), pressed, color, true);
+            }
         }
     }
 }
@@ -233,6 +303,31 @@ mod tests {
         }
     }
     #[test]
+    fn disabled_button_does_not_capture_or_send_keys() {
+        let mut touch = TouchControls::default();
+        touch.viewport(1920, 1080);
+        let mut button = CustomButton::new("key.keyboard.z".into(), 0);
+        button.enabled = false;
+        touch.settings.custom_buttons.push(button);
+        let point = touch.custom_placement(0).center;
+        assert_eq!(touch.custom_at(point), None);
+        touch.update(1, point, true, false);
+        assert!(touch.key_events().is_empty());
+        assert_eq!(touch.custom_at_with_placeholders(point, true), Some(0));
+    }
+    #[test]
+    fn legacy_button_defaults_to_enabled_text() {
+        let b = CustomButton::new("key.keyboard.z".into(), 0);
+        let mut value = serde_json::to_value(b).unwrap();
+        value.as_object_mut().unwrap().remove("enabled");
+        value.as_object_mut().unwrap().remove("name");
+        value.as_object_mut().unwrap().remove("icon");
+        let loaded: CustomButton = serde_json::from_value(value).unwrap();
+        assert!(loaded.enabled);
+        assert_eq!(loaded.icon, CustomIcon::Text);
+        assert!(loaded.name.is_empty());
+    }
+    #[test]
     fn unassigned_button_emits_no_input() {
         let mut touch = TouchControls::default();
         touch.viewport(1920, 1080);
@@ -241,8 +336,12 @@ mod tests {
             .custom_buttons
             .push(CustomButton::new("key.keyboard.unknown".into(), 0));
         let point = touch.custom_placement(0).center;
+        assert_eq!(touch.custom_at(point), None);
         touch.update(1, point, true, false);
         assert!(touch.key_events().is_empty());
+        touch.clear();
+        touch.open_editor();
+        assert_eq!(touch.custom_at_with_placeholders(point, true), Some(0));
     }
     #[test]
     fn custom_keys_hold_through_motion_and_shared_keys_release_only_after_last_finger() {

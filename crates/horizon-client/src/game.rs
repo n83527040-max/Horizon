@@ -15092,6 +15092,11 @@ impl ApplicationHandler for Game<'_> {
         #[cfg(target_os = "android")]
         if matches!(&event,WindowEvent::KeyboardInput {event,..} if event.state==ElementState::Pressed && event.logical_key==winit::keyboard::Key::Named(winit::keyboard::NamedKey::BrowserBack))
         {
+            if self.pad.touch.custom_name_editing() {
+                self.pad.touch.finish_custom_name();
+                crate::platform::hide();
+                return;
+            }
             if self.pad.touch.editor.is_some() {
                 self.pad.touch.cancel_editor();
                 self.settings.touch = self.pad.touch.settings.clone();
@@ -15141,7 +15146,12 @@ impl ApplicationHandler for Game<'_> {
                 ) {
                     self.pause = false;
                 }
+                self.android_transfer_control_layout();
+                if let Some(initial) = self.pad.touch.take_custom_name_request() {
+                    crate::platform::show(&initial);
+                }
                 if self.pad.touch.editor.is_none() {
+                    crate::platform::hide();
                     self.settings.touch = self.pad.touch.settings.clone();
                 }
                 if std::mem::take(&mut self.pad.touch.clicked) {
@@ -15251,6 +15261,7 @@ impl ApplicationHandler for Game<'_> {
                 if self.pad.touch.chat_requested {
                     self.audio.play_button_click();
                     self.pad.touch.clear();
+                    self.android_custom_events();
                     if let Err(error) = self.key_pressed(KeyCode::KeyT) {
                         log::warn!("Touch chat: {error}");
                     }

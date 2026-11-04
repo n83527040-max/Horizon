@@ -8,7 +8,8 @@ use std::{
 const HOLD_DELAY: Duration = Duration::from_millis(350);
 mod custom;
 mod editor;
-pub use custom::CustomButton;
+pub use editor::LayoutRequest;
+pub use custom::{CustomButton, CustomIcon};
 pub mod layout;
 pub use layout::{Control, Mode, Settings};
 /// Entity-placement items retain short-tap placement, like building blocks.
@@ -335,6 +336,9 @@ impl TouchControls {
                         || (bt == Button::LeftTrigger && state.triggers[0] > 0.0)
                         || (bt == Button::RightTrigger && state.triggers[1] > 0.0)
                 });
+            // Presentation is independent of input ownership and saved bounds.
+            #[cfg(target_os = "android")]
+            let control_vertices = b.vertices.len();
             if control == Control::Move {
                 if self.settings.mode == Mode::Dpad {
                     let cell = size / 3.0;
@@ -486,6 +490,21 @@ impl TouchControls {
                         color,
                     ),
                 }
+            }
+            #[cfg(target_os = "android")]
+            if matches!(control, Control::Move | Control::Sprint | Control::Jump |
+                Control::Sneak | Control::Attack | Control::Use)
+                && (control != Control::Move || self.settings.mode != Mode::Dpad)
+            {
+                let center = [x + size / 2.0, y + size / 2.0];
+                // Scale only the painted glyph; the original multitouch hitbox
+                // stays fixed and cannot drift as a finger presses the control.
+                if held && control != Control::Move {
+                    b.scale_since(control_vertices, center[0], center[1], 0.94, 0.94);
+                }
+                let alpha = (opacity.clamp(0.0, 1.0) * if held { 245.0 } else { 165.0 }) as u8;
+                ring(b, a, center, size * 0.48, rgba(180, 72, 255, alpha));
+                ring(b, a, center, size * 0.48 + 1.5, rgba(158, 48, 255, alpha / 3));
             }
             if let Some(e) = &self.editor
                 && e.selected == Some(control)

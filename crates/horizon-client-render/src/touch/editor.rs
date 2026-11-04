@@ -12,7 +12,14 @@ pub struct Editor {
     key_picker: bool,
     key_page: usize,
     raw_keys: bool,
+    name_editing: bool,
+    name_request: bool,
+    layout_menu: bool,
+    layout_request: Option<LayoutRequest>,
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LayoutRequest { Import, Export }
 
 enum Drag {
     Control([f32; 2]),
@@ -34,7 +41,48 @@ impl TouchControls {
             key_picker: false,
             key_page: 0,
             raw_keys: false,
+            name_editing: false,
+            name_request: false,
+            layout_menu: false,
+            layout_request: None,
         });
+    }
+    pub fn take_layout_request(&mut self) -> Option<LayoutRequest> {
+        self.editor.as_mut()?.layout_request.take()
+    }
+    pub fn layout_status(&mut self, message: String) {
+        if let Some(e) = &mut self.editor { e.error = Some(message); }
+    }
+    /// A host displays its real text input when a name field is tapped.
+    pub fn take_custom_name_request(&mut self) -> Option<String> {
+        let e = self.editor.as_mut()?;
+        if !std::mem::take(&mut e.name_request) { return None; }
+        let i = e.selected_custom?;
+        Some(self.settings.custom_buttons.get(i)?.name.clone())
+    }
+    pub fn custom_name_editing(&self) -> bool {
+        self.editor.as_ref().is_some_and(|e| e.name_editing)
+    }
+    pub fn custom_name_text(&mut self, text: &str) {
+        if let Some(i) = self.editor.as_ref().filter(|e| e.name_editing).and_then(|e| e.selected_custom)
+            && let Some(button) = self.settings.custom_buttons.get_mut(i)
+        {
+            let remaining = 32usize.saturating_sub(button.name.chars().count());
+            button.name.extend(text.chars().filter(|c| !c.is_control()).take(remaining));
+        }
+    }
+    pub fn custom_name_backspace(&mut self) {
+        if let Some(i) = self.editor.as_ref().filter(|e| e.name_editing).and_then(|e| e.selected_custom)
+            && let Some(button) = self.settings.custom_buttons.get_mut(i)
+        {
+            button.name.pop();
+        }
+    }
+    pub fn finish_custom_name(&mut self) {
+        if let Some(e) = &mut self.editor {
+            e.name_editing = false;
+            e.name_request = false;
+        }
     }
     pub fn cancel_editor(&mut self) {
         if let Some(e) = self.editor.take() {
@@ -49,6 +97,25 @@ impl TouchControls {
             return false;
         };
         self.clicked |= started;
+        if e.layout_menu {
+            if started {
+                if layout::contains([0.28, 0.26, 0.2, 0.08], p) {
+                    self.settings.apply_control_preset(false);
+                    e.error = Some("Standard preset applied. Tap Done to save.".into());
+                } else if layout::contains([0.52, 0.26, 0.2, 0.08], p) {
+                    self.settings.apply_control_preset(true);
+                    e.error = Some("Left-handed preset applied. Tap Done to save.".into());
+                } else if cfg!(target_os = "android") && layout::contains([0.28, 0.4, 0.2, 0.08], p) {
+                    e.layout_request = Some(LayoutRequest::Export);
+                } else if cfg!(target_os = "android") && layout::contains([0.52, 0.4, 0.2, 0.08], p) {
+                    e.layout_request = Some(LayoutRequest::Import);
+                } else if layout::contains([0.4, 0.57, 0.2, 0.08], p) {
+                    e.layout_menu = false;
+                }
+            }
+            self.editor = Some(e);
+            return false;
+        }
         if self.edit_custom(&mut e, id, p, started, ended) {
             self.editor = Some(e);
             return false;
@@ -75,6 +142,14 @@ impl TouchControls {
                         CustomButton::new(button.key.clone(), i).layouts
                             [self.settings.mode.index()];
                 }
+            } else if layout::contains([0.37, 0.04, 0.105, 0.075], p) {
+                e.layout_menu = true;
+                e.selected = None;
+                e.selected_custom = None;
+                e.palette = false;
+                e.key_picker = false;
+                e.drag = None;
+                e.error = None;
             } else if layout::contains([0.02, 0.13, 0.335, 0.075], p) {
                 e.palette = !e.palette;
                 e.selected = None;
@@ -171,6 +246,7 @@ impl TouchControls {
             ([0.02, 0.04, 0.105, 0.075], "Done"),
             ([0.135, 0.04, 0.105, 0.075], "Cancel"),
             ([0.25, 0.04, 0.105, 0.075], "Reset"),
+            ([0.37, 0.04, 0.105, 0.075], "Layouts"),
             ([0.02, 0.13, 0.335, 0.075], "Add buttons..."),
         ] {
             plate(b, a, rect, label, false);
@@ -181,6 +257,20 @@ impl TouchControls {
         let e = self.editor.as_ref().unwrap();
         let (w, h) = (b.width, b.height);
         let text = rgba(245, 245, 245, 255);
+        if e.layout_menu {
+            b.fill(a, w * 0.24, h * 0.19, w * 0.52, h * 0.55, rgba(15, 10, 25, 245));
+            plate(b, a, [0.28, 0.26, 0.2, 0.08], "Standard", false);
+            plate(b, a, [0.52, 0.26, 0.2, 0.08], "Left-handed", false);
+            if cfg!(target_os = "android") {
+                plate(b, a, [0.28, 0.4, 0.2, 0.08], "Export", false);
+                plate(b, a, [0.52, 0.4, 0.2, 0.08], "Import", false);
+            }
+            plate(b, a, [0.4, 0.57, 0.2, 0.08], "Back", false);
+            if let Some(message) = &e.error {
+                b.text(a, message, w * 0.26, h * 0.68, text, true);
+            }
+            return;
+        }
         if let Some(selected) = e.selected {
             plate(b, a, [0.32, 0.88, 0.36, 0.07], "Remove button", false);
             let p = self.placement(selected);
@@ -403,6 +493,31 @@ impl TouchControls {
             return false;
         }
         if started && e.selected_custom.is_some() {
+            let i = e.selected_custom.unwrap();
+            if layout::contains([0.32, 0.28, 0.17, 0.07], p) && i > 0 {
+                self.settings.custom_buttons.swap(i, i - 1);
+                e.selected_custom = Some(i - 1);
+                return true;
+            }
+            if layout::contains([0.51, 0.28, 0.17, 0.07], p) && i + 1 < self.settings.custom_buttons.len() {
+                self.settings.custom_buttons.swap(i, i + 1);
+                e.selected_custom = Some(i + 1);
+                return true;
+            }
+            if layout::contains([0.32, 0.37, 0.36, 0.07], p) {
+                e.name_editing = true;
+                e.name_request = true;
+                e.drag = None;
+                return true;
+            }
+            if layout::contains([0.32, 0.45, 0.17, 0.07], p) {
+                self.settings.custom_buttons[i].icon = self.settings.custom_buttons[i].icon.next();
+                return true;
+            }
+            if layout::contains([0.51, 0.45, 0.17, 0.07], p) {
+                self.settings.custom_buttons[i].enabled ^= true;
+                return true;
+            }
             if layout::contains([0.32, 0.54, 0.36, 0.07], p) {
                 e.key_picker = true;
                 e.key_page = 0;
@@ -436,7 +551,7 @@ impl TouchControls {
         }
         if started
             && e.drag.is_none()
-            && let Some(index) = self.custom_at(p)
+            && let Some(index) = self.custom_at_with_placeholders(p, true)
         {
             let center = self.custom_placement(index).center;
             e.selected = None;
@@ -507,12 +622,21 @@ impl TouchControls {
             && !e.palette
             && !e.key_picker
         {
-            let p = self.settings.custom_buttons[i].layouts[self.settings.mode.index()];
+            let button = &self.settings.custom_buttons[i];
+            let p = button.layouts[self.settings.mode.index()];
+            plate(b, a, [0.32, 0.28, 0.17, 0.07], "Order back", false);
+            plate(b, a, [0.51, 0.28, 0.17, 0.07], "Order front", false);
+            plate(b, a, [0.32, 0.37, 0.36, 0.07],
+                &format!("Name: {}", button.label()), e.name_editing);
+            plate(b, a, [0.32, 0.45, 0.17, 0.07],
+                &format!("Icon: {}", button.icon.label()), false);
+            plate(b, a, [0.51, 0.45, 0.17, 0.07],
+                if button.enabled { "Enabled" } else { "Disabled" }, button.enabled);
             plate(
                 b,
                 a,
                 [0.32, 0.54, 0.36, 0.07],
-                &format!("Action: {}", self.settings.custom_buttons[i].label()),
+                &format!("Binding: {}", self.settings.custom_buttons[i].binding_label()),
                 false,
             );
             plate(
@@ -600,4 +724,45 @@ impl TouchControls {
 }
 fn key_rect(i: usize) -> [f32; 4] {
     [0.15, 0.25 + i as f32 * 0.072, 0.7, 0.06]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn custom_editor_updates_metadata_and_cancel_restores_it() {
+        let mut t = TouchControls::default();
+        t.viewport(1920, 1080);
+        t.settings.custom_buttons.push(CustomButton::new("key.keyboard.z".into(), 0));
+        t.open_editor();
+        let p = t.custom_placement(0).center;
+        t.edit_touch(1, p, true, true);
+        t.edit_touch(2, [0.40, 0.48], true, true);
+        assert_eq!(t.settings.custom_buttons[0].icon, CustomIcon::Attack);
+        t.edit_touch(3, [0.59, 0.48], true, true);
+        assert!(!t.settings.custom_buttons[0].enabled);
+        t.edit_touch(4, [0.50, 0.40], true, true);
+        assert_eq!(t.take_custom_name_request(), Some(String::new()));
+        t.custom_name_text("Mine");
+        t.custom_name_backspace();
+        assert_eq!(t.settings.custom_buttons[0].name, "Min");
+        t.finish_custom_name();
+        t.cancel_editor();
+        assert!(t.settings.custom_buttons[0].enabled);
+        assert_eq!(t.settings.custom_buttons[0].icon, CustomIcon::Text);
+        assert!(t.settings.custom_buttons[0].name.is_empty());
+    }
+
+    #[test]
+    fn presets_are_editor_transactions() {
+        let mut t = TouchControls::default();
+        t.viewport(1920, 1080);
+        t.open_editor();
+        t.edit_touch(1, [0.42, 0.08], true, true);
+        t.edit_touch(2, [0.61, 0.30], true, true);
+        assert!(t.settings.left_handed);
+        t.cancel_editor();
+        assert!(!t.settings.left_handed);
+    }
 }
