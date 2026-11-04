@@ -1,64 +1,77 @@
 # CRAFTIX in-game controls — implementation status
 
-**Work in progress, not a release sign-off. No APK has been built for this work.**
-The images supplied by the user are the target, not proof that the current HUD
-or editor matches them.
+**Work in progress, not a release sign-off. No new APK was built.** The supplied
+images are the visual target; the present implementation is not pixel-matched.
 
 ## Implemented in source
 
-* Android's boot screen uses CRAFTIX, a purple glow and a timed fade. Desktop
-  retains its existing identity. Android-only rings and a pressed-size effect
-  were added to the existing movement/action HUD; hitboxes are not animated.
-* Existing per-finger engine actions and custom key down/up logic are reused.
-  Opening chat or the auxiliary overlay flushes held custom key releases.
-  Unbound and disabled buttons are not drawn and do not capture play touches.
-* In the existing control editor a custom button can have a name, one of six
-  icon choices, a binding, enabled state, order, location, size and opacity.
-  In-game and title-screen Android editors both route names to the system IME.
-  Editor changes are transactional: Done saves; Cancel restores the snapshot.
-* Standard and left-handed control presets are available in Layouts. The
-  presets reset built-in layouts and visibility but keep custom buttons and
-  unrelated preferences. They must still be saved with Done.
-* Layouts can be transferred as bounded, versioned JSON with only control data.
-  On Android, Layouts > Export writes `transfer.json` in the current profile's
-  **Control layouts** document-provider folder. Copy that file using Android's
-  Files app; to import, replace `transfer.json` in that folder and select
-  Layouts > Import, then Done. Import validates before changing settings; it
-  does not overwrite gameplay or graphics preferences. This path is not a system
-  file picker and has not been tried on a phone.
-* Legacy custom buttons default to enabled and text-only when loaded. New
-  source tests cover metadata, presets, cancellation, export/import, limits,
-  multitouch key release, unassigned and disabled buttons.
+* Android boot uses CRAFTIX with a purple glow and timed fade. Existing game
+  controls keep their engine input wiring; Android-only purple rings and a
+  pressed-size effect do not alter their hitboxes.
+* A More button near the hotbar opens a modal, three-column custom-button
+  manager; the older auxiliary keyboard remains accessible. The manager can
+  add or delete a button, assign an engine action or supported physical key,
+  edit its name with the Android IME, cycle icons, toggle it, set size and
+  opacity, and choose Always / Gameplay / Inventory visibility. Position is
+  edited in the existing drag editor; select Custom in its toolbar to return.
+  Onscreen slots can be reordered using that editor's Order controls.
+* Save commits the settings, Cancel restores the original editor snapshot.
+  Unassigned, disabled, fully transparent and context-hidden custom buttons
+  do not capture gameplay touches. Inventory visibility requires the existing
+  inventory-controls setting to be enabled. The key picker lists supported
+  keys, but a key without a corresponding game action does not create one.
+* Layouts has standard and left-handed presets; three numbered persistent slots
+  can be saved and loaded, and a separately confirmed reset removes custom
+  buttons. Presets and loaded layouts are applied to the active settings only
+  after Save/Done; saving a named slot or exporting writes that file immediately,
+  even if the editor is later cancelled.
+* Layout transfer is bounded versioned JSON, containing only control data. On
+  Android, Layouts > Export writes `transfer.json` in the current profile's
+  **Control layouts** Android Documents provider folder. Copy it with a Files
+  app. To import, replace `transfer.json`, select Import and then Save/Done.
+  The three numbered slots use the same folder. This is not a system picker.
+* Hotbar borders have a purple overlay over the original engine's nine slots,
+  selection and real items. The More button moves upward if the left-hand
+  offhand or attack gauge would overlap it. A compact card uses the real player
+  name, health and armor while retaining original survival bars. In multiplayer
+  a top-row Tab button holds the actual engine player-list action. It is not
+  shown for a single-player world; the card currently does not show the skin.
+* Per-finger custom key ownership provides down/up events and shared-key holds.
+  The auxiliary overlay no longer swallows the end of an already-owned HUD
+  touch merely because the finger moved over it. Transitions clear held keys.
+* There are Rust tests for editor interactions, keys, context visibility,
+  multitouch holds, drag positioning, layout serialization, old settings and
+  reset/cancel, plus geometry tests. Tests and code are not a device sign-off.
 
-## Important limitations
+## Remaining work and limitations
 
-The editor is not yet the requested three-column design. The complete neon HUD
-artwork and animation, redesigned nine-slot hotbar, player/skin/status panel,
-players button, more menu and full visual placement from the supplied images
-are not implemented here. Existing engine functions must not be represented as
-newly verified on a device. Launcher orientation and absence of camera/input
-conflicts require real-device tests.
+The manager is an initial dark-purple three-column implementation, not yet a
+pixel-faithful reproduction of the references; text localization, icon artwork,
+rounded glass, transitions, and a polished one-screen placement workflow are
+still incomplete. The HUD layout, glow, icons, animation, true skin portrait,
+full player info, configurable top-row players button, and responsive collision
+handling still need further work and visual/device validation. The fixed
+More/Tab buttons are not yet individually movable/resizable. Inventory-only
+buttons require enabling inventory controls. Layout slots are numbered, not
+user-named, and transfer uses the Files provider rather than a native picker.
 
-Horizon is a Rust Minecraft-compatible client, not a Java runtime. Java Fabric,
-Forge and NeoForge mods such as Litematica and Replay Mod cannot run as Java
-mods here (see `docs/android-direction.md` and `docs/android-0.7.6.md`). Sending
-M/G/R events does not add compatibility. A separate compatible Java
-runtime/loader architecture would be needed; do not claim mod support.
+The underlying engine supports specific mappings and raw keyboard events; a raw
+M/R/G key does not provide a map, replay, or any other missing functionality.
+No Minecraft Java mod integration is included or implied.
 
-## Validation
+## Verification and release gate
 
-* `tools/check_public_tree.py`: passed locally.
-* Nine Python identity/responsive checks: passed locally. They do not exercise
-  the Rust HUD or Android runtime.
-* GitHub Actions controls-only run 41892321962 at commit `9a847ff`: the desktop
-  Rust touch tests and Android arm64 type-check passed. This did not build an
-  APK or run on Android. The unrelated legacy UI-redesign regression suite was
-  deliberately skipped in controls-only mode; an earlier run failed there
-  because it explicitly prohibits engine changes required by this task.
-* Local Cargo, Flutter and ADB are unavailable. No physical Android tests of
-  rendering, multitouch, IME, profile transfer, process restart or orientation
-  have been performed. Tests cannot establish visual fidelity or release safety.
-* No APK, signing operation, signing key or GitHub Secret was created or changed
-  for these changes. A final release requires a complete implementation, a
-  signed build with the existing CRAFTIX Release key, certificate comparison,
-  and actual Android-device testing.
+* `tools/check_public_tree.py` and nine Python identity/responsive checks passed
+  locally. They do not test Rust interaction or Android.
+* GitHub Actions controls-only run 41898946887 at commit `5bb7a50` passed the
+  Rust touch tests and Android arm64 type-check, including the player-list
+  changes. These jobs do not build or run an APK. Follow-up ownership and card
+  fixes are being checked separately.
+* Cargo, Flutter and ADB are unavailable locally. No actual device tests have
+  been performed for each button, multitouch, keyboard/IME, appearance,
+  persistence after process restart, transfer, orientation, or performance.
+  Android Landscape and launcher Portrait still require device verification.
+* No APK or signing operation was produced for these changes, and no release
+  signing key or GitHub Secret was changed. A release requires completion,
+  real Android tests, an APK built with the existing CRAFTIX Release key, and
+  a certificate comparison. Previous 0.7.9 does not contain this work.

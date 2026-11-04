@@ -138,9 +138,11 @@ pub fn draw_player_card(b: &mut HudBatch, a: &HudAtlas, name: &str, health: f32,
     for i in 0..10 {
         let x = x + 3.0 + i as f32 * 7.0;
         let remaining = health - i as f32 * 2.0;
-        b.sprite_scaled(a, "hud/heart/container", x, y + 11.0, 7.0, 7.0, u32::MAX);
-        if remaining > 0.0 {
-            b.sprite_scaled(a, if remaining >= 2.0 { "hud/heart/full" } else { "hud/heart/half" }, x, y + 11.0, 7.0, 7.0, u32::MAX);
+        if (i as f32) * 2.0 < max_health.max(0.0) {
+            b.sprite_scaled(a, "hud/heart/container", x, y + 11.0, 7.0, 7.0, u32::MAX);
+            if remaining > 0.0 {
+                b.sprite_scaled(a, if remaining >= 2.0 { "hud/heart/full" } else { "hud/heart/half" }, x, y + 11.0, 7.0, 7.0, u32::MAX);
+            }
         }
         let remaining_armor = armor - i * 2;
         b.sprite_scaled(a, if remaining_armor >= 2 { "hud/armor_full" } else if remaining_armor == 1 { "hud/armor_half" } else { "hud/armor_empty" },

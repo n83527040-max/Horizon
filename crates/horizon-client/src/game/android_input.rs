@@ -189,6 +189,11 @@ impl Game<'_> {
     }
 
     pub(super) fn android_custom_key_held(&self, key: KeyCode) -> bool {
+        // A mapped touch action and a physical key can drive the same engine
+        // key. Releasing either source must not release the other one.
+        if self.pad.hardware_keys.iter().any(|physical| self.settings.keys.translate_all(*physical).contains(&Ok(key))) {
+            return true;
+        }
         self.pad.touch.held_custom_tokens().any(|token| {
             if let Some(mapping) = token.strip_prefix("action:") {
                 horizon_client::keybinds::key_code(horizon_client::keybinds::KeyBinds::default_of(
