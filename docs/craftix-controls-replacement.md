@@ -44,3 +44,13 @@ These are **new components**, not a claim that they have been integrated.
 
 Until these are implemented, the old system remains active deliberately so a
 partially built replacement cannot break the player's working installation.
+
+## Automated checks so far
+
+* [CI run 41922447049](https://github.com/n83527040-max/Horizon/actions/runs/41922447049)
+  at `be2f342` passed the existing and new Rust touch-model tests, including
+  layout and drag tests, and Android arm64 type-check. No APK was built or run.
+* `tools/check_public_tree.py`, `git diff --check` and 35 Android Python tests
+  passed locally. Cargo, Flutter and ADB are unavailable on the local machine.
+* The user verified that 0.8.0 installed and displayed the old controls; this
+  does not test the new components, which are not active in the game yet.
