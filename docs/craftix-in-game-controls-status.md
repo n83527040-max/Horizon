@@ -36,6 +36,8 @@ images are the visual target; the present implementation is not pixel-matched.
   name, health and armor while retaining original survival bars. In multiplayer
   a top-row Tab button holds the actual engine player-list action. It is not
   shown for a single-player world; the card currently does not show the skin.
+* Neon line segments use one quad each rather than a quad per pixel; this bounds
+  the geometry cost without claiming a measured frame-rate improvement.
 * Per-finger custom key ownership provides down/up events and shared-key holds.
   The auxiliary overlay no longer swallows the end of an already-owned HUD
   touch merely because the finger moved over it. Transitions clear held keys.
@@ -63,10 +65,9 @@ No Minecraft Java mod integration is included or implied.
 
 * `tools/check_public_tree.py` and nine Python identity/responsive checks passed
   locally. They do not test Rust interaction or Android.
-* GitHub Actions controls-only run 41898946887 at commit `5bb7a50` passed the
-  Rust touch tests and Android arm64 type-check, including the player-list
-  changes. These jobs do not build or run an APK. Follow-up ownership and card
-  fixes are being checked separately.
+* GitHub Actions controls-only run 41900397784 at commit `e1ee256` passed the
+  Rust touch tests and Android arm64 type-check, including player-list, shared
+  key and bounded neon geometry changes. These jobs do not build or run an APK.
 * Cargo, Flutter and ADB are unavailable locally. No actual device tests have
   been performed for each button, multitouch, keyboard/IME, appearance,
   persistence after process restart, transfer, orientation, or performance.

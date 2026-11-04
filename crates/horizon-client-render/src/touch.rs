@@ -1180,8 +1180,8 @@ fn line(
     }
     let (nx, ny) = (-dy / length * 0.7, dx / length * 0.7);
     b.fill_quad(a, [
-        [p[0] + nx, p[1] + ny], [q[0] + nx, q[1] + ny],
-        [q[0] - nx, q[1] - ny], [p[0] - nx, p[1] - ny],
+        [p[0] - nx, p[1] - ny], [q[0] - nx, q[1] - ny],
+        [q[0] + nx, q[1] + ny], [p[0] + nx, p[1] + ny],
     ], color);
 }
 #[cfg(test)]
