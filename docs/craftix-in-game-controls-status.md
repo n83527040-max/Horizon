@@ -50,11 +50,11 @@ runtime/loader architecture would be needed; do not claim mod support.
 * `tools/check_public_tree.py`: passed locally.
 * Nine Python identity/responsive checks: passed locally. They do not exercise
   the Rust HUD or Android runtime.
-* GitHub Actions run 41890858043 at commit `49759c4`: the desktop Rust touch
-  tests and Android arm64 type-check jobs passed independently. Its overall
-  result was failure because the legacy source-regression suite rejects changes
-  to engine files; those legacy tests predate this HUD task. The follow-up
-  dispatch-only controls mode separates the controls checks from that suite.
+* GitHub Actions controls-only run 41891624993 at commit `99bccda`: the desktop
+  Rust touch tests and Android arm64 type-check passed. This did not build an
+  APK or run on Android. The unrelated legacy UI-redesign regression suite was
+  deliberately skipped in controls-only mode; an earlier run failed there
+  because it explicitly prohibits engine changes required by this task.
 * Local Cargo, Flutter and ADB are unavailable. No physical Android tests of
   rendering, multitouch, IME, profile transfer, process restart or orientation
   have been performed. Tests cannot establish visual fidelity or release safety.

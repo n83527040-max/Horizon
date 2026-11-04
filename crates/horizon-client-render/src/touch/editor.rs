@@ -103,6 +103,12 @@ impl TouchControls {
             return false;
         };
         self.clicked |= started;
+        // While the system IME owns this edit, do not change the selected
+        // button or activate editor commands under the keyboard.
+        if e.name_editing {
+            self.editor = Some(e);
+            return false;
+        }
         if e.layout_menu {
             if started {
                 if layout::contains([0.28, 0.26, 0.2, 0.08], p) {
