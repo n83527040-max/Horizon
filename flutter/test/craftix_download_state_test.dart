@@ -97,6 +97,41 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('Neon card uses real byte progress and optional transfer stats',
+      (WidgetTester tester) async {
+    await pumpApp(
+      tester,
+      fixture(installReady: false, installActive: true,
+          installStage: 'Downloading game resources and sound',
+          installDone: 171 * 1048576, installTotal: 502 * 1048576,
+          installPercent: 34, installSpeedBps: 12 * 1048576,
+          installEtaSeconds: 26),
+      size: const Size(320, 720),
+    );
+    final LinearProgressIndicator bar = tester.widget<LinearProgressIndicator>(
+        find.descendant(of: find.byType(CraftixRunnerProgress),
+            matching: find.byType(LinearProgressIndicator)));
+    expect(bar.value, 0.34);
+    expect(find.text('34%'), findsOneWidget);
+    expect(find.text('171.0 MB / 502.0 MB'), findsOneWidget);
+    expect(find.text('12.0 MB/s'), findsOneWidget);
+    expect(find.text('~ 26s'), findsOneWidget);
+    expect(find.byWidgetPredicate((Widget w) => w is Image &&
+        w.image is AssetImage && (w.image as AssetImage).assetName == 'assets/download_scene.png'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('Unknown speed and ETA do not appear as invented values',
+      (WidgetTester tester) async {
+    await pumpApp(tester, fixture(installReady: false, installActive: true,
+        installDone: 25, installTotal: 100, installPercent: 25),
+        size: const Size(320, 720));
+    expect(find.text('25 B / 100 B'), findsOneWidget);
+    expect(find.byIcon(Icons.speed_rounded), findsNothing);
+    expect(find.byIcon(Icons.access_time_rounded), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('Reduced motion replaces the runner with a static bar',
       (WidgetTester tester) async {
     await tester.pumpWidget(const MaterialApp(

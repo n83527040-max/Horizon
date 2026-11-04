@@ -73,10 +73,10 @@ def patch_gradle() -> None:
         text = re.sub(r'minSdkVersion\s+flutter\.minSdkVersion', 'minSdkVersion 28', text)
         text = re.sub(r'minSdk\s*=\s*\d+', 'minSdk = 28', text)
         text = re.sub(r'minSdkVersion\s+\d+', 'minSdkVersion 28', text)
-        text = re.sub(r'versionCode\s*=\s*\d+', 'versionCode = 30', text)
-        text = re.sub(r'versionCode\s+flutter\.versionCode', 'versionCode 30', text)
-        text = re.sub(r'versionName\s*=\s*"[^"]+"', 'versionName = "0.7.8"', text)
-        text = re.sub(r'versionName\s+"[^"]+"', 'versionName "0.7.8"', text)
+        text = re.sub(r'versionCode\s*=\s*\d+', 'versionCode = 31', text)
+        text = re.sub(r'versionCode\s+flutter\.versionCode', 'versionCode 31', text)
+        text = re.sub(r'versionName\s*=\s*"[^"]+"', 'versionName = "0.7.9"', text)
+        text = re.sub(r'versionName\s+"[^"]+"', 'versionName "0.7.9"', text)
         # Make sure the real Rust payload folders are part of the merged APK
         # assets/libs even when the Flutter Gradle plugin adds its own dirs.
         if name.endswith(".kts"):
@@ -127,7 +127,7 @@ android.signingConfigs {
 android.buildTypes.release.signingConfig = android.signingConfigs.craftix
 """
         path.write_text(text, encoding="utf-8")
-        print(f"patched {name}: applicationId=com.craftix.launcher, minSdk=28, version 0.7.8/30", flush=True)
+        print(f"patched {name}: applicationId=com.craftix.launcher, minSdk=28, version 0.7.9/31", flush=True)
 
 
 def stage() -> None:
