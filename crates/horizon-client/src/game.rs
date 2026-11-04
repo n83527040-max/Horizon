@@ -13952,12 +13952,26 @@ impl Game<'_> {
             && !self.ui.hide_gui && !self.creative && !self.spectator()
         {
             let name = self.acting_player_name().to_owned();
-            let skin = self.player_model.as_ref().and_then(|model| model.skin.as_deref());
+            let mut skin = self.player_model.as_ref().and_then(|model| model.skin.clone());
+            // Integrated single-player can have a launcher-provided offline skin
+            // even when no remote profile has populated player_model.skin.
+            if skin.is_none() {
+                if let Some((pixels, _)) = horizon_client::skins::offline_skin() {
+                    const OFFLINE: &str = "horizon/offline_skin";
+                    if !self.skin_slots.contains(OFFLINE) || !self.gui.atlas.sprites.contains_key(OFFLINE) {
+                        self.store_skin(OFFLINE.into(), pixels.clone());
+                    }
+                    if self.gui.atlas.sprites.contains_key(OFFLINE) {
+                        self.skin_downloads.borrow_mut().drawn(OFFLINE);
+                        skin = Some(OFFLINE.into());
+                    }
+                }
+            }
             if let Some(player) = &mut self.player {
                 let health = player.health.health();
                 let max_health = player.attribute("minecraft:max_health").unwrap_or(20.0) as f32;
                 let armor = player.attribute("minecraft:armor").or_else(|_| player.attribute("armor")).unwrap_or(0.0) as i32;
-                horizon_client::touch::draw_player_card(&mut hud, &self.gui.atlas, &name, skin, health, max_health, armor);
+                horizon_client::touch::draw_player_card(&mut hud, &self.gui.atlas, &name, skin.as_deref(), health, max_health, armor);
             }
         }
         #[cfg(target_os = "android")]
