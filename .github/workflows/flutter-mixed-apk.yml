@@ -43,7 +43,7 @@ jobs:
         working-directory: flutter
         run: |
           set -euo pipefail
-          trap 'echo "::error::$(tail -c 12000 /tmp/flutter-ui.log | base64 -w0)"' ERR
+          trap 'echo "::error::$((grep -E -A 10 'EXCEPTION|Expected:|Actual:|\[E\]|Error:|Some tests failed' /tmp/flutter-ui.log || tail -c 2200 /tmp/flutter-ui.log) | tail -c 2200 | base64 -w0)"' ERR
           flutter pub get 2>&1 | tee /tmp/flutter-ui.log
           flutter analyze --no-fatal-infos 2>&1 | tee /tmp/flutter-ui.log
           flutter test --reporter expanded 2>&1 | tee /tmp/flutter-ui.log
