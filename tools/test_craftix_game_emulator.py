@@ -223,12 +223,23 @@ class Session:
     def install_state(self) -> str:
         """Compact, annotation-friendly view of the installer's on-device state."""
         out = self.adb.shell(
-            f"ls {READY_DIR} {READY_DIR}/*/ 2>/dev/null | tr '\\n' ' '; "
-            f"echo; find {DATA}/cache -maxdepth 3 2>/dev/null | head -12 | tr '\\n' ' '; "
-            f"echo; du -sk {DATA}/cache {DATA}/.local/horizon-client "
-            f"{DATA}/.local/downloads 2>/dev/null | tr '\\n' ' '",
+            f"ls {READY_DIR} {READY_DIR}/*/ {DATA}/files/.local "
+            f"{DATA}/files/.local/*/ 2>/dev/null | tr '\\n' ' '; "
+            f"echo; ls -R {DATA}/cache 2>/dev/null | head -24 | tr '\\n' ' '; "
+            f"echo; du -sk {DATA}/cache {DATA}/files/.local 2>/dev/null | tr '\\n' ' '",
             check=False)
-        return " ".join(out.split())[:380]
+        return " ".join(out.split())[:400]
+
+    def find_error_file(self) -> str:
+        """Any launcher-written error file, whichever directory is home."""
+        out = self.adb.shell(
+            f"find {DATA} -maxdepth 4 -name android-error.txt 2>/dev/null | head -3",
+            check=False).strip()
+        first = out.splitlines()[0].strip() if out.strip() else ""
+        if not first:
+            return ""
+        body = self.adb.shell(f"head -c 700 {first} 2>/dev/null", check=False)
+        return f"{first}: {' '.join(body.split())[:700]}"
 
     def failure_snapshot(self) -> str:
         """One annotation-sized digest: startup log, directory tree, process.
@@ -237,12 +248,15 @@ class Session:
         evidence has to travel inside a GitHub annotation message.
         """
         out = self.adb.shell(
-            f"echo 'LOGCAT:'; logcat -d -v brief -t 3000 2>/dev/null "
-            f"| grep -iE 'Horizon|panic|FATAL|androidruntime' | tail -22 | head -c 1900; "
-            f"echo; echo 'DATADIR:'; ls {DATA} 2>/dev/null | head -40 | tr '\\n' ' '; "
-            f"echo; echo 'LOCAL:'; ls -R {DATA}/.local 2>/dev/null | head -30 | tr '\\n' ' '; "
-            f"echo; echo 'ACTIVITY:'; dumpsys activity activities 2>/dev/null "
-            f"| grep -m1 -i 'ResumedActivity'",
+            f"echo 'HOMES:'; find {DATA} -maxdepth 3 \( -name android-error.txt "
+            f"-o -name current-session.json -o -name diagnostic.log \) 2>/dev/null "
+            f"| head -8 | tr '\\n' ' '; "
+            f"echo; echo 'FILES:'; ls {DATA}/files 2>/dev/null | head -24 | tr '\\n' ' '; "
+            f"echo; echo 'ERR:'; for f in $(find {DATA} -maxdepth 4 -name android-error.txt "
+            f"2>/dev/null | head -2); do head -c 500 $f; echo; done; "
+            f"echo 'DIAG:'; tail -c 900 {DATA}/files/performance/diagnostic.log 2>/dev/null; "
+            f"tail -c 400 {DATA}/performance/diagnostic.log 2>/dev/null; "
+            f"echo 'PCACHE:'; ls -R {DATA}/cache 2>/dev/null | head -30 | tr '\\n' ' '",
             timeout=60, check=False)
         return " ".join(out.split())[:3600]
 
@@ -436,6 +450,10 @@ def run(args: argparse.Namespace) -> int:
         if session.engine_ready_files():
             install_ready = True
             break
+        error_file = session.find_error_file()
+        if error_file:
+            adb.logcat(out, "install-error")
+            session.fatal("first_run_install_error", error_file)
         state = session.install_state()
         if state != last_state:
             last_state, last_progress = state, time.time()
