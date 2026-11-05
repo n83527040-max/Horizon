@@ -90,17 +90,24 @@ impl Editor {
         self.staged.items.remove(self.staged.active);
         self.staged.active = self.staged.active.min(self.staged.items.len()-1); Ok(())
     }
-    /// Add a functioning key binding; an empty or unknown key is rejected.
+    /// Add a physical key. The host still has to deliver the generated edges.
     pub fn add_key(&mut self, name: &str, key: &str, icon: Icon) -> io::Result<Id> {
-        if self.staged.items[self.staged.active].buttons.len() >= 64 || crate::keybinds::key_code(key).is_none() {
-            return Err(invalid("invalid or unavailable key"));
+        self.add_action(name, Action::Key(key.into()), icon)
+    }
+    /// Add an existing game key mapping (not an invented function).
+    pub fn add_binding(&mut self, name: &str, binding: &str, icon: Icon) -> io::Result<Id> {
+        self.add_action(name, Action::Binding(binding.into()), icon)
+    }
+    fn add_action(&mut self, name: &str, action: Action, icon: Icon) -> io::Result<Id> {
+        if self.staged.items[self.staged.active].buttons.len() >= 64 {
+            return Err(invalid("too many buttons"));
         }
         let layout = &mut self.staged.items[self.staged.active];
         let id = (0..u32::MAX).map(Id::Custom).find(|id| !layout.buttons.iter().any(|b| b.id == *id))
             .ok_or_else(|| invalid("no button IDs available"))?;
-        let button = Button { id, action: Some(Action::Key(key.into())), circle: Circle { center: [0.7, 0.30], radius: 0.05 },
+        let button = Button { id, action: Some(action), circle: Circle { center: [0.7, 0.30], radius: 0.05 },
             opacity: 0.85, behavior: Behavior::Hold, icon, enabled: true, visibility: super::layout::Visibility::Always, label: name.trim().into() };
-        if !button.valid() || button.label.is_empty() { return Err(invalid("invalid button")); }
+        if !button.valid() || button.label.is_empty() { return Err(invalid("invalid button or binding")); }
         layout.buttons.push(button);
         Ok(id)
     }
@@ -177,6 +184,15 @@ mod tests {
         assert!(c.center[0]+c.radius/(16.0/9.0) <= 1.0 && c.center[1]+c.radius<=1.0);
         editor.cancel_drag(); assert!(!editor.move_drag(11,[0.4,0.4],16.0/9.0));
         assert_eq!(editor.cancel(),old);
+    }
+    #[test]
+    fn custom_action_must_be_a_real_engine_mapping() {
+        let mut editor=Editor::new(Layouts::default()).unwrap();
+        assert!(editor.add_binding("Fake", "key.not_real", Icon::Text).is_err());
+        let id=editor.add_binding("Jump", "key.jump", Icon::Jump).unwrap();
+        let button=editor.staged.items[0].buttons.iter().find(|b| b.id==id).unwrap();
+        assert_eq!(button.action,Some(Action::Binding("key.jump".into())));
+        assert_eq!(Layouts::from_json(&editor.commit().unwrap().to_json().unwrap()).unwrap().items[0].buttons.last().unwrap().id,id);
     }
     #[test]
     fn custom_map_button_is_editable_persistent_and_not_a_fake_binding() {

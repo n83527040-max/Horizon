@@ -196,7 +196,15 @@ impl Game<'_> {
         self.physical_buttons.contains(&button) || self.pad.custom_inputs.contains(&Err(button))
     }
     pub(super) fn android_custom_events(&mut self) {
-        for (name, down) in self.pad.touch.key_events() {
+        let events = self.pad.touch.key_events();
+        self.android_dispatch_touch_inputs(events);
+    }
+
+    /// Deliver ordered touch bindings through the real engine/physical-input
+    /// ownership path. Kept independent of the legacy router so its eventual
+    /// replacement can use the same dispatch without synthetic winit events.
+    pub(super) fn android_dispatch_touch_inputs(&mut self, events: impl IntoIterator<Item = (String, bool)>) {
+        for (name, down) in events {
             let is_action = name.starts_with("action:");
             let inputs = if let Some(mapping) = name.strip_prefix("action:") {
                 let default = horizon_client::keybinds::KeyBinds::default_of(mapping);
