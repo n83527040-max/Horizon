@@ -9,6 +9,8 @@ impl TextKeyGuard {
     pub fn suppress(&mut self, code: Option<KeyCode>, down: bool, editing: bool, was_hardware_held: bool) -> bool {
         let Some(key)=code else { return editing; };
         if !down && self.suppressed.remove(&key) { return true; }
+        // A lost soft-key release must not swallow a future hardware release.
+        if down && !editing { self.suppressed.remove(&key); return false; }
         if down && editing {
             if !was_hardware_held { self.suppressed.insert(key); }
             return true;
@@ -24,6 +26,9 @@ mod tests {
         let mut g=TextKeyGuard::default(); let k=Some(KeyCode::KeyK);
         assert!(g.suppress(k,true,true,false));
         assert!(g.suppress(k,false,false,false),"release remains suppressed after editor closes");
+        assert!(g.suppress(k,true,true,false)); // release lost during focus change
+        assert!(!g.suppress(k,true,false,false));
+        assert!(!g.suppress(k,false,false,true), "new hardware release is not stranded");
         assert!(!g.suppress(k,true,false,false));
         assert!(g.suppress(k,true,true,true),"held key repeat is suppressed during text input");
         assert!(!g.suppress(k,false,true,true),"existing hardware release still reaches engine");
