@@ -10,7 +10,8 @@ use winit::event::{Touch, TouchPhase};
 
 pub(super) fn enabled() -> bool {
     static ENABLED: OnceLock<bool> = OnceLock::new();
-    *ENABLED.get_or_init(|| std::env::var("CRAFTIX_EXPERIMENTAL_TOUCH").is_ok_and(|v| v == "1"))
+    *ENABLED.get_or_init(|| std::env::var("CRAFTIX_EXPERIMENTAL_TOUCH").is_ok_and(|v| v == "1")
+        || option_env!("CRAFTIX_EXPERIMENTAL_TOUCH") == Some("1"))
 }
 
 pub(super) struct Controls {

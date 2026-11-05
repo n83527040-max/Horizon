@@ -1,8 +1,8 @@
 //! New CRAFTIX controls, developed independently of the existing touch stack.
 //!
-//! Not wired into the game yet: keeping the current controls live until this
-//! replacement has editor, engine integration and device verification avoids
-//! losing input or a player's saved layouts during migration.
+//! An experimental opt-in Android game path uses this core and its editor.
+//! The default still uses the old controls until the replacement has been
+//! verified in a real runtime and remaining compatibility work is complete.
 pub mod editor;
 pub mod input;
 pub mod layout;
