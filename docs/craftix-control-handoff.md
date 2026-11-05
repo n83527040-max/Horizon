@@ -92,6 +92,9 @@ separate touch-owned level for sneak/sprint/attack/use instead of applying the
 engine toggle a second time. Core tests cover overlapping touch and hardware
 latches and the three modes; Android Game, controllers and real devices still
 need runtime verification, especially local/remote mouse and context changes.
+Physical mouse presses while a touch level is already active still enter the
+normal engine mouse handler: duplicate click/mod-use side effects and claimed
+items need explicit integration coverage before calling this fully resolved.
 Inventory-context custom buttons, global HUD settings, shortcut modifiers,
 complete legacy migration, safe-area handling and dense-layout collision checks
 also remain open. See `docs/craftix-controls-replacement.md` for details.

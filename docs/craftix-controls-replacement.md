@@ -137,9 +137,12 @@ fixed. No Android device/gameplay test or new APK/signing verification occurred.
 The opt-in Android path now separates the touch-owned held level from the
 engine's own toggle state for sneak, sprint, attack and use. It aggregates
 resolved inputs before merging them, and local and remote handlers consume
-only effective transitions. The old dispatch remains the default, and its
-keypad event ordering is preserved. This is not a claim that every combination
-of real hardware, controller, mod, lifecycle and gameplay is verified.
+only effective transitions for the replacement touch source. Physical mouse
+presses while touch is active still enter the normal mouse handler, so duplicate
+clicks and claimed mod-item use require explicit integration coverage. The old
+dispatch remains the default, and its keypad event ordering is preserved. This
+is not a claim that every combination of real hardware, controller, mod,
+lifecycle and gameplay is verified.
 
 On arm64 Android the default Rust feature set includes the WASM mod runtime;
 legacy armv7 builds explicitly disable it. The replacement delivers raw key
