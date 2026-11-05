@@ -99,7 +99,7 @@ impl Editor {
         let id = (0..u32::MAX).map(Id::Custom).find(|id| !layout.buttons.iter().any(|b| b.id == *id))
             .ok_or_else(|| invalid("no button IDs available"))?;
         let button = Button { id, action: Some(Action::Key(key.into())), circle: Circle { center: [0.7, 0.30], radius: 0.05 },
-            opacity: 0.85, behavior: Behavior::Hold, icon, enabled: true, label: name.trim().into() };
+            opacity: 0.85, behavior: Behavior::Hold, icon, enabled: true, visibility: super::layout::Visibility::Always, label: name.trim().into() };
         if !button.valid() || button.label.is_empty() { return Err(invalid("invalid button")); }
         layout.buttons.push(button);
         Ok(id)

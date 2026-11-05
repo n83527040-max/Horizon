@@ -23,6 +23,14 @@ pub enum Behavior { #[default] Hold, Toggle, Single }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Icon { #[default] Text, Map, Sword, Use, Jump, Sneak, Sprint }
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Visibility { #[default] Always, Gameplay, Inventory }
+impl Visibility {
+    pub fn permits(self, inventory: bool) -> bool {
+        match self { Self::Always => true, Self::Gameplay => !inventory, Self::Inventory => inventory }
+    }
+}
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Circle {
     /// Center in surface fractions; radius is a fraction of surface height.
@@ -49,6 +57,9 @@ pub struct Button {
     pub behavior: Behavior,
     pub icon: Icon,
     pub enabled: bool,
+    /// Missing from schema-1 files made before contextual visibility was added.
+    #[serde(default)]
+    pub visibility: Visibility,
     pub label: String,
 }
 impl Button {
@@ -82,7 +93,10 @@ impl Layout {
             && self.camera_sensitivity.is_finite() && (0.25..=3.0).contains(&self.camera_sensitivity)
     }
     pub fn hit(&self, point: [f32; 2], aspect: f32) -> Option<&Button> {
-        self.buttons.iter().rev().find(|b| b.enabled && b.opacity > 0.0 && b.circle.contains(point, aspect))
+        self.hit_for(point, aspect, false)
+    }
+    pub fn hit_for(&self, point: [f32; 2], aspect: f32, inventory: bool) -> Option<&Button> {
+        self.buttons.iter().rev().find(|b| b.enabled && b.visibility.permits(inventory) && b.opacity > 0.0 && b.circle.contains(point, aspect))
     }
 }
 impl Default for Layout {
@@ -105,7 +119,7 @@ impl Default for Layout {
         Self { name: "Standard".into(), joystick_dead_zone: 0.12, joystick_sensitivity: 1.0,
             camera_sensitivity: 1.0, buttons: defs.into_iter().map(|(id, action, x,y,r,behavior)| Button {
                 id, action, circle: Circle { center: [x,y], radius: r }, opacity: 0.85,
-                behavior, icon: Icon::Text, enabled: true, label: String::new(),
+                behavior, icon: Icon::Text, enabled: true, visibility: Visibility::Always, label: String::new(),
             }).collect() }
     }
 }

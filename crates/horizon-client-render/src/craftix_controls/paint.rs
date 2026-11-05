@@ -75,8 +75,11 @@ impl Animator {
 /// Draw the entire replacement HUD from its data model. The caller controls
 /// the frame timing and routes pointer events separately.
 pub fn paint(b: &mut HudBatch, a: &HudAtlas, layout: &Layout, animation: &Animator) {
+    paint_for(b, a, layout, animation, false);
+}
+pub fn paint_for(b: &mut HudBatch, a: &HudAtlas, layout: &Layout, animation: &Animator, inventory: bool) {
     for button in &layout.buttons {
-        if !button.enabled || button.opacity <= 0.0 { continue; }
+        if !button.enabled || !button.visibility.permits(inventory) || button.opacity <= 0.0 { continue; }
         let center=[button.circle.center[0]*b.width,button.circle.center[1]*b.height];
         let press=animation.press(button.id);
         let radius=button.circle.radius*b.height*(1.0-0.05*press);

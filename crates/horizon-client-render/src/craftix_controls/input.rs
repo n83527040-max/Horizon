@@ -37,8 +37,13 @@ impl Router {
     }
     /// Monotonic milliseconds, supplied by the host so tests do not sleep.
     pub fn begin(&mut self, layout: &Layout, id: u64, p: [f32; 2], aspect: f32, now_ms: u64) {
-        if self.pointers.contains_key(&id) || !p.into_iter().all(f32::is_finite) || !aspect.is_finite() || aspect <= 0.0 { return; }
-        let role = match layout.hit(p, aspect) {
+        self.begin_for(layout, id, p, aspect, now_ms, false);
+    }
+    /// In menus, empty space belongs to the menu, not the camera.
+    pub fn begin_for(&mut self, layout: &Layout, id: u64, p: [f32; 2], aspect: f32, now_ms: u64, inventory: bool) {
+        if self.pointers.contains_key(&id) || !p.into_iter().all(|v| v.is_finite() && (0.0..=1.0).contains(&v)) || !aspect.is_finite() || aspect <= 0.0 { return; }
+        let role = match layout.hit_for(p, aspect, inventory) {
+            Some(button) if button.id == Id::Joystick && inventory => return,
             Some(button) if button.id == Id::Joystick => {
                 if self.joystick.is_some() { Role::Ignore }
                 else { self.joystick = Some(id); Role::Joystick { center: button.circle.center, radius: button.circle.radius } }
@@ -69,6 +74,7 @@ impl Router {
                 }
                 if button.behavior == Behavior::Toggle { Role::Toggle(button.id) } else { Role::Button }
             }
+            None if inventory => return,
             None => Role::Look(p),
         };
         self.pointers.insert(id, role);
@@ -76,6 +82,9 @@ impl Router {
     }
     pub fn moved(&mut self, layout: &Layout, id: u64, p: [f32; 2], aspect: f32) {
         if !p.into_iter().all(f32::is_finite) || !aspect.is_finite() || aspect <= 0.0 { return; }
+        // The pointer can leave the window while held; bound extreme finite
+        // coordinates too, to prevent overflow and NaN movement/camera deltas.
+        let p = p.map(|v| v.clamp(0.0, 1.0));
         match self.pointers.get_mut(&id) {
             Some(Role::Joystick { center, radius }) => {
                 let v = [(p[0] - center[0]) * aspect / *radius, (center[1] - p[1]) / *radius];
@@ -146,13 +155,27 @@ mod tests {
         let mut l = Layout::default();
         for i in 0..2 { l.buttons.push(Button { id: Id::Custom(i), action: Some(Action::Key("key.keyboard.m".into())),
             circle: Circle { center: [0.65 + i as f32 * 0.1, 0.25], radius: 0.04 }, opacity: 1.0,
-            behavior: Behavior::Hold, icon: super::super::layout::Icon::Map, enabled: true, label: "Map".into() }); }
+            behavior: Behavior::Hold, icon: super::super::layout::Icon::Map, enabled: true, visibility: super::super::layout::Visibility::Always, label: "Map".into() }); }
         let mut r = Router::default();
         r.begin(&l,1,center(&l,Id::Custom(0)),16.0/9.0,0);
         r.begin(&l,2,center(&l,Id::Custom(1)),16.0/9.0,0);
         assert_eq!(r.drain(), [Event::Key(Action::Key("key.keyboard.m".into()),true)]);
         r.end(1); assert!(r.drain().is_empty()); r.end(2);
         assert_eq!(r.drain(), [Event::Key(Action::Key("key.keyboard.m".into()),false)]);
+    }
+    #[test]
+    fn inventory_visibility_and_extreme_coordinates_are_safe() {
+        let mut l=Layout::default();
+        let jump=l.buttons.iter_mut().find(|b| b.id==Id::Jump).unwrap();
+        jump.visibility=super::super::layout::Visibility::Inventory;
+        let p=jump.circle.center; let mut r=Router::default();
+        r.begin_for(&l,1,p,16.0/9.0,0,true);
+        assert!(r.active(&Action::Jump)); r.end(1); r.drain();
+        r.begin_for(&l,2,[0.5,0.5],16.0/9.0,0,true);
+        r.moved(&l,2,[1.0,1.0],16.0/9.0); assert!(r.drain().is_empty());
+        let joy=center(&l,Id::Joystick); r.begin(&l,3,joy,16.0/9.0,0);
+        r.moved(&l,3,[f32::MAX,-f32::MAX],16.0/9.0);
+        assert!(r.movement().into_iter().all(f32::is_finite));
     }
     #[test]
     fn reused_pointer_id_does_not_orphan_timed_single_press() {
