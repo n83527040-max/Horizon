@@ -231,20 +231,20 @@ class Session:
         return " ".join(out.split())[:380]
 
     def failure_snapshot(self) -> str:
-        """One annotation-sized digest: launcher error, log, processes, storage.
+        """One annotation-sized digest: startup log, directory tree, process.
 
         Artifact downloads are unreachable from the agent sandbox, so the
         evidence has to travel inside a GitHub annotation message.
         """
         out = self.adb.shell(
-            f"echo 'ERROR-FILE:'; cat {DATA}/android-error.txt 2>/dev/null | head -c 500; "
-            f"echo; echo 'SESSION:'; cat {DATA}/performance/current-session.json 2>/dev/null "
-            f"| head -c 400; echo; echo 'DIAG-LOG:'; tail -c 900 "
-            f"{DATA}/performance/diagnostic.log 2>/dev/null; "
-            f"echo 'PROCS:'; ps -A 2>/dev/null | grep -i craftix | head -5 | tr '\\n' ' '; "
-            f"echo; echo 'STORAGE:'; du -sk {DATA}/cache {DATA}/.local 2>/dev/null | tr '\\n' ' '",
+            f"echo 'LOGCAT:'; logcat -d -v brief -t 3000 2>/dev/null "
+            f"| grep -iE 'Horizon|panic|FATAL|androidruntime' | tail -22 | head -c 1900; "
+            f"echo; echo 'DATADIR:'; ls {DATA} 2>/dev/null | head -40 | tr '\\n' ' '; "
+            f"echo; echo 'LOCAL:'; ls -R {DATA}/.local 2>/dev/null | head -30 | tr '\\n' ' '; "
+            f"echo; echo 'ACTIVITY:'; dumpsys activity activities 2>/dev/null "
+            f"| grep -m1 -i 'ResumedActivity'",
             timeout=60, check=False)
-        return " ".join(out.split())[:3400]
+        return " ".join(out.split())[:3600]
 
     def status(self) -> dict:
         if not self.control:
@@ -409,6 +409,11 @@ def run(args: argparse.Namespace) -> int:
     session.phase("first run: engine resource install")
     print(f"::notice::game-test install waiting: {session.install_state()}", flush=True)
     adb.start_engine()
+    time.sleep(10)
+    startup = adb.shell(
+        "logcat -d -v brief -t 600 2>/dev/null | grep -iE 'Horizon|panic|FATAL' "
+        "| head -18 | head -c 1700", check=False)
+    print(f"::notice::game-test startup-log: {' '.join(startup.split())}", flush=True)
     # The worker creates <cache>/minecraft-downloads as soon as action() runs.
     try:
         session.wait_for(
