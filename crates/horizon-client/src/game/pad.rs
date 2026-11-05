@@ -139,7 +139,8 @@ impl Game<'_> {
     }
     #[cfg(target_os = "android")]
     pub(super) fn android_inventory_controls(&self) -> bool {
-        self.settings.touch.inventory_controls
+        !super::craftix_experimental::enabled()
+            && self.settings.touch.inventory_controls
             && matches!(self.screen, Screen::Inventory | Screen::Creative)
     }
     /// Once per loop iteration: read the pads and act on button changes.

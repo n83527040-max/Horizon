@@ -2772,7 +2772,8 @@ impl Game<'_> {
     fn interaction_crosshair(&self) -> bool {
         #[cfg(target_os = "android")]
         {
-            crate::keyboard_mouse_input()
+            craftix_experimental::enabled()
+                || crate::keyboard_mouse_input()
                 || self.settings.keypad.enabled
                 || self.pad.touch.settings.crosshair()
                 || self.touch_projectile_crosshair()
@@ -15150,7 +15151,11 @@ impl ApplicationHandler for Game<'_> {
         if matches!(&event,WindowEvent::KeyboardInput {event,..} if event.state==ElementState::Pressed && event.logical_key==winit::keyboard::Key::Named(winit::keyboard::NamedKey::BrowserBack))
         {
             if craftix_experimental::enabled() && self.pad.craftix.editor.is_some() {
-                self.pad.craftix.editor = None;
+                if let Some(editor) = self.pad.craftix.editor.as_mut().filter(|e| e.text_active()) {
+                    editor.finish_text();
+                } else {
+                    self.pad.craftix.editor = None;
+                }
                 crate::platform::hide();
                 return;
             }
@@ -15174,6 +15179,15 @@ impl ApplicationHandler for Game<'_> {
             if let Err(e) = self.pad_back() {
                 log::warn!("Android Back: {e}");
             }
+            return;
+        }
+        #[cfg(target_os = "android")]
+        if craftix_experimental::enabled() && self.pad.craftix.editor.is_some()
+            && matches!(&event,WindowEvent::KeyboardInput{event,..}
+            if event.state==ElementState::Pressed && event.physical_key==PhysicalKey::Code(KeyCode::Escape))
+        {
+            self.pad.craftix.editor = None;
+            crate::platform::hide();
             return;
         }
         #[cfg(target_os = "android")]

@@ -87,6 +87,7 @@ impl EditorUi {
         if self.page == Page::Position {
             if let Some(index) = self.layout().buttons.iter().rposition(|b| b.circle.contains(point,aspect)) { self.selected=index; }
             if self.model.begin_drag(id,point,aspect) { self.dragging=Some(id); }
+            else if let Some(selected) = self.selected_id() { self.model.move_button_to(selected,point,aspect); }
             return UiEvent::None;
         }
         let x=point[0]; let y=point[1];
@@ -101,6 +102,12 @@ impl EditorUi {
             } else if y < 0.56 {
                 if x<0.5 { return self.text_request(TextField::LayoutName,self.layout().name.clone()); }
                 self.error=self.model.delete().err().map_or_else(String::new, |e| e.to_string()); self.selected=0;
+            } else if y < 0.69 {
+                let layout=&mut self.model.staged.items[self.model.staged.active];
+                layout.joystick_sensitivity=(layout.joystick_sensitivity + if x<0.5 {-0.1} else {0.1}).clamp(0.25,3.0);
+            } else if y < 0.82 {
+                let layout=&mut self.model.staged.items[self.model.staged.active];
+                layout.camera_sensitivity=(layout.camera_sensitivity + if x<0.5 {-0.1} else {0.1}).clamp(0.25,3.0);
             }
             return UiEvent::None;
         }
@@ -159,6 +166,8 @@ impl EditorUi {
             plate(b,atlas,[0.02,0.16,0.96,0.10],&format!("<  {}  >",self.layout().name),false);
             plate(b,atlas,[0.02,0.30,0.46,0.10],"Create",false); plate(b,atlas,[0.52,0.30,0.46,0.10],"Duplicate",false);
             plate(b,atlas,[0.02,0.44,0.46,0.10],"Rename",false); plate(b,atlas,[0.52,0.44,0.46,0.10],"Delete",false);
+            plate(b,atlas,[0.02,0.58,0.96,0.10],&format!("-  Joystick sensitivity {:.1}  +",self.layout().joystick_sensitivity),false);
+            plate(b,atlas,[0.02,0.71,0.96,0.10],&format!("-  Camera sensitivity {:.1}  +",self.layout().camera_sensitivity),false);
         }
         if !self.error.is_empty() { plate(b,atlas,[0.02,0.86,0.96,0.035],&self.error,false); }
         plate(b,atlas,[0.01,0.91,0.31,0.08],"Cancel",false);
@@ -186,6 +195,14 @@ mod tests {
         ui.text=Some((TextField::ButtonKey,String::new())); ui.text_insert("m"); ui.finish_text();
         assert_eq!(ui.selected_button().unwrap().action,Some(Action::Key("key.keyboard.m".into())));
         assert_eq!(ui.model.cancel(),original);
+    }
+    #[test]
+    fn position_page_can_move_top_bar_button_from_under_tabs() {
+        let mut ui=EditorUi::new(Layouts::default()).unwrap();
+        ui.selected=ui.layout().buttons.iter().position(|b| b.id==Id::Chat).unwrap();
+        ui.page=Page::Position;
+        ui.touch(1,[0.5,0.5],16.0/9.0,true,false);
+        assert_eq!(ui.selected_button().unwrap().circle.center,[0.5,0.5]);
     }
     #[test]
     fn editor_output_reaches_router_and_real_key_token_bridge() {

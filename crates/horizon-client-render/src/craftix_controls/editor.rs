@@ -124,6 +124,16 @@ impl Editor {
         let index=buttons.iter().position(|b| b.id==id).ok_or_else(|| invalid("button not found"))?;
         buttons.remove(index); Ok(())
     }
+    /// Move a selected control by its center, including controls covered by
+    /// editor chrome at the top or bottom of the screen.
+    pub fn move_button_to(&mut self, id: Id, point: [f32; 2], aspect: f32) -> bool {
+        if !aspect.is_finite() || aspect <= 0.0 || !point.into_iter().all(f32::is_finite) { return false; }
+        let Some(button) = self.staged.items[self.staged.active].buttons.iter_mut().find(|b| b.id == id) else { return false; };
+        let x_margin=(button.circle.radius/aspect).min(0.5);
+        let y_margin=button.circle.radius.min(0.5);
+        button.circle.center=[point[0].clamp(x_margin,1.0-x_margin), point[1].clamp(y_margin,1.0-y_margin)];
+        true
+    }
     /// Capture one pointer for the preview without moving a button underneath it.
     pub fn begin_drag(&mut self, pointer: u64, point: [f32; 2], aspect: f32) -> bool {
         if self.drag.is_some() || !aspect.is_finite() || aspect <= 0.0 || !point.into_iter().all(f32::is_finite) { return false; }

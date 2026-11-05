@@ -1,8 +1,9 @@
 //! Ordered translation from the new router to the game's existing input vocabulary.
 //!
-//! This is an adapter, not an active game integration. The host must dispatch
-//! each input edge through the same ownership logic as physical/controller
-//! input, handle lifecycle releases, and implement the UI requests explicitly.
+//! Android has an experimental opt-in host path using this adapter. The normal
+//! game still uses the legacy controls until integration is fully verified.
+//! Hosts must share ownership with physical/controller inputs and release on
+//! lifecycle changes; UI requests require explicit host handling.
 use super::{input::Event, layout::Action};
 use std::collections::{BTreeMap, BTreeSet};
 

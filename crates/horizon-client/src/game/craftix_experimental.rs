@@ -98,6 +98,10 @@ impl Game<'_> {
         self.craftix_dispatch(events, size.map_or(1, |s| s.width), size.map_or(1, |s| s.height));
     }
     pub(super) fn craftix_editor_touch(&mut self, touch: &Touch, size: [u32; 2]) {
+        if self.pad.craftix.viewport.is_some_and(|old| old != size) {
+            if let Some(editor) = &mut self.pad.craftix.editor { editor.cancel_drag(); }
+        }
+        self.pad.craftix.viewport = Some(size);
         if touch.phase == TouchPhase::Cancelled {
             if let Some(editor) = &mut self.pad.craftix.editor { editor.cancel_drag(); }
             return;
