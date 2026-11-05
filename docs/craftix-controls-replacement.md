@@ -208,3 +208,45 @@ type-check at `c847c05`. [Android run 42064813399](https://github.com/n83527040-
 passed source checks plus Clippy/type-check on arm64 and armv7 at `857edf0`.
 The preceding run 42064067572 failed a Clippy `nonminimal_bool` check; it was
 fixed and rerun. The checks do not run the Android game or build a release APK.
+
+### Delivery iteration: default path, input ownership and device testing
+
+**The replacement is now the default.** `craftix_experimental::enabled()`
+returns true unless `CRAFTIX_EXPERIMENTAL_TOUCH=0` is set (environment or
+compile time), which is the rollback switch to the legacy touch system. The
+legacy renderer/touch code stays in the tree as that fallback; gameplay HUD,
+inventory overlay, movement merge and the More editor all run through the
+replacement when it is active. Menus still use the shared legacy touch strip
+(a documented limitation, not a claim of menu-context parity).
+
+**Touch/mouse ownership.** The replacement HUD's visibility follows the
+*configured* input preference (`Auto`/`Touch` show it, an explicit
+`KeyboardMouse`/`Controller` preference hides it), not whichever device was
+used last: moving or clicking a physical mouse no longer tears down held touch
+buttons, and a touchscreen tap no longer hides the HUD beside mouse input. The
+auxiliary physical-pointer path (`android_aux_mouse`) now hit-tests the
+replacement layout in gameplay instead of hidden legacy regions, so a mouse
+click either presses a visible replacement button (keypad mode) or stays with
+the game/mods; a press already owned by the HUD still receives its release.
+HUD buttons continue to dispatch through router -> bridge ->
+`android_dispatch_craftix_inputs` with the existing edge aggregation, so one
+press produces one engine edge.
+
+**Mod input.** The engine supports sandboxed WASM `.hmod` mods on Android;
+Java/Fabric/Forge mods are not supported by this client and are not claimed.
+Raw custom keys (`Action::Key`, e.g. a K button) reach `mod_key`/native key
+events from the replacement dispatch; `action:*` tokens drive the engine's own
+mappings. The CI WASM guest test still proves Router -> Bridge -> `Mods::key`
+ordering for K/A and modifier chords; it does not run a full Android `Game`.
+
+**Emulator game test.** `tools/test_craftix_game_emulator.py` (dispatched via
+`android-ui-release.yml` with `game_test=true`) builds a non-public x86_64
+test APK (control socket compiled in, signed with the existing certificate),
+boots an API 33 emulator and drives the real `HorizonActivity`: first-run
+resource install, world entry over the control socket, real `adb input` touch
+on Jump/Sprint/Sneak/Attack/Joystick, the More editor creating and saving a
+custom K button through the Android IME, inventory-overlay taps, a menu opened
+while a touch is held, engine-level mouse alongside a held HUD button, chat
+text injection, background/foreground focus loss and restart persistence, with
+screenshots and logcat uploaded as artifacts. Results are recorded in that
+run's `report.json`; the test APK is never published.

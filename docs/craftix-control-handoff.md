@@ -1,7 +1,8 @@
 # CRAFTIX controls — handoff for the next agent
 
 **Status: work in progress; do not treat this as a completed control rewrite or
-final release.** The default game still uses the earlier touch system. An opt-in
+final release.** The replacement is now the default control path
+(`CRAFTIX_EXPERIMENTAL_TOUCH=0` opts back into the earlier touch system). An opt-in
 Android path now connects the new core, HUD and an initial editor to the game,
 but it has not been verified in actual gameplay and still has important gaps.
 Read the latest follow-up in `docs/craftix-controls-replacement.md`. The user
