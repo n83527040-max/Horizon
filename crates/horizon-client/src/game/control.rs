@@ -1062,6 +1062,10 @@ impl Game<'_> {
             .collect();
         let mut status = json!({
             "screen": self.screen_name(),
+            // Which device class input was last seen from, and the configured
+            // preference that gates the replacement HUD (emulator tests).
+            "input_mode": format!("{:?}", horizon_client::android_runtime::active_input()),
+            "input_preference": format!("{:?}", horizon_client::android_runtime::input_mode()),
             "debug": {
                 "overlay": self.debug,
                 "hitboxes": self.debug_entry("entity_hitboxes"),

@@ -13989,9 +13989,17 @@ impl Game<'_> {
                 self.settings.keypad.enabled && self.pad.touch.editor.is_none();
         }
         #[cfg(target_os = "android")]
+        {
+        // The replacement HUD follows the configured preference (Auto/Touch),
+        // not the last-used device, so it stays up beside a physical mouse.
+        let craftix_play = craftix_experimental::enabled()
+            && self.pad.touch.editor.is_none()
+            && !self.pad_in_menu()
+            && (craftix_experimental::hud_visible() || self.settings.keypad.enabled);
         if self.pad.touch.editor.is_some()
             || ((crate::touch_visible() || self.settings.keypad.enabled)
                 && (!self.pad_in_menu() || self.android_inventory_controls()))
+            || craftix_play
         {
             self.pad.touch.context_use =
                 self.pad.touch.settings.contextual_interact && self.touch_context_use();
@@ -14001,7 +14009,7 @@ impl Game<'_> {
             self.pad.touch.shield_available = self.touch_shield_available();
             self.pad.touch.sneaking = self.keys.contains(&KeyCode::ShiftLeft);
             self.pad.touch.break_progress = self.touch_mining_progress();
-            if craftix_experimental::enabled() && self.pad.touch.editor.is_none() && !self.pad_in_menu() {
+            if craftix_play {
                 let controls = &mut self.pad.craftix;
                 let elapsed = controls.last_frame.elapsed().as_secs_f32();
                 controls.last_frame = Instant::now();
@@ -14020,9 +14028,10 @@ impl Game<'_> {
                     self.touch_more_avoid_left());
             }
         }
+        }
         #[cfg(target_os = "android")]
         if craftix_experimental::enabled() && self.craftix_inventory_allowed()
-            && (crate::touch_visible() || self.settings.keypad.enabled)
+            && (craftix_experimental::hud_visible() || self.settings.keypad.enabled)
         {
             let layout=self.craftix_inventory_layout(&hud);
             let controls=&mut self.pad.craftix;
@@ -15287,12 +15296,13 @@ impl ApplicationHandler for Game<'_> {
             }
             // In inventory only safe, visible custom buttons capture touches.
             if craftix_experimental::enabled() && self.craftix_inventory_allowed()
-                && (crate::touch_visible() || self.settings.keypad.enabled)
+                && (craftix_experimental::hud_visible() || self.settings.keypad.enabled)
                 && self.craftix_inventory_touch(touch,[size.width.max(1),size.height.max(1)])
             { return; }
-            // The replacement is opt-in until its editor and migration are ready.
+            // The replacement is the default path; its HUD follows the
+            // configured input preference so touch and mouse can coexist.
             if craftix_experimental::enabled() && !self.pad_in_menu()
-                && (crate::touch_visible() || self.settings.keypad.enabled)
+                && (craftix_experimental::hud_visible() || self.settings.keypad.enabled)
             {
                 self.craftix_touch(touch, [size.width.max(1), size.height.max(1)]);
                 return;

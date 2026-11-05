@@ -1,5 +1,6 @@
-//! Opt-in integration of the replacement touch core. This is not the default
-//! until the new editor, migration and runtime/device tests are complete.
+//! Integration of the replacement touch core. The replacement is the default
+//! control path; `CRAFTIX_EXPERIMENTAL_TOUCH=0` (env or compile-time) opts
+//! back out to the legacy touch system for rollback.
 use super::{Game, Screen};
 use horizon_client::craftix_controls::{
     bridge::{Bridge, HostEvent, UiAction}, editor::Layouts,
@@ -10,8 +11,33 @@ use winit::event::{Touch, TouchPhase};
 
 pub(super) fn enabled() -> bool {
     static ENABLED: OnceLock<bool> = OnceLock::new();
-    *ENABLED.get_or_init(|| std::env::var("CRAFTIX_EXPERIMENTAL_TOUCH").is_ok_and(|v| v == "1")
-        || option_env!("CRAFTIX_EXPERIMENTAL_TOUCH") == Some("1"))
+    *ENABLED.get_or_init(|| {
+        let raw = std::env::var("CRAFTIX_EXPERIMENTAL_TOUCH")
+            .ok()
+            .or_else(|| option_env!("CRAFTIX_EXPERIMENTAL_TOUCH").map(str::to_owned));
+        // Default on: only an explicit "0" rolls back to the legacy path.
+        let on = !matches!(raw.as_deref(), Some("0"));
+        log::info!(
+            "CRAFTIX replacement controls: {}",
+            if on { "active" } else { "disabled by CRAFTIX_EXPERIMENTAL_TOUCH=0" }
+        );
+        on
+    })
+}
+
+/// Whether the replacement HUD shows during gameplay.
+///
+/// Driven by the configured input preference, not whichever device was used
+/// last: in `Auto`/`Touch` the HUD stays visible while a physical mouse moves
+/// or clicks, so touch buttons and mouse input work at the same time. An
+/// explicit `KeyboardMouse`/`Controller` preference keeps the HUD hidden, the
+/// same as before.
+pub(super) fn hud_visible() -> bool {
+    matches!(
+        horizon_client::android_runtime::input_mode(),
+        horizon_client::android_gamepad::InputMode::Auto
+            | horizon_client::android_gamepad::InputMode::Touch
+    )
 }
 
 pub(super) struct Controls {
@@ -85,6 +111,7 @@ impl Game<'_> {
                     match EditorUi::new(self.pad.craftix.layouts.clone()) {
                         Ok(mut editor) => {
                             if let Some(error) = &self.pad.craftix.load_error { editor.error = error.clone(); }
+                            log::info!("CRAFTIX controls editor opened");
                             self.pad.craftix.editor = Some(editor);
                         },
                         Err(error) => log::warn!("Open touch editor: {error}"),
@@ -204,7 +231,12 @@ impl Game<'_> {
                 if let Some(error) = &self.pad.craftix.load_error { editor.error = error.clone(); return; }
                 // Do not activate unsaved edits when writing fails.
                 match editor.model.staged.save(std::path::Path::new("craftix-controls-v1.json")) {
-                    Ok(()) => { self.pad.craftix.layouts = editor.model.staged.clone(); self.pad.craftix.editor = None; crate::platform::hide(); }
+                    Ok(()) => {
+                        log::info!("CRAFTIX controls layout saved");
+                        self.pad.craftix.layouts = editor.model.staged.clone();
+                        self.pad.craftix.editor = None;
+                        crate::platform::hide();
+                    }
                     Err(error) => editor.error = format!("Save failed: {error}"),
                 }
             }

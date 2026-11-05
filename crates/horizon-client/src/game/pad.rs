@@ -187,7 +187,11 @@ impl Game<'_> {
             if super::craftix_experimental::enabled() {
                 let inventory=self.craftix_inventory_allowed();
                 self.craftix_context(inventory);
-                if (self.pad_in_menu() && !inventory) || !self.focused || (!crate::touch_visible() && !self.settings.keypad.enabled) {
+                // Follow the configured preference (not the last device), so a
+                // mouse move does not tear down held touch buttons mid-use.
+                if (self.pad_in_menu() && !inventory) || !self.focused
+                    || (!super::craftix_experimental::hud_visible() && !self.settings.keypad.enabled)
+                {
                     self.craftix_clear();
                 } else {
                     self.craftix_tick();

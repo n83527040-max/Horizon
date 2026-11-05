@@ -155,18 +155,32 @@ impl Game<'_> {
         };
         let point = [self.cursor.0, self.cursor.1];
         let normalized = [point[0] / batch.width, point[1] / batch.height];
-        let utility = self
-            .pad
-            .touch_ui
-            .action(batch.width, batch.height, point, self.pad_in_menu())
-            .is_some()
-            || self.pad.touch_ui.owns_key(POINTER)
-            || (!self.pad_in_menu() && horizon_client::touch::more_at(batch.width, batch.height, point,
-                self.touch_more_avoid_left()))
-            || (!self.pad_in_menu() && self.remote.is_some()
-                && horizon_client::touch::players_at(batch.width, batch.height, point))
-            || self.pad.touch.owns_pointer(POINTER)
-            || (!self.pad_in_menu() && self.pad.touch.auxiliary_at(normalized));
+        // In gameplay the replacement HUD owns the hit-testing: its resolved
+        // buttons (or a press it already holds) take the pointer, and anything
+        // else stays with the game/mods. The legacy regions below are not
+        // drawn while the replacement is active, so they must not swallow
+        // clicks. Menus keep their shared legacy utility strip.
+        let craftix_world = super::craftix_experimental::enabled() && !self.pad_in_menu();
+        let utility = if craftix_world {
+            let layout = self.pad.craftix.layouts.items[self.pad.craftix.layouts.active]
+                .resolved(batch.width, batch.height);
+            layout
+                .hit(normalized, batch.width / batch.height.max(1.0))
+                .is_some()
+                || self.pad.craftix.router.owns_pointer(POINTER)
+        } else {
+            self.pad
+                .touch_ui
+                .action(batch.width, batch.height, point, self.pad_in_menu())
+                .is_some()
+                || self.pad.touch_ui.owns_key(POINTER)
+                || (!self.pad_in_menu() && horizon_client::touch::more_at(batch.width, batch.height, point,
+                    self.touch_more_avoid_left()))
+                || (!self.pad_in_menu() && self.remote.is_some()
+                    && horizon_client::touch::players_at(batch.width, batch.height, point))
+                || self.pad.touch.owns_pointer(POINTER)
+                || (!self.pad_in_menu() && self.pad.touch.auxiliary_at(normalized))
+        };
         if !utility {
             return false;
         }
