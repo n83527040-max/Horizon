@@ -15077,17 +15077,28 @@ impl ApplicationHandler for Game<'_> {
         {
             return;
         }
-        // The replacement editor's IME owns text events. Do not route its
-        // Android key events into gameplay or mod hooks while a field is open;
-        // Back/Escape are handled below to close the field/editor.
+        // The editor's IME owns text presses, not gameplay. Pair suppressed
+        // presses with their releases, even if the field closes in between;
+        // a key already held before the editor opened must still be released.
         #[cfg(target_os = "android")]
         if craftix_experimental::enabled()
-            && self.pad.craftix.editor.as_ref().is_some_and(|e| e.text_active())
-            && matches!(&event, WindowEvent::KeyboardInput { event, .. }
-                if event.physical_key != PhysicalKey::Code(KeyCode::Escape)
-                    && event.logical_key != winit::keyboard::Key::Named(winit::keyboard::NamedKey::BrowserBack))
+            && let WindowEvent::KeyboardInput { event, .. } = &event
+            && event.physical_key != PhysicalKey::Code(KeyCode::Escape)
+            && event.logical_key != winit::keyboard::Key::Named(winit::keyboard::NamedKey::BrowserBack)
         {
-            return;
+            if let PhysicalKey::Code(key) = event.physical_key {
+                if event.state == ElementState::Released && self.pad.editor_suppressed_keys.remove(&key) {
+                    return;
+                }
+                if event.state == ElementState::Pressed
+                    && self.pad.craftix.editor.as_ref().is_some_and(|e| e.text_active())
+                {
+                    if !self.pad.hardware_keys.contains(&key) { self.pad.editor_suppressed_keys.insert(key); }
+                    return;
+                }
+            } else if self.pad.craftix.editor.as_ref().is_some_and(|e| e.text_active()) {
+                return;
+            }
         }
         #[cfg(target_os = "android")]
         if let WindowEvent::KeyboardInput { event, .. } = &event
