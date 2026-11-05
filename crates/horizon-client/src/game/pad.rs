@@ -587,7 +587,8 @@ impl Game<'_> {
         }
         #[cfg(target_os = "android")]
         {
-            if horizon_client::android_runtime::active_input()
+            if super::craftix_experimental::enabled()
+                || horizon_client::android_runtime::active_input()
                 == horizon_client::android_gamepad::InputMode::Controller
                 || (self.pad.touch.settings.analog_movement
                     && self.pad.touch.settings.mode != horizon_client::touch::Mode::Dpad)

@@ -16,6 +16,8 @@ pub(super) fn enabled() -> bool {
 pub(super) struct Controls {
     pub(super) layouts: Layouts,
     pub(super) editor: Option<EditorUi>,
+    /// An invalid existing file must not be silently overwritten by defaults.
+    load_error: Option<String>,
     pub(super) router: Router,
     pub(super) bridge: Bridge,
     pub(super) animation: Animator,
@@ -26,9 +28,24 @@ pub(super) struct Controls {
 impl Default for Controls {
     fn default() -> Self {
         // Separate file: never overwrite or implicitly replace legacy settings.
-        let layouts = std::fs::read("craftix-controls-v1.json").ok()
-            .and_then(|bytes| Layouts::from_json(&bytes).ok()).unwrap_or_default();
-        Self { layouts, editor: None, router: Router::default(), bridge: Bridge::default(), animation: Animator::default(),
+        let (layouts, load_error) = match std::fs::read("craftix-controls-v1.json") {
+            Ok(bytes) => match Layouts::from_json(&bytes) {
+                Ok(layouts) => (layouts, None),
+                Err(error) => (Layouts::default(), Some(format!("Existing controls file invalid; it was not overwritten: {error}"))),
+            },
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                // Preserve the legacy file, and only preview its conversion in memory.
+                let converted = std::fs::read("horizon-touch.json").ok()
+                    .and_then(|bytes| serde_json::from_slice::<horizon_client::touch::Settings>(&bytes).ok())
+                    .map(|old| horizon_client::craftix_controls::migrate::preview(&old));
+                if let Some(converted) = converted {
+                    for warning in &converted.warnings { log::warn!("Touch migration: {warning}"); }
+                    (converted.layouts, None)
+                } else { (Layouts::default(), None) }
+            }
+            Err(error) => (Layouts::default(), Some(format!("Cannot read existing controls file: {error}"))),
+        };
+        Self { layouts, editor: None, load_error, router: Router::default(), bridge: Bridge::default(), animation: Animator::default(),
             last_frame: Instant::now(), reserved: BTreeSet::new(), viewport: None }
     }
 }
@@ -53,7 +70,10 @@ impl Game<'_> {
                 HostEvent::Ui(UiAction::More, true) => {
                     self.craftix_clear();
                     match EditorUi::new(self.pad.craftix.layouts.clone()) {
-                        Ok(editor) => self.pad.craftix.editor = Some(editor),
+                        Ok(mut editor) => {
+                            if let Some(error) = &self.pad.craftix.load_error { editor.error = error.clone(); }
+                            self.pad.craftix.editor = Some(editor);
+                        },
                         Err(error) => log::warn!("Open touch editor: {error}"),
                     }
                 },
@@ -95,6 +115,8 @@ impl Game<'_> {
             }
             UiEvent::Cancel => { self.pad.craftix.editor = None; crate::platform::hide(); }
             UiEvent::Save => {
+                // Do not overwrite an invalid pre-existing file with defaults.
+                if let Some(error) = &self.pad.craftix.load_error { editor.error = error.clone(); return; }
                 // Do not activate unsaved edits when writing fails.
                 match editor.model.staged.save(std::path::Path::new("craftix-controls-v1.json")) {
                     Ok(()) => { self.pad.craftix.layouts = editor.model.staged.clone(); self.pad.craftix.editor = None; crate::platform::hide(); }

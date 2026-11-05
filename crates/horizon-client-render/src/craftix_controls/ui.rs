@@ -188,6 +188,19 @@ mod tests {
         assert_eq!(ui.model.cancel(),original);
     }
     #[test]
+    fn editor_output_reaches_router_and_real_key_token_bridge() {
+        use crate::craftix_controls::{bridge::{Bridge,HostEvent},input::Router};
+        let mut ui=EditorUi::new(Layouts::default()).unwrap();
+        ui.touch(1,[0.2,0.33],16.0/9.0,true,false);
+        let button=ui.selected_button().unwrap().clone();
+        let layout=ui.model.commit().unwrap().items.remove(0);
+        let mut router=Router::default(); let mut bridge=Bridge::default();
+        router.begin(&layout,42,button.circle.center,16.0/9.0,0);
+        assert_eq!(bridge.translate(router.drain()),vec![HostEvent::Input("key.keyboard.m".into(),true)]);
+        router.end(42);
+        assert_eq!(bridge.translate(router.drain()),vec![HostEvent::Input("key.keyboard.m".into(),false)]);
+    }
+    #[test]
     fn named_layout_create_and_reset_use_the_editor_model() {
         let mut ui=EditorUi::new(Layouts::default()).unwrap();
         ui.touch(1,[0.5,0.05],1.7,true,false);
