@@ -75,3 +75,8 @@ partially built replacement cannot break the player's working installation.
   passed desktop Rust tests and Android arm64 type-check for commit `6783d54`.
   A follow-up engine-dispatch refactor is being checked separately. No new APK
   has been built or tested on Android.
+* [CI run 42033939455](https://github.com/n83527040-max/Horizon/actions/runs/42033939455)
+  passed desktop Rust tests and Android arm64 type-check for `647551c`, including
+  the dispatch refactor and binding validation. APK and Android device execution
+  were not part of this run. Python Android regression suite: 35 passed;
+  signature-diagnosis unit test: 1 passed.
