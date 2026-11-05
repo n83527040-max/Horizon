@@ -8,7 +8,7 @@ pub enum Page { Buttons, Layouts, Position }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum TextField { ButtonName, ButtonKey, NewLayout, CopyLayout, LayoutName }
 #[derive(Clone, Debug, PartialEq)]
-pub enum UiEvent { None, ShowText(String), Save, Cancel }
+pub enum UiEvent { None, ShowText(String), Import, Export, Save, Cancel }
 
 pub struct EditorUi {
     pub model: Editor,
@@ -30,6 +30,8 @@ impl EditorUi {
         self.text = Some((field, initial.clone())); UiEvent::ShowText(initial)
     }
     pub fn cancel_drag(&mut self) { self.dragging=None; self.model.cancel_drag(); }
+    pub fn imported(&mut self) { self.cancel_drag(); self.selected=0; }
+
     pub fn text_active(&self) -> bool { self.text.is_some() }
     pub fn text_insert(&mut self, text: &str) {
         if let Some((_, value)) = &mut self.text { value.extend(text.chars().filter(|c| !c.is_control()).take(128)); }
@@ -107,6 +109,8 @@ impl EditorUi {
             } else if y < 0.82 {
                 let layout=&mut self.model.staged.items[self.model.staged.active];
                 layout.camera_sensitivity=(layout.camera_sensitivity + if x<0.5 {-0.1} else {0.1}).clamp(0.25,3.0);
+            } else if y < 0.90 {
+                return if x < 0.5 { UiEvent::Import } else { UiEvent::Export };
             }
             return UiEvent::None;
         }
@@ -167,6 +171,8 @@ impl EditorUi {
             plate(b,atlas,[0.02,0.44,0.46,0.10],"Rename",false); plate(b,atlas,[0.52,0.44,0.46,0.10],"Delete",false);
             plate(b,atlas,[0.02,0.58,0.96,0.10],&format!("-  Joystick sensitivity {:.1}  +",self.layout().joystick_sensitivity),false);
             plate(b,atlas,[0.02,0.71,0.96,0.10],&format!("-  Camera sensitivity {:.1}  +",self.layout().camera_sensitivity),false);
+            plate(b,atlas,[0.02,0.83,0.46,0.06],"Import transfer JSON",false);
+            plate(b,atlas,[0.52,0.83,0.46,0.06],"Export transfer JSON",false);
         }
         if !self.error.is_empty() { plate(b,atlas,[0.02,0.86,0.96,0.035],&self.error,false); }
         plate(b,atlas,[0.01,0.91,0.31,0.08],"Cancel",false);
@@ -194,6 +200,23 @@ mod tests {
         ui.text=Some((TextField::ButtonKey,String::new())); ui.text_insert("m"); ui.finish_text();
         assert_eq!(ui.selected_button().unwrap().action,Some(Action::Key("key.keyboard.m".into())));
         assert_eq!(ui.model.cancel(),original);
+    }
+    #[test]
+    fn layouts_page_exposes_explicit_transfer_actions() {
+        let mut ui=EditorUi::new(Layouts::default()).unwrap();
+        ui.page=Page::Layouts;
+        assert_eq!(ui.touch(1,[0.25,0.85],16.0/9.0,true,false),UiEvent::Import);
+        assert_eq!(ui.touch(2,[0.75,0.85],16.0/9.0,true,false),UiEvent::Export);
+    }
+    #[test]
+    fn custom_shortcut_edit_is_validated_without_erasing_the_old_binding() {
+        let mut ui=EditorUi::new(Layouts::default()).unwrap();
+        ui.touch(1,[0.2,0.33],16.0/9.0,true,false);
+        ui.text=Some((TextField::ButtonKey,"Ctrl + M".into())); ui.finish_text();
+        let chord=ui.selected_button().unwrap().action.clone();
+        assert!(matches!(chord,Some(Action::Chord { .. })));
+        ui.text=Some((TextField::ButtonKey,"Ctrl+not-a-key".into())); ui.finish_text();
+        assert_eq!(ui.selected_button().unwrap().action,chord); assert!(!ui.error.is_empty());
     }
     #[test]
     fn position_page_can_move_top_bar_button_from_under_tabs() {

@@ -135,6 +135,22 @@ impl Game<'_> {
                 if !crate::platform::active() { editor.finish_text(); editor.error = "System keyboard unavailable".into(); }
             }
             UiEvent::Cancel => { self.pad.craftix.editor = None; crate::platform::hide(); }
+            UiEvent::Import => {
+                let result = std::env::current_dir().and_then(|home|
+                    horizon_client::craftix_controls::transfer::import(&home, &mut editor.model));
+                match result {
+                    Ok(()) => { editor.imported(); editor.error = "Imported. Save to apply".into(); }
+                    Err(error) => editor.error = format!("Import transfer-v1.json: {error}"),
+                }
+            }
+            UiEvent::Export => {
+                let result = std::env::current_dir().and_then(|home|
+                    horizon_client::craftix_controls::transfer::export(&home, &editor.model));
+                editor.error = match result {
+                    Ok(()) => "Exported: Files / Control layouts / transfer-v1.json".into(),
+                    Err(error) => format!("Export failed: {error}"),
+                };
+            }
             UiEvent::Save => {
                 // The only current entry point to the editor is More.
                 if !editor.model.staged.items.iter().all(|layout| layout.buttons.iter().any(|button|

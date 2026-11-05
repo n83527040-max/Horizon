@@ -12,3 +12,4 @@ pub mod migrate;
 pub mod ui;
 
 pub mod toggle_owners;
+pub mod transfer;
