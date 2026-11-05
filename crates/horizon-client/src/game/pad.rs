@@ -30,7 +30,7 @@ pub(super) struct Pads {
     #[cfg(target_os = "android")]
     pub(super) custom_keys: std::collections::HashSet<KeyCode>,
     #[cfg(target_os = "android")]
-    pub(super) editor_suppressed_keys: std::collections::HashSet<KeyCode>,
+    pub(super) editor_suppressed_keys: horizon_client::craftix_controls::text_guard::TextKeyGuard,
     #[cfg(target_os = "android")]
     pub(super) custom_inputs: horizon_client::touch::InputOwners<std::result::Result<KeyCode, winit::event::MouseButton>>,
     #[cfg(target_os = "android")]

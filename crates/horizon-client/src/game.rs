@@ -15086,17 +15086,10 @@ impl ApplicationHandler for Game<'_> {
             && event.physical_key != PhysicalKey::Code(KeyCode::Escape)
             && event.logical_key != winit::keyboard::Key::Named(winit::keyboard::NamedKey::BrowserBack)
         {
-            if let PhysicalKey::Code(key) = event.physical_key {
-                if event.state == ElementState::Released && self.pad.editor_suppressed_keys.remove(&key) {
-                    return;
-                }
-                if event.state == ElementState::Pressed
-                    && self.pad.craftix.editor.as_ref().is_some_and(|e| e.text_active())
-                {
-                    if !self.pad.hardware_keys.contains(&key) { self.pad.editor_suppressed_keys.insert(key); }
-                    return;
-                }
-            } else if self.pad.craftix.editor.as_ref().is_some_and(|e| e.text_active()) {
+            let code = match event.physical_key { PhysicalKey::Code(key) => Some(key), _ => None };
+            let was_hardware_held = code.is_some_and(|key| self.pad.hardware_keys.contains(&key));
+            let editing = self.pad.craftix.editor.as_ref().is_some_and(|e| e.text_active());
+            if self.pad.editor_suppressed_keys.suppress(code, event.state == ElementState::Pressed, editing, was_hardware_held) {
                 return;
             }
         }
