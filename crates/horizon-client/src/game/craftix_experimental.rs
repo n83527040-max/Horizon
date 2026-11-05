@@ -211,6 +211,7 @@ impl Game<'_> {
         }
     }
     pub(super) fn craftix_touch(&mut self, touch: &Touch, size: [u32; 2]) {
+        self.craftix_context(false);
         self.craftix_resize(size);
         let point = [touch.location.x as f32 / size[0].max(1) as f32,
             touch.location.y as f32 / size[1].max(1) as f32];
