@@ -15077,6 +15077,18 @@ impl ApplicationHandler for Game<'_> {
         {
             return;
         }
+        // The replacement editor's IME owns text events. Do not route its
+        // Android key events into gameplay or mod hooks while a field is open;
+        // Back/Escape are handled below to close the field/editor.
+        #[cfg(target_os = "android")]
+        if craftix_experimental::enabled()
+            && self.pad.craftix.editor.as_ref().is_some_and(|e| e.text_active())
+            && matches!(&event, WindowEvent::KeyboardInput { event, .. }
+                if event.physical_key != PhysicalKey::Code(KeyCode::Escape)
+                    && event.logical_key != winit::keyboard::Key::Named(winit::keyboard::NamedKey::BrowserBack))
+        {
+            return;
+        }
         #[cfg(target_os = "android")]
         if let WindowEvent::KeyboardInput { event, .. } = &event
             && let PhysicalKey::Code(key) = event.physical_key
