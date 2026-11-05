@@ -1,5 +1,11 @@
 # New CRAFTIX controls — replacement in progress
 
+> **Current status (newer than the historical entries below):** an opt-in
+> Android game path now connects the new HUD, input bridge and an initial
+> interactive editor. It is not the default. It has not been run end-to-end on
+> Android and does not yet meet all requirements; no new APK was produced.
+> See the follow-up section at the end before using the older status notes.
+
 The user confirmed that CRAFTIX 0.8.0 eventually installed and opened on their
 phone, and provided screenshots of the existing HUD and editor. Their new
 request supersedes the earlier instruction to preserve the old touch system:
@@ -80,3 +86,37 @@ partially built replacement cannot break the player's working installation.
   the dispatch refactor and binding validation. APK and Android device execution
   were not part of this run. Python Android regression suite: 35 passed;
   signature-diagnosis unit test: 1 passed.
+
+## Follow-up: opt-in Android host integration
+
+The current code adds `game/craftix_experimental.rs`. With
+`CRAFTIX_EXPERIMENTAL_TOUCH=1` supplied **at Rust compilation** (or as a
+process environment variable), gameplay touches are routed through the new
+router and bridge into the existing engine input dispatcher. Its joystick is
+merged into controller movement; Look updates view rotation; the new painter
+draws the gameplay HUD. Hotbar clicks are reserved before camera capture, and
+a viewport-resolved layout moves controls away from the hotbar. Focus loss,
+menus and viewport changes clear router ownership. The default remains old.
+
+`craftix_controls/ui.rs` adds an initial Buttons / Layouts / Position editor,
+with native Android text input, key names or existing engine bindings, behavior,
+icon, enabled state, size and opacity, named layouts, drag, reset, Save and
+Cancel. More opens this editor in the experimental path. Saving writes a
+separate `craftix-controls-v1.json` only after validation; invalid existing new
+files are not overwritten. A preview migrates `horizon-touch.json` and up to
+three old slot files without changing them. Imported old modes and unsupported
+settings are **not** a complete lossless migration; warnings are logged.
+
+Remaining before release includes: verify runtime/engine event ordering and
+multitouch on an actual game path (including controller/keyboard overlap),
+validate editor rendering and IME on Android, comprehensive settings and
+migration/slot coverage, shortcuts/modifiers, safe areas and dense layouts,
+menu/inventory context behavior and focus/rotation, and full Android/Flutter
+regression and signed APK. The old renderer/touch code is still active by
+default and has not been removed. The editor is an initial implementation, not
+a claim that all requested functionality or UX is finished. No phone or
+emulator gameplay has been tested. The 0.8.0 APK is still the previous system.
+
+[CI run 42046306563](https://github.com/n83527040-max/Horizon/actions/runs/42046306563)
+passed Rust touch tests and Android arm64 type-check at `58b096a`. Its editor →
+router → bridge test is not actual gameplay. No APK was built in that run.

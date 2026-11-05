@@ -1,9 +1,11 @@
 # CRAFTIX controls — handoff for the next agent
 
 **Status: work in progress; do not treat this as a completed control rewrite or
-final release.** The active game still uses the earlier touch system. A new,
-independent control core exists but is not wired to the game or an editor UI.
-The current user explicitly wants that old system replaced, not merely patched.
+final release.** The default game still uses the earlier touch system. An opt-in
+Android path now connects the new core, HUD and an initial editor to the game,
+but it has not been verified in actual gameplay and still has important gaps.
+Read the latest follow-up in `docs/craftix-controls-replacement.md`. The user
+explicitly wants the old system replaced, not merely patched.
 
 ## User's current request
 
@@ -74,10 +76,10 @@ actual device tests. Do not describe an incomplete replacement as final.
   in `flutter/lib/core/theme/craftix_runner_progress.dart`, its PNG asset and
   `flutter/test/craftix_download_state_test.dart`.
 
-### New independent replacement core — NOT live
+### Original core status (historical — see latest follow-up)
 
 `crates/horizon-client-render/src/craftix_controls/` is separate from the old
-implementation and exported from `lib.rs`, but there is no game-host integration:
+implementation and exported from `lib.rs`. Originally it had no game-host integration; an opt-in path has since been added:
 
 * `layout.rs`: named layout model, circular hit geometry, built-in actions,
   opacity, enabled state, key tokens, icon enum, behavior and sensitivities.
