@@ -309,9 +309,8 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
           disable-animations: true
           script: |
-            python3 tools/test_craftix_game_emulator.py \
-              --apk /tmp/test-apk/CRAFTIX-game-test-x86_64.apk \
-              --out craftix-game-test
+            python3 --version
+            python3 tools/test_craftix_game_emulator.py --apk /tmp/test-apk/CRAFTIX-game-test-x86_64.apk --out craftix-game-test
       - name: Collect emulator diagnostics
         if: always()
         run: adb logcat -d > craftix-game-test/logcat-host.txt || true

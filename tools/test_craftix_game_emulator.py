@@ -184,11 +184,34 @@ class Session:
 
     def check(self, name: str, ok: bool, detail: str = "") -> bool:
         self.results.append({"name": name, "ok": bool(ok), "detail": detail})
+        # Keep report.json on disk after every check so a crash still leaves
+        # evidence in the uploaded artifact.
+        try:
+            self.write_report("interrupted")
+        except OSError:
+            pass
         print(f"{'PASS' if ok else 'FAIL'} {name}: {detail}", flush=True)
+        if not ok:
+            print(f"::error::game-test check failed: {name}: {detail}"[:1400], flush=True)
         return bool(ok)
+
+    def write_report(self, status: str, extra: dict | None = None) -> dict:
+        failed = [r for r in self.results if not r["ok"]]
+        report = {
+            "status": status,
+            "passed": len(self.results) - len(failed),
+            "failed": len(failed),
+            "results": self.results,
+        }
+        if extra:
+            report.update(extra)
+        (self.out / "report.json").write_text(
+            json.dumps(report, indent=2) + "\n", encoding="utf-8")
+        return report
 
     def fatal(self, name: str, detail: str) -> None:
         self.check(name, False, detail)
+        print(f"::error::game-test fatal: {name}: {detail}"[:1400], flush=True)
         raise SystemExit(f"fatal: {name}: {detail}")
 
     def status(self) -> dict:
@@ -763,14 +786,10 @@ def run(args: argparse.Namespace) -> int:
     session.screenshot("12-final-hud")
 
     failed = [r for r in session.results if not r["ok"]]
-    report = {
-        "apk": str(args.apk),
-        "window": [session.width, session.height],
-        "passed": len(session.results) - len(failed),
-        "failed": len(failed),
-        "results": session.results,
-    }
-    (out / "report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+    report = session.write_report(
+        "completed",
+        {"apk": str(args.apk), "window": [session.width, session.height]},
+    )
     print(json.dumps({"passed": report["passed"], "failed": report["failed"]}, indent=2))
     return 1 if failed else 0
 
@@ -787,6 +806,16 @@ def main() -> int:
         raise
     except Exception as error:  # noqa: BLE001
         print(f"FATAL {error}", flush=True)
+        print(f"::error::game-test: {error}"[:1400], flush=True)
+        try:
+            out = Path(args.out)
+            out.mkdir(parents=True, exist_ok=True)
+            log = subprocess.run([args.adb, "logcat", "-d"], capture_output=True,
+                                 text=True, timeout=60)
+            (out / "logcat-on-failure.txt").write_text(
+                log.stdout[-200000:], encoding="utf-8", errors="replace")
+        except Exception:  # noqa: BLE001 - diagnostics are best effort
+            pass
         return 2
 
 
