@@ -202,7 +202,11 @@ impl Game<'_> {
                 crate::platform::show(&initial);
                 if !crate::platform::active() { editor.finish_text(); editor.error = "System keyboard unavailable".into(); }
             }
-            UiEvent::Cancel => { self.pad.craftix.editor = None; crate::platform::hide(); }
+            UiEvent::Cancel => {
+                log::info!("CRAFTIX controls editor closed");
+                self.pad.craftix.editor = None;
+                crate::platform::hide();
+            }
             UiEvent::Import => {
                 let result = std::env::current_dir().and_then(|home|
                     horizon_client::craftix_controls::transfer::import(&home, &mut editor.model));

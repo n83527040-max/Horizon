@@ -75,8 +75,15 @@ def main() -> int:
     report["badging"] = badging.strip().splitlines()[:4]
     if "name='com.craftix.launcher'" not in badging:
         errors.append("package name is not com.craftix.launcher")
-    if "versionCode='32'" not in badging or "versionName='0.8.0'" not in badging:
-        errors.append("versionCode/versionName are not 32 / 0.8.0")
+    pubspec = Path(__file__).resolve().parents[1] / "flutter" / "pubspec.yaml"
+    found_version = re.search(r"^version:\s*(\d+\.\d+\.\d+)\+(\d+)\s*$",
+                              pubspec.read_text(encoding="utf-8"), re.M)
+    if not found_version:
+        errors.append("flutter/pubspec.yaml does not declare version: X.Y.Z+N")
+    else:
+        want_name, want_code = found_version.group(1), found_version.group(2)
+        if f"versionCode='{want_code}'" not in badging or f"versionName='{want_name}'" not in badging:
+            errors.append(f"versionCode/versionName are not {want_code} / {want_name}")
     if "application-label:'CRAFTIX'" not in badging:
         errors.append("CRAFTIX app label is missing from the binary manifest")
     if not re.search(r"(?:sdkVersion|minSdkVersion):'28'", badging):

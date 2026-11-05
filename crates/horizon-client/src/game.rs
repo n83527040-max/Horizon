@@ -15205,6 +15205,9 @@ impl ApplicationHandler for Game<'_> {
                 if let Some(editor) = self.pad.craftix.editor.as_mut().filter(|e| e.text_active()) {
                     editor.finish_text();
                 } else {
+                    if self.pad.craftix.editor.is_some() {
+                        log::info!("CRAFTIX controls editor closed");
+                    }
                     self.pad.craftix.editor = None;
                 }
                 crate::platform::hide();
@@ -15237,6 +15240,7 @@ impl ApplicationHandler for Game<'_> {
             && matches!(&event,WindowEvent::KeyboardInput{event,..}
             if event.state==ElementState::Pressed && event.physical_key==PhysicalKey::Code(KeyCode::Escape))
         {
+            log::info!("CRAFTIX controls editor closed");
             self.pad.craftix.editor = None;
             crate::platform::hide();
             return;

@@ -59,7 +59,17 @@ def scaffold() -> None:
     print(f"Flutter Android scaffolding: {copied} generated files", flush=True)
 
 
-def patch_gradle() -> None:
+def pubspec_version() -> tuple[str, str]:
+    """versionName/versionCode from flutter/pubspec.yaml (`0.9.0+33`)."""
+    text = (FLUTTER / "pubspec.yaml").read_text(encoding="utf-8")
+    found = re.search(r"^version:\s*(\d+\.\d+\.\d+)\+(\d+)\s*$", text, re.M)
+    if not found:
+        raise SystemExit("flutter/pubspec.yaml must declare version: X.Y.Z+N")
+    return found.group(1), found.group(2)
+
+
+def patch_gradle(abi: str) -> None:
+    version_name, version_code = pubspec_version()
     for name in ("app/build.gradle.kts", "app/build.gradle"):
         path = ANDROID / name
         if not path.is_file():
@@ -73,10 +83,10 @@ def patch_gradle() -> None:
         text = re.sub(r'minSdkVersion\s+flutter\.minSdkVersion', 'minSdkVersion 28', text)
         text = re.sub(r'minSdk\s*=\s*\d+', 'minSdk = 28', text)
         text = re.sub(r'minSdkVersion\s+\d+', 'minSdkVersion 28', text)
-        text = re.sub(r'versionCode\s*=\s*\d+', 'versionCode = 32', text)
-        text = re.sub(r'versionCode\s+flutter\.versionCode', 'versionCode 32', text)
-        text = re.sub(r'versionName\s*=\s*"[^"]+"', 'versionName = "0.8.0"', text)
-        text = re.sub(r'versionName\s+"[^"]+"', 'versionName "0.8.0"', text)
+        text = re.sub(r'versionCode\s*=\s*\d+', f'versionCode = {version_code}', text)
+        text = re.sub(r'versionCode\s+flutter\.versionCode', f'versionCode {version_code}', text)
+        text = re.sub(r'versionName\s*=\s*"[^"]+"', f'versionName = "{version_name}"', text)
+        text = re.sub(r'versionName\s+"[^"]+"', f'versionName "{version_name}"', text)
         # Make sure the real Rust payload folders are part of the merged APK
         # assets/libs even when the Flutter Gradle plugin adds its own dirs.
         if name.endswith(".kts"):
@@ -127,18 +137,19 @@ android.signingConfigs {
 android.buildTypes.release.signingConfig = android.signingConfigs.craftix
 """
         path.write_text(text, encoding="utf-8")
-        print(f"patched {name}: applicationId=com.craftix.launcher, minSdk=28, version 0.8.0/32", flush=True)
+        print(f"patched {name}: applicationId=com.craftix.launcher, minSdk=28, "
+              f"version {version_name}/{version_code}, abi={abi}", flush=True)
 
 
-def stage() -> None:
-    so = ROOT / ".local/android/gradle-jni/arm64-v8a/libhorizon_android.so"
+def stage(abi: str) -> None:
+    so = ROOT / ".local/android/gradle-jni" / abi / "libhorizon_android.so"
     engine = ROOT / ".local/android/gradle-assets/engine-data.zip"
     if not so.is_file():
         raise SystemExit(f"missing verified Rust library: {so}")
     if not engine.is_file():
         raise SystemExit(f"missing verified engine data: {engine}")
 
-    jni = ANDROID / "app/src/main/jniLibs/arm64-v8a"
+    jni = ANDROID / "app/src/main/jniLibs" / abi
     jni.mkdir(parents=True, exist_ok=True)
     shutil.copy2(so, jni / "libhorizon_android.so")
 
@@ -164,11 +175,13 @@ def stage() -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--skip-scaffold", action="store_true")
+    parser.add_argument("--abi", default="arm64-v8a",
+                        help="ABI whose libhorizon_android.so is staged into jniLibs")
     args = parser.parse_args()
     if not args.skip_scaffold:
         scaffold()
-    patch_gradle()
-    stage()
+    patch_gradle(args.abi)
+    stage(args.abi)
     return 0
 
 

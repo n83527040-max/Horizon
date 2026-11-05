@@ -23,4 +23,4 @@ if ! output=$(adb install -r "$new" 2>&1); then
 fi
 printf '%s\n' "$output"
 adb shell dumpsys package com.craftix.launcher | grep -E 'versionCode=|versionName=' | head -2
-echo '::notice::The unmodified 0.7.9 APK was successfully updated to 0.8.0 on Android emulator API 33.'
+echo '::notice::The unmodified 0.8.0 APK was successfully updated to 0.9.0 on Android emulator API 33.'

@@ -27,8 +27,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p /tmp/previous /tmp/current /tmp/diagnostics
-          gh release download craftix-0.7.9-beta --pattern 'CRAFTIX-0.7.9-arm64-v8a.apk' --dir /tmp/previous
-          gh release download craftix-0.8.0-beta --pattern 'CRAFTIX-0.8.0-arm64-v8a.apk' --dir /tmp/current
+          gh release download craftix-0.8.0-beta --pattern 'CRAFTIX-0.8.0-arm64-v8a.apk' --dir /tmp/previous
+          gh release download craftix-0.9.0-beta --pattern 'CRAFTIX-0.9.0-arm64-v8a.apk' --dir /tmp/current
       - name: Compare signing key, packages and Android API signatures
         env:
           CRAFTIX_KEYSTORE_BASE64: ${{ secrets.CRAFTIX_KEYSTORE_BASE64 }}
@@ -69,8 +69,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p /tmp/previous /tmp/current
-          gh release download craftix-0.7.9-beta --pattern 'CRAFTIX-0.7.9-arm64-v8a.apk' --dir /tmp/previous
-          gh release download craftix-0.8.0-beta --pattern 'CRAFTIX-0.8.0-arm64-v8a.apk' --dir /tmp/current
+          gh release download craftix-0.8.0-beta --pattern 'CRAFTIX-0.8.0-arm64-v8a.apk' --dir /tmp/previous
+          gh release download craftix-0.9.0-beta --pattern 'CRAFTIX-0.9.0-arm64-v8a.apk' --dir /tmp/current
       - name: Install the old APK and update in an Android emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -78,4 +78,4 @@ jobs:
           target: google_apis
           arch: arm64-v8a
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
-          script: bash tools/test_craftix_apk_update.sh /tmp/previous/CRAFTIX-0.7.9-arm64-v8a.apk /tmp/current/CRAFTIX-0.8.0-arm64-v8a.apk
+          script: bash tools/test_craftix_apk_update.sh /tmp/previous/CRAFTIX-0.8.0-arm64-v8a.apk /tmp/current/CRAFTIX-0.9.0-arm64-v8a.apk
