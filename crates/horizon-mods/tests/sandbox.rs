@@ -1373,4 +1373,23 @@ fn craftix_touch_key_events_reach_real_mod_runtime() {
     router.begin(&shared,6,second_point,16.0/9.0,400); router.end(6);
     pump(&mut router,&mut bridge,&mut mods);
     assert!(mods.command("input_poll")); assert_eq!(text(&mut mods),["key-up wheel"]);
+
+    // The guest separately registers the modifier and main key. Verify the
+    // actual WASM event handler sees ordered physical edges (not a claim that
+    // its key-binding API itself supports compound shortcuts).
+    assert!(mods.command("browser")); mods.drain();
+    for (shortcut,modifier,key) in [("Ctrl+M","key.keyboard.left.control","key.keyboard.m"),
+        ("Shift+A","key.keyboard.left.shift","key.keyboard.a"),
+        ("Alt+K","key.keyboard.left.alt","key.keyboard.k")] {
+        assert!(mods.rebind(0,"recipe",modifier)); assert!(mods.rebind(0,"wheel",key));
+        let mut chord_layout=layout.clone();
+        let button=chord_layout.buttons.iter_mut().find(|b| b.id==k).unwrap();
+        button.action=horizon_client_render::craftix_controls::layout::parse_key_action(shortcut);
+        button.behavior=Behavior::Hold;
+        let point=button.circle.center;
+        router.begin(&chord_layout,7,point,16.0/9.0,500); router.end(7);
+        pump(&mut router,&mut bridge,&mut mods);
+        assert!(mods.command("input_poll"));
+        assert_eq!(text(&mut mods),["key-down recipe","key-down wheel","key-up wheel","key-up recipe"]);
+    }
 }
