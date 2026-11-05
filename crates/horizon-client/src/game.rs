@@ -2762,7 +2762,7 @@ impl Game<'_> {
     pub(super) fn touch_editing(&self) -> bool {
         #[cfg(target_os = "android")]
         {
-            self.pad.touch.editor.is_some()
+            self.pad.touch.editor.is_some() || (craftix_experimental::enabled() && self.pad.craftix.editor.is_some())
         }
         #[cfg(not(target_os = "android"))]
         {
@@ -14018,12 +14018,16 @@ impl Game<'_> {
         {
             if (crate::touch_visible() || self.settings.keypad.enabled)
                 && self.pad.touch.editor.is_none()
-                && (!craftix_experimental::enabled() || self.pad_in_menu())
+                && (!craftix_experimental::enabled() || (self.pad_in_menu() && self.pad.craftix.editor.is_none()))
             {
                 self.pad
                     .touch_ui
                     .draw(&mut hud, &self.gui.atlas, self.pad_in_menu());
             }
+        }
+        #[cfg(target_os = "android")]
+        if craftix_experimental::enabled() {
+            if let Some(editor) = &self.pad.craftix.editor { editor.draw(&mut hud, &self.gui.atlas); }
         }
         self.flush_ime(&mut hud);
         // LevelLoadingScreen (Reason.OTHER) draws the title's panorama.
@@ -15145,6 +15149,11 @@ impl ApplicationHandler for Game<'_> {
         #[cfg(target_os = "android")]
         if matches!(&event,WindowEvent::KeyboardInput {event,..} if event.state==ElementState::Pressed && event.logical_key==winit::keyboard::Key::Named(winit::keyboard::NamedKey::BrowserBack))
         {
+            if craftix_experimental::enabled() && self.pad.craftix.editor.is_some() {
+                self.pad.craftix.editor = None;
+                crate::platform::hide();
+                return;
+            }
             if self.pad.touch.custom_name_editing() {
                 self.pad.touch.finish_custom_name();
                 crate::platform::hide();
@@ -15184,6 +15193,10 @@ impl ApplicationHandler for Game<'_> {
             self.pad.menu.keyboard_focus = false;
             let size = self.window.as_ref().unwrap().inner_size();
             self.pad.touch.viewport(size.width, size.height);
+            if craftix_experimental::enabled() && self.pad.craftix.editor.is_some() {
+                self.craftix_editor_touch(touch, [size.width.max(1),size.height.max(1)]);
+                return;
+            }
             if self.pad.touch.editor.is_some() {
                 if touch.phase == TouchPhase::Cancelled {
                     self.pad.touch.cancel_editor();

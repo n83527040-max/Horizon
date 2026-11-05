@@ -3,7 +3,7 @@
 use super::Game;
 use horizon_client::craftix_controls::{
     bridge::{Bridge, HostEvent, UiAction}, editor::Layouts,
-    input::Router, paint::Animator,
+    input::Router, paint::Animator, ui::{EditorUi, UiEvent},
 };
 use std::{collections::BTreeSet, sync::OnceLock, time::Instant};
 use winit::event::{Touch, TouchPhase};
@@ -15,6 +15,7 @@ pub(super) fn enabled() -> bool {
 
 pub(super) struct Controls {
     pub(super) layouts: Layouts,
+    pub(super) editor: Option<EditorUi>,
     pub(super) router: Router,
     pub(super) bridge: Bridge,
     pub(super) animation: Animator,
@@ -25,15 +26,9 @@ pub(super) struct Controls {
 impl Default for Controls {
     fn default() -> Self {
         // Separate file: never overwrite or implicitly replace legacy settings.
-        let mut layouts = std::fs::read("craftix-controls-v1.json").ok()
+        let layouts = std::fs::read("craftix-controls-v1.json").ok()
             .and_then(|bytes| Layouts::from_json(&bytes).ok()).unwrap_or_default();
-        // Do not advertise an action which the experimental path cannot yet do.
-        for layout in &mut layouts.items {
-            for button in &mut layout.buttons {
-                if button.id == horizon_client::craftix_controls::layout::Id::More { button.enabled = false; }
-            }
-        }
-        Self { layouts, router: Router::default(), bridge: Bridge::default(), animation: Animator::default(),
+        Self { layouts, editor: None, router: Router::default(), bridge: Bridge::default(), animation: Animator::default(),
             last_frame: Instant::now(), reserved: BTreeSet::new(), viewport: None }
     }
 }
@@ -55,8 +50,13 @@ impl Game<'_> {
                     if let Err(error) = self.pad_back() { log::warn!("Touch pause: {error}"); }
                 }
                 HostEvent::Ui(UiAction::Settings, true) => self.open_options(false),
-                // Not wired to the legacy editor: it edits a different model.
-                HostEvent::Ui(UiAction::More, true) => log::warn!("Replacement touch editor is not available yet"),
+                HostEvent::Ui(UiAction::More, true) => {
+                    self.craftix_clear();
+                    match EditorUi::new(self.pad.craftix.layouts.clone()) {
+                        Ok(editor) => self.pad.craftix.editor = Some(editor),
+                        Err(error) => log::warn!("Open touch editor: {error}"),
+                    }
+                },
                 HostEvent::Ui(_, false) => {},
             }
         }
@@ -76,6 +76,32 @@ impl Game<'_> {
         let events = self.pad.craftix.bridge.translate(events);
         let size = self.window.as_ref().map(|w| w.inner_size());
         self.craftix_dispatch(events, size.map_or(1, |s| s.width), size.map_or(1, |s| s.height));
+    }
+    pub(super) fn craftix_editor_touch(&mut self, touch: &Touch, size: [u32; 2]) {
+        if touch.phase == TouchPhase::Cancelled {
+            if let Some(editor) = &mut self.pad.craftix.editor { editor.cancel_drag(); }
+            return;
+        }
+        let point = [touch.location.x as f32 / size[0].max(1) as f32,
+            touch.location.y as f32 / size[1].max(1) as f32];
+        let aspect = size[0].max(1) as f32 / size[1].max(1) as f32;
+        let Some(editor) = self.pad.craftix.editor.as_mut() else { return; };
+        let result = editor.touch(touch.id, point, aspect, touch.phase == TouchPhase::Started, touch.phase == TouchPhase::Ended);
+        match result {
+            UiEvent::None => {},
+            UiEvent::ShowText(initial) => {
+                crate::platform::show(&initial);
+                if !crate::platform::active() { editor.finish_text(); editor.error = "System keyboard unavailable".into(); }
+            }
+            UiEvent::Cancel => { self.pad.craftix.editor = None; crate::platform::hide(); }
+            UiEvent::Save => {
+                // Do not activate unsaved edits when writing fails.
+                match editor.model.staged.save(std::path::Path::new("craftix-controls-v1.json")) {
+                    Ok(()) => { self.pad.craftix.layouts = editor.model.staged.clone(); self.pad.craftix.editor = None; crate::platform::hide(); }
+                    Err(error) => editor.error = format!("Save failed: {error}"),
+                }
+            }
+        }
     }
     pub(super) fn craftix_touch(&mut self, touch: &Touch, size: [u32; 2]) {
         if self.pad.craftix.viewport.is_some_and(|old| old != size) { self.craftix_clear(); }

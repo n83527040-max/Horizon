@@ -521,6 +521,16 @@ impl Game<'_> {
             ));
         }
         for out in crate::platform::poll() {
+            if super::craftix_experimental::enabled()
+                && let Some(editor) = self.pad.craftix.editor.as_mut().filter(|e| e.text_active())
+            {
+                match out {
+                    Output::Text(text) => editor.text_insert(&text),
+                    Output::Backspace => editor.text_backspace(),
+                    Output::Enter | Output::Close => { editor.finish_text(); crate::platform::hide(); }
+                }
+                continue;
+            }
             if self.pad.touch.custom_name_editing() {
                 match out {
                     Output::Text(text) => self.pad.touch.custom_name_text(&text),
