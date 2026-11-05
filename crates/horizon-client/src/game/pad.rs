@@ -26,6 +26,8 @@ pub(super) const HELP: &[&str] = &[
 #[derive(Default)]
 pub(super) struct Pads {
     #[cfg(target_os = "android")]
+    pub(super) craftix: super::craftix_experimental::Controls,
+    #[cfg(target_os = "android")]
     pub(super) custom_keys: std::collections::HashSet<KeyCode>,
     #[cfg(target_os = "android")]
     pub(super) custom_inputs: horizon_client::touch::InputOwners<std::result::Result<KeyCode, winit::event::MouseButton>>,
@@ -175,6 +177,13 @@ impl Game<'_> {
             }
             self.pad.touch.advance_custom_taps();
             self.android_custom_events();
+            if super::craftix_experimental::enabled() {
+                if self.pad_in_menu() || !self.focused || (!crate::touch_visible() && !self.settings.keypad.enabled) {
+                    self.craftix_clear();
+                } else {
+                    self.craftix_tick();
+                }
+            }
         }
         #[cfg(target_os = "android")]
         if self.pad_in_menu() && self.android_inventory_controls() {
@@ -245,6 +254,10 @@ impl Game<'_> {
                     // Items with a use action wait for the long-press instead.
                     touch.triggers[0] = 1.0;
                 }
+            }
+            if super::craftix_experimental::enabled() && !self.pad_in_menu() {
+                touch = PadState::default();
+                touch.left = self.pad.craftix.router.movement();
             }
             state.merge(&touch)
         };

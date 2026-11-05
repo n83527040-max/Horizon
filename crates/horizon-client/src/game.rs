@@ -46,6 +46,8 @@ mod agent_settings;
 mod allays;
 #[cfg(target_os = "android")]
 mod android_input;
+#[cfg(target_os = "android")]
+mod craftix_experimental;
 mod armor_stands;
 mod atlas_slots;
 mod banners;
@@ -13993,8 +13995,17 @@ impl Game<'_> {
             self.pad.touch.shield_available = self.touch_shield_available();
             self.pad.touch.sneaking = self.keys.contains(&KeyCode::ShiftLeft);
             self.pad.touch.break_progress = self.touch_mining_progress();
-            self.pad.touch.draw(&mut hud, &self.gui.atlas);
-            if self.pad.touch.editor.is_none() && !self.pad_in_menu() {
+            if craftix_experimental::enabled() && self.pad.touch.editor.is_none() && !self.pad_in_menu() {
+                let controls = &mut self.pad.craftix;
+                let elapsed = controls.last_frame.elapsed().as_secs_f32();
+                controls.last_frame = Instant::now();
+                let layout = &controls.layouts.items[controls.layouts.active];
+                controls.animation.advance(layout, &controls.router, elapsed);
+                horizon_client::craftix_controls::paint::paint(&mut hud, &self.gui.atlas, layout, &controls.animation);
+            } else {
+                self.pad.touch.draw(&mut hud, &self.gui.atlas);
+            }
+            if !craftix_experimental::enabled() && self.pad.touch.editor.is_none() && !self.pad_in_menu() {
                 if self.remote.is_some() {
                     horizon_client::touch::draw_players(&mut hud, &self.gui.atlas,
                         self.pad.touch.held_custom_tokens().any(|key| key == "action:key.playerlist"));
@@ -14007,6 +14018,7 @@ impl Game<'_> {
         {
             if (crate::touch_visible() || self.settings.keypad.enabled)
                 && self.pad.touch.editor.is_none()
+                && (!craftix_experimental::enabled() || self.pad_in_menu())
             {
                 self.pad
                     .touch_ui
@@ -15202,6 +15214,13 @@ impl ApplicationHandler for Game<'_> {
                 if std::mem::take(&mut self.pad.touch.clicked) {
                     self.audio.play_button_click();
                 }
+                return;
+            }
+            // The replacement is opt-in until its editor and migration are ready.
+            if craftix_experimental::enabled() && !self.pad_in_menu()
+                && (crate::touch_visible() || self.settings.keypad.enabled)
+            {
+                self.craftix_touch(touch, [size.width.max(1), size.height.max(1)]);
                 return;
             }
             // This is separate from the legacy top-left auxiliary keyboard;
