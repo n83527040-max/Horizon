@@ -120,3 +120,22 @@ emulator gameplay has been tested. The 0.8.0 APK is still the previous system.
 [CI run 42046306563](https://github.com/n83527040-max/Horizon/actions/runs/42046306563)
 passed Rust touch tests and Android arm64 type-check at `58b096a`. Its editor →
 router → bridge test is not actual gameplay. No APK was built in that run.
+
+### Verification and a known blocking interaction
+
+[CI run 42049238782](https://github.com/n83527040-max/Horizon/actions/runs/42049238782)
+passed the full source checks and Android clippy/type-check for both arm64 and
+armv7 at `14fac0b`; APK and controls-only jobs were skipped. Earlier
+[CI run 42046306563](https://github.com/n83527040-max/Horizon/actions/runs/42046306563)
+passed the touch suites and arm64 type-check. These checks do not run a game.
+The first full check failed because `sdkmanager` was missing from PATH; after
+using the existing SDK setup script, it exposed two clippy errors that were
+fixed. No Android device/gameplay test or new APK/signing verification occurred.
+
+**Do not enable the new path by default yet:** the new router implements
+Hold/Toggle itself, while `mapped_key` and `play_mouse`/`remote_mouse` also
+apply the engine's optional toggle-crouch, toggle-sprint, toggle-attack and
+toggle-use mappings. Those combined latches can disagree or stick. Correctly
+resolve source ownership and test all combinations, including controller and
+hardware, before claiming these modes work or deleting the old path. Other
+known gaps are listed in the follow-up above.

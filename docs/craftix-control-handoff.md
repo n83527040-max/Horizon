@@ -76,32 +76,25 @@ actual device tests. Do not describe an incomplete replacement as final.
   in `flutter/lib/core/theme/craftix_runner_progress.dart`, its PNG asset and
   `flutter/test/craftix_download_state_test.dart`.
 
-### Original core status (historical — see latest follow-up)
+### Replacement core and opt-in game path
 
-`crates/horizon-client-render/src/craftix_controls/` is separate from the old
-implementation and exported from `lib.rs`. Originally it had no game-host integration; an opt-in path has since been added:
+`crates/horizon-client-render/src/craftix_controls/` contains the new model,
+router, editor data model, vector painter, event bridge, migration preview and
+initial interactive editor. The Android game integration is in
+`crates/horizon-client/src/game/craftix_experimental.rs`; it is **opt-in only**
+via `CRAFTIX_EXPERIMENTAL_TOUCH=1` at compile time or in the process environment.
+The ordinary game still uses the old controls. The initial editor is wired to
+the new router and More only in that experimental path.
 
-* `layout.rs`: named layout model, circular hit geometry, built-in actions,
-  opacity, enabled state, key tokens, icon enum, behavior and sensitivities.
-* `input.rs`: independent per-pointer router producing abstract key/look/move
-  events, joystick dead zone, timed single press, toggle, shared-action owners,
-  and clear/release. Its abstract `Action::Key` is **not yet an engine event**.
-* `editor.rs`: transactional data model for named layouts, create/copy/rename/
-  select/delete/reset, custom key button editing, atomic JSON persistence,
-  import validation and drag preview ownership. It is **not an on-screen UI**.
-* `paint.rs`: new vector-only circular glass/neon buttons, icon primitives and
-  visual press/joystick interpolation. It is **not drawn in the game**.
-* `docs/craftix-controls-replacement.md`: details and current limitations.
-
-The new core's unit tests are useful, but do not prove actual key delivery,
-interaction with physical/controller input, real Android persistence, IME,
-visual quality, rotation or device performance. Check layout collisions with
-the real hotbar and narrow screens before wiring it up. Full shortcut/modifier support and runtime import/migration from the old schema
-are not implemented. A later follow-up added `migrate.rs`, which produces an
-explicit non-destructive preview with warnings, and `bridge.rs`, which converts
-router events to tokens accepted by the engine's existing dispatch. Neither is
-connected to the game yet. `game/android_input.rs` now separates the real
-ordered token dispatch for reuse; it still receives only old-router events.
+The integration and editor need actual gameplay testing, comprehensive UX and
+feature completion before the default path changes. In particular, the editor's
+Hold/Toggle modes can interact incorrectly with the engine's own toggle-crouch,
+toggle-sprint, toggle-attack and toggle-use options: the router latches an input
+while the underlying `ToggleKeyMapping` can also latch on press. Resolve this
+with shared physical/controller ownership and tests before enabling by default.
+Inventory-context custom buttons, global HUD settings, shortcut modifiers,
+complete legacy migration, safe-area handling and dense-layout collision checks
+also remain open. See `docs/craftix-controls-replacement.md` for details.
 
 ## Backup and how to recover
 
