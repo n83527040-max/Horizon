@@ -138,7 +138,7 @@ impl Game<'_> {
         let aspect=size[0].max(1) as f32 / size[1].max(1) as f32;
         let layout=self.craftix_inventory_layout(&horizon_client::hud::HudBatch::new(size));
         let owned=self.pad.craftix.router.owns_pointer(touch.id);
-        if !owned && !(touch.phase == TouchPhase::Started && layout.hit_for(point,aspect,true).is_some()) { return false; }
+        if !(owned || touch.phase == TouchPhase::Started && layout.hit_for(point,aspect,true).is_some()) { return false; }
         match touch.phase {
             TouchPhase::Started => self.pad.craftix.router.begin_for(&layout,touch.id,point,aspect,
                 self.started.elapsed().as_millis().min(u64::MAX as u128) as u64,true),
