@@ -49,7 +49,7 @@ pub fn preview(source: &Settings) -> Migration {
             let mut place = old.layouts[mode.index()];
             if settings.left_handed { place.center[0] = 1.0 - place.center[0]; }
             let action = if let Some(name) = old.key.strip_prefix("action:") {
-                Some(Action::Binding(name.into()))
+                super::layout::dispatchable_binding(name).then(|| Action::Binding(name.into()))
             } else if crate::keybinds::key_code(&old.key).is_some() {
                 Some(Action::Key(old.key.clone()))
             } else { None };

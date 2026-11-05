@@ -94,8 +94,12 @@ implementation and exported from `lib.rs`, but there is no game-host integration
 The new core's unit tests are useful, but do not prove actual key delivery,
 interaction with physical/controller input, real Android persistence, IME,
 visual quality, rotation or device performance. Check layout collisions with
-the real hotbar and narrow screens before wiring it up. Full shortcut/modifier
-support and import/migration from the old schema are not implemented.
+the real hotbar and narrow screens before wiring it up. Full shortcut/modifier support and runtime import/migration from the old schema
+are not implemented. A later follow-up added `migrate.rs`, which produces an
+explicit non-destructive preview with warnings, and `bridge.rs`, which converts
+router events to tokens accepted by the engine's existing dispatch. Neither is
+connected to the game yet. `game/android_input.rs` now separates the real
+ordered token dispatch for reuse; it still receives only old-router events.
 
 ## Backup and how to recover
 

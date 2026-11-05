@@ -189,6 +189,7 @@ mod tests {
     fn custom_action_must_be_a_real_engine_mapping() {
         let mut editor=Editor::new(Layouts::default()).unwrap();
         assert!(editor.add_binding("Fake", "key.not_real", Icon::Text).is_err());
+        assert!(editor.add_binding("Unbound", "key.smoothCamera", Icon::Text).is_err());
         let id=editor.add_binding("Jump", "key.jump", Icon::Jump).unwrap();
         let button=editor.staged.items[0].buttons.iter().find(|b| b.id==id).unwrap();
         assert_eq!(button.action,Some(Action::Binding("key.jump".into())));

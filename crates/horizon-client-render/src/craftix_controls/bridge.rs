@@ -53,7 +53,7 @@ impl Bridge {
                         Action::Players => "action:key.playerlist".into(),
                         Action::Perspective => "action:key.togglePerspective".into(),
                         Action::Key(name) if crate::keybinds::key_code(name).is_some() => name.clone(),
-                        Action::Binding(name) if crate::keybinds::MAPPINGS.iter().any(|m| m.0 == name) => format!("action:{name}"),
+                        Action::Binding(name) if super::layout::dispatchable_binding(name) => format!("action:{name}"),
                         _ => continue,
                     };
                     if down {

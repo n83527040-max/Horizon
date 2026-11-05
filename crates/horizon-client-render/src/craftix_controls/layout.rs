@@ -20,6 +20,11 @@ pub enum Action {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Behavior { #[default] Hold, Toggle, Single }
+/// The existing Android action dispatcher uses the mapping's default engine
+/// input; entries whose default is Unknown would otherwise be inert.
+pub fn dispatchable_binding(name: &str) -> bool {
+    crate::keybinds::MAPPINGS.iter().any(|m| m.0 == name && m.1 != "key.keyboard.unknown")
+}
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Icon { #[default] Text, Map, Sword, Use, Jump, Sneak, Sprint }
@@ -68,7 +73,7 @@ impl Button {
             && self.label.chars().count() <= 32
             && self.action.as_ref().is_none_or(|a| match a {
                 Action::Key(key) => crate::keybinds::key_code(key).is_some(),
-                Action::Binding(name) => crate::keybinds::MAPPINGS.iter().any(|mapping| mapping.0 == name),
+                Action::Binding(name) => dispatchable_binding(name),
                 _ => true,
             })
             && (self.id != Id::Joystick || self.action.is_none())
