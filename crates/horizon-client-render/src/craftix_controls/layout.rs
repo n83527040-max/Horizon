@@ -174,6 +174,22 @@ impl Layout {
     pub fn hit(&self, point: [f32; 2], aspect: f32) -> Option<&Button> {
         self.hit_for(point, aspect, false)
     }
+    /// Only custom controls that are visible in inventories and do not touch
+    /// the protected container/recipe area. The same layout must be used for
+    /// painting and hit-testing, so a hidden button never steals inventory taps.
+    pub fn inventory_overlay(&self, width: f32, height: f32, blocked: [f32; 4]) -> Self {
+        let mut layout=self.resolved(width,height);
+        if !width.is_finite() || !height.is_finite() || width<=0.0 || height<=0.0 || !blocked.into_iter().all(f32::is_finite) {
+            layout.buttons.clear(); return layout;
+        }
+        layout.buttons.retain(|button| {
+            if !matches!(button.id, Id::Custom(_)) || !button.visibility.permits(true) { return false; }
+            let x=button.circle.center[0]*width; let y=button.circle.center[1]*height;
+            let r=button.circle.radius*height;
+            x+r<=blocked[0] || x-r>=blocked[2] || y+r<=blocked[1] || y-r>=blocked[3]
+        });
+        layout
+    }
     pub fn hit_for(&self, point: [f32; 2], aspect: f32, inventory: bool) -> Option<&Button> {
         self.buttons.iter().rev().find(|b| b.enabled && b.visibility.permits(inventory) && b.opacity > 0.0 && b.circle.contains(point, aspect))
     }
@@ -219,6 +235,19 @@ mod tests {
             assert!(parse_key_action(text).is_none(),"{text}");
         }
         assert_eq!(parse_key_action("A"),Some(Action::Key("key.keyboard.a".into())));
+    }
+    #[test]
+    fn inventory_overlay_never_exposes_buttons_over_protected_content() {
+        let mut layout=Layout::default();
+        let mut b=layout.buttons.iter().find(|b| b.id==Id::Jump).unwrap().clone();
+        b.id=Id::Custom(1); b.action=Some(Action::Key("key.keyboard.k".into())); b.visibility=Visibility::Inventory;
+        b.circle.center=[0.5,0.5]; layout.buttons.push(b.clone());
+        b.id=Id::Custom(2); b.circle.center=[0.95,0.2]; layout.buttons.push(b);
+        let overlay=layout.inventory_overlay(800.0,400.0,[200.0,50.0,600.0,350.0]);
+        assert!(!overlay.buttons.iter().any(|b| b.id==Id::Custom(1)));
+        assert!(overlay.buttons.iter().any(|b| b.id==Id::Custom(2)));
+        assert!(overlay.buttons.iter().all(|b| matches!(b.id,Id::Custom(_))));
+        assert!(overlay.hit_for([0.5,0.5],2.0,true).is_none());
     }
     #[test]
     fn default_buttons_have_valid_geometry_and_circular_hit_boxes() {

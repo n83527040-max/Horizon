@@ -185,7 +185,9 @@ impl Game<'_> {
             self.pad.touch.advance_custom_taps();
             self.android_custom_events();
             if super::craftix_experimental::enabled() {
-                if self.pad_in_menu() || !self.focused || (!crate::touch_visible() && !self.settings.keypad.enabled) {
+                let inventory=self.craftix_inventory_allowed();
+                self.craftix_context(inventory);
+                if (self.pad_in_menu() && !inventory) || !self.focused || (!crate::touch_visible() && !self.settings.keypad.enabled) {
                     self.craftix_clear();
                 } else {
                     self.craftix_tick();

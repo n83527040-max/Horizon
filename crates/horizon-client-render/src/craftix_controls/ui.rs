@@ -160,9 +160,14 @@ impl EditorUi {
                 }
             }
         } else if y < 0.73 {
-            if x < 0.33 { self.edit_selected(|b| b.behavior=match b.behavior { Behavior::Hold=>Behavior::Toggle, Behavior::Toggle=>Behavior::Single, Behavior::Single=>Behavior::Hold }); }
-            else if x < 0.66 { self.edit_selected(|b| b.icon=match b.icon { Icon::Text=>Icon::Map,Icon::Map=>Icon::Sword,Icon::Sword=>Icon::Use,Icon::Use=>Icon::Jump,Icon::Jump=>Icon::Sneak,Icon::Sneak=>Icon::Sprint,Icon::Sprint=>Icon::Text }); }
-            else { self.edit_selected(|b| b.enabled=!b.enabled); }
+            if x < 0.25 { self.edit_selected(|b| b.behavior=match b.behavior { Behavior::Hold=>Behavior::Toggle, Behavior::Toggle=>Behavior::Single, Behavior::Single=>Behavior::Hold }); }
+            else if x < 0.50 { self.edit_selected(|b| b.icon=match b.icon { Icon::Text=>Icon::Map,Icon::Map=>Icon::Sword,Icon::Sword=>Icon::Use,Icon::Use=>Icon::Jump,Icon::Jump=>Icon::Sneak,Icon::Sneak=>Icon::Sprint,Icon::Sprint=>Icon::Text }); }
+            else if x < 0.75 { self.edit_selected(|b| b.enabled=!b.enabled); }
+            else { self.edit_selected(|b| if matches!(b.id,Id::Custom(_)) { b.visibility=match b.visibility {
+                super::layout::Visibility::Always=>super::layout::Visibility::Gameplay,
+                super::layout::Visibility::Gameplay=>super::layout::Visibility::Inventory,
+                super::layout::Visibility::Inventory=>super::layout::Visibility::Always,
+            }; }); }
         } else if y < 0.81 {
             self.edit_selected(|b| b.circle.radius=(0.02+x.clamp(0.0,1.0)*0.22).clamp(0.02,0.24));
         } else if y < 0.90 {
@@ -183,9 +188,10 @@ impl EditorUi {
             plate(b,atlas,[0.02,0.41,0.96,0.09],&format!("Name: {}",selected.map_or("",|b| b.label.as_str())),false);
             let key=selected.and_then(|b| b.action.as_ref()).map_or("None".into(), |a| format!("{a:?}"));
             plate(b,atlas,[0.02,0.52,0.96,0.09],&format!("Key: {key} (custom only)"),false);
-            plate(b,atlas,[0.02,0.63,0.31,0.09],&format!("{:?}",selected.map(|b| b.behavior)),false);
-            plate(b,atlas,[0.35,0.63,0.31,0.09],&format!("{:?}",selected.map(|b| b.icon)),false);
-            plate(b,atlas,[0.68,0.63,0.30,0.09],if selected.is_some_and(|b| b.enabled) {"Enabled"} else {"Disabled"},false);
+            plate(b,atlas,[0.01,0.63,0.24,0.09],&format!("{:?}",selected.map(|b| b.behavior)),false);
+            plate(b,atlas,[0.26,0.63,0.24,0.09],&format!("{:?}",selected.map(|b| b.icon)),false);
+            plate(b,atlas,[0.51,0.63,0.24,0.09],if selected.is_some_and(|b| b.enabled) {"Enabled"} else {"Disabled"},false);
+            plate(b,atlas,[0.76,0.63,0.23,0.09],&format!("{:?}",selected.map(|b| b.visibility)),false);
             plate(b,atlas,[0.02,0.74,0.96,0.06],&format!("Size: {:.2} — tap to change",selected.map_or(0.0,|b| b.circle.radius)),false);
             plate(b,atlas,[0.02,0.82,0.96,0.06],&format!("Opacity: {:.0}% — tap to change",selected.map_or(0.0,|b| b.opacity*100.0)),false);
         } else if self.page == Page::Layouts {
@@ -242,6 +248,17 @@ mod tests {
         ui.page=Page::Layouts;
         assert_eq!(ui.touch(1,[0.25,0.85],16.0/9.0,true,false),UiEvent::Import);
         assert_eq!(ui.touch(2,[0.75,0.85],16.0/9.0,true,false),UiEvent::Export);
+    }
+    #[test]
+    fn custom_visibility_is_editable_and_cancel_remains_transactional() {
+        let original=Layouts::default(); let mut ui=EditorUi::new(original.clone()).unwrap();
+        ui.touch(1,[0.2,0.33],1.7,true,false);
+        assert_eq!(ui.selected_button().unwrap().visibility,super::super::layout::Visibility::Always);
+        ui.touch(2,[0.9,0.68],1.7,true,false);
+        assert_eq!(ui.selected_button().unwrap().visibility,super::super::layout::Visibility::Gameplay);
+        ui.touch(3,[0.9,0.68],1.7,true,false);
+        assert_eq!(ui.selected_button().unwrap().visibility,super::super::layout::Visibility::Inventory);
+        assert_eq!(ui.model.cancel(),original);
     }
     #[test]
     fn custom_shortcut_edit_is_validated_without_erasing_the_old_binding() {

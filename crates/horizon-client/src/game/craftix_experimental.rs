@@ -1,6 +1,6 @@
 //! Opt-in integration of the replacement touch core. This is not the default
 //! until the new editor, migration and runtime/device tests are complete.
-use super::Game;
+use super::{Game, Screen};
 use horizon_client::craftix_controls::{
     bridge::{Bridge, HostEvent, UiAction}, editor::Layouts,
     input::Router, paint::Animator, ui::{EditorUi, UiEvent},
@@ -25,6 +25,7 @@ pub(super) struct Controls {
     pub(super) last_frame: Instant,
     pub(super) reserved: BTreeSet<u64>,
     pub(super) viewport: Option<[u32; 2]>,
+    inventory_active: bool,
 }
 impl Default for Controls {
     fn default() -> Self {
@@ -58,7 +59,7 @@ impl Default for Controls {
             Err(error) => (Layouts::default(), Some(format!("Cannot read existing controls file: {error}"))),
         };
         Self { layouts, editor: None, load_error, router: Router::default(), bridge: Bridge::default(), animation: Animator::default(),
-            last_frame: Instant::now(), reserved: BTreeSet::new(), viewport: None }
+            last_frame: Instant::now(), reserved: BTreeSet::new(), viewport: None, inventory_active: false }
     }
 }
 impl Game<'_> {
@@ -108,6 +109,47 @@ impl Game<'_> {
         let events = self.pad.craftix.bridge.translate(events);
         let size = self.window.as_ref().map(|w| w.inner_size());
         self.craftix_dispatch(events, size.map_or(1, |s| s.width), size.map_or(1, |s| s.height));
+    }
+    pub(super) fn craftix_inventory_allowed(&self) -> bool {
+        matches!(self.screen, Screen::Inventory | Screen::Creative) && self.title.is_none()
+            && self.sign_edit.is_none() && self.book.is_none() && !self.dialog_open()
+            && self.server_packs.prompt.is_none() && self.link_prompt.is_none()
+            && self.pad.craftix.editor.is_none() && !crate::platform::active()
+    }
+    pub(super) fn craftix_context(&mut self, inventory: bool) {
+        if self.pad.craftix.inventory_active != inventory {
+            self.craftix_clear();
+            self.pad.craftix.inventory_active = inventory;
+        }
+    }
+    pub(super) fn craftix_inventory_layout(&self, batch: &horizon_client::hud::HudBatch)
+        -> horizon_client::craftix_controls::layout::Layout {
+        let image = self.container_image(batch);
+        // Reserve the container and its recipe/merchant panel. Controls that
+        // intersect this conservative region are neither drawn nor hit-tested.
+        let blocked = [image.left as f32 - 160.0, image.top as f32 - 24.0,
+            (image.left + image.width) as f32 + 32.0, (image.top + image.height) as f32 + 24.0];
+        self.pad.craftix.layouts.items[self.pad.craftix.layouts.active].inventory_overlay(batch.width,batch.height,blocked)
+    }
+    pub(super) fn craftix_inventory_touch(&mut self, touch: &Touch, size: [u32;2]) -> bool {
+        self.craftix_context(true);
+        self.craftix_resize(size);
+        let point=[touch.location.x as f32 / size[0].max(1) as f32, touch.location.y as f32 / size[1].max(1) as f32];
+        let aspect=size[0].max(1) as f32 / size[1].max(1) as f32;
+        let layout=self.craftix_inventory_layout(&horizon_client::hud::HudBatch::new(size));
+        let owned=self.pad.craftix.router.owns_pointer(touch.id);
+        if !owned && !(touch.phase == TouchPhase::Started && layout.hit_for(point,aspect,true).is_some()) { return false; }
+        match touch.phase {
+            TouchPhase::Started => self.pad.craftix.router.begin_for(&layout,touch.id,point,aspect,
+                self.started.elapsed().as_millis().min(u64::MAX as u128) as u64,true),
+            TouchPhase::Moved => self.pad.craftix.router.moved(&layout,touch.id,point,aspect),
+            TouchPhase::Ended => self.pad.craftix.router.end(touch.id),
+            TouchPhase::Cancelled => { self.craftix_clear(); return true; }
+        }
+        let events=self.pad.craftix.router.drain();
+        let events=self.pad.craftix.bridge.translate(events);
+        self.craftix_dispatch(events,size[0],size[1]);
+        true
     }
     pub(super) fn craftix_resize(&mut self, size: [u32; 2]) {
         if self.pad.craftix.viewport.is_some_and(|old| old != size) {

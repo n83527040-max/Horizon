@@ -14021,6 +14021,16 @@ impl Game<'_> {
             }
         }
         #[cfg(target_os = "android")]
+        if craftix_experimental::enabled() && self.craftix_inventory_allowed()
+            && (crate::touch_visible() || self.settings.keypad.enabled)
+        {
+            let layout=self.craftix_inventory_layout(&hud);
+            let controls=&mut self.pad.craftix;
+            let elapsed=controls.last_frame.elapsed().as_secs_f32(); controls.last_frame=Instant::now();
+            controls.animation.advance(&layout,&controls.router,elapsed);
+            horizon_client::craftix_controls::paint::paint_for(&mut hud,&self.gui.atlas,&layout,&controls.animation,true);
+        }
+        #[cfg(target_os = "android")]
         {
             if (crate::touch_visible() || self.settings.keypad.enabled)
                 && self.pad.touch.editor.is_none()
@@ -15274,6 +15284,11 @@ impl ApplicationHandler for Game<'_> {
                 }
                 return;
             }
+            // In inventory only safe, visible custom buttons capture touches.
+            if craftix_experimental::enabled() && self.craftix_inventory_allowed()
+                && (crate::touch_visible() || self.settings.keypad.enabled)
+                && self.craftix_inventory_touch(touch,[size.width.max(1),size.height.max(1)])
+            { return; }
             // The replacement is opt-in until its editor and migration are ready.
             if craftix_experimental::enabled() && !self.pad_in_menu()
                 && (crate::touch_visible() || self.settings.keypad.enabled)

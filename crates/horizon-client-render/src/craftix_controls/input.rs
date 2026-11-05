@@ -125,6 +125,7 @@ impl Router {
         self.pointers.clear(); self.toggles.clear(); self.singles.clear(); self.joystick = None;
         if self.movement != [0.0; 2] { self.movement = [0.0; 2]; self.events.push(Event::Move(self.movement)); }
     }
+    pub fn owns_pointer(&self, id: u64) -> bool { self.pointers.contains_key(&id) }
     pub fn movement(&self) -> [f32; 2] { self.movement }
     pub fn active(&self, action: &Action) -> bool { self.owners.contains_key(action) }
     pub fn drain(&mut self) -> Vec<Event> { std::mem::take(&mut self.events) }
