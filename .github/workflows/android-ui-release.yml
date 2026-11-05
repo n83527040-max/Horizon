@@ -313,7 +313,10 @@ jobs:
             python3 tools/test_craftix_game_emulator.py --apk /tmp/test-apk/CRAFTIX-game-test-x86_64.apk --out craftix-game-test
       - name: Collect emulator diagnostics
         if: always()
-        run: adb logcat -d > craftix-game-test/logcat-host.txt || true
+        timeout-minutes: 3
+        run: |
+          adb shell am force-stop com.craftix.launcher || true
+          timeout 90 adb logcat -d -t 5000 > craftix-game-test/logcat-host.txt || true
       - uses: actions/upload-artifact@v4
         if: always()
         with:

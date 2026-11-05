@@ -137,7 +137,9 @@ class Adb:
             raise RuntimeError(f"could not start engine activity: {out}")
 
     def logcat(self, out_dir: Path, label: str) -> None:
-        text = self.run("logcat", "-d", "-v", "brief", timeout=60, check=False)
+        # Bounded: an engine-pegged emulator can stall a full dump.
+        text = self.run("logcat", "-d", "-v", "brief", "-t", "8000",
+                        timeout=45, check=False)
         (out_dir / f"logcat-{label}.txt").write_text(text, encoding="utf-8", errors="replace")
 
 
@@ -210,9 +212,22 @@ class Session:
         return report
 
     def fatal(self, name: str, detail: str) -> None:
+        # check() already emits the ::error:: annotation.
         self.check(name, False, detail)
-        print(f"::error::game-test fatal: {name}: {detail}"[:1400], flush=True)
         raise SystemExit(f"fatal: {name}: {detail}")
+
+    def phase(self, name: str) -> None:
+        print(f"== {name} ==", flush=True)
+        print(f"::notice::game-test phase: {name}"[:300], flush=True)
+
+    def install_state(self) -> str:
+        """Compact, annotation-friendly view of the installer's on-device state."""
+        out = self.adb.shell(
+            f"ls {READY_DIR} {READY_DIR}/*/ 2>/dev/null | tr '\\n' ' '; "
+            f"echo; du -sk {DATA}/cache {DATA}/.local/horizon-client "
+            f"{DATA}/.local/downloads 2>/dev/null | tr '\\n' ' '",
+            check=False)
+        return " ".join(out.split())[:380]
 
     def status(self) -> dict:
         if not self.control:
@@ -374,18 +389,40 @@ def run(args: argparse.Namespace) -> int:
     session.check("install", True, f"installed {Path(args.apk).name}")
 
     # Phase 1: first run installs engine resources (auto_play launch).
-    print("== first run: engine resource install ==", flush=True)
+    session.phase("first run: engine resource install")
+    print(f"::notice::game-test install waiting: {session.install_state()}", flush=True)
     adb.start_engine()
-    try:
-        session.wait_for(session.engine_ready_files, 1500, "engine resources", 10)
-        session.check("first_run_install", True, "horizon-resources + downloads + audio present")
-    except RuntimeError as error:
-        adb.logcat(out, "install-failed")
-        session.fatal("first_run_install", str(error))
+    install_deadline = time.time() + 3600
+    last_progress = time.time()
+    last_state = ""
+    next_notice = time.time() + 300
+    install_ready = False
+    while time.time() < install_deadline:
+        if session.engine_ready_files():
+            install_ready = True
+            break
+        state = session.install_state()
+        if state != last_state:
+            last_state, last_progress = state, time.time()
+        elif time.time() - last_progress > 900:
+            adb.logcat(out, "install-stalled")
+            session.fatal(
+                "first_run_install_stalled",
+                f"no on-device progress for 15 minutes; state: {state or '(nothing)'}")
+        if time.time() >= next_notice:
+            print(f"::notice::game-test install waiting: {state}", flush=True)
+            next_notice = time.time() + 300
+        time.sleep(10)
+    if not install_ready:
+        adb.logcat(out, "install-timeout")
+        session.fatal(
+            "first_run_install",
+            f"resources not ready within 60 minutes; state: {last_state or '(nothing)'}")
+    session.check("first_run_install", True, "horizon-resources + downloads + audio present")
     adb.force_stop()
 
     # Phase 2: relaunch into the game with a pre-seeded controls file.
-    print("== game launch ==", flush=True)
+    session.phase("game launch")
     push_layout_file(adb)
     adb.start_engine()
     try:
@@ -411,7 +448,7 @@ def run(args: argparse.Namespace) -> int:
                   "engine logged the replacement path at startup")
 
     # Phase 3: open a world through the control socket.
-    print("== open world ==", flush=True)
+    session.phase("open world")
     reply = session.control.try_command("open CraftixTest 0 creative")
     if not reply.get("ok") and "already open" not in str(reply.get("error", "")):
         session.fatal("open_world", str(reply))
@@ -432,7 +469,7 @@ def run(args: argparse.Namespace) -> int:
     w, h = session.width, session.height
 
     # Phase 4: real touch on HUD buttons (craftix router -> engine keys).
-    print("== HUD touch tests ==", flush=True)
+    session.phase("HUD touch tests")
     jx, jy = button_xy(w, h, "jump")
     proc = session.hold(jx, jy, 1500)
     saw_space = session.wait_for(
@@ -500,7 +537,7 @@ def run(args: argparse.Namespace) -> int:
     time.sleep(3)
 
     # Phase 5: More opens the editor; create + save a K button on device.
-    print("== editor create/save ==", flush=True)
+    session.phase("editor create/save")
     mx, my = button_xy(w, h, "more")
     session.tap(mx, my)
     opened = session.wait_for(
@@ -601,7 +638,7 @@ def run(args: argparse.Namespace) -> int:
     time.sleep(2)
 
     # Phase 6: inventory context (custom button visible outside the container).
-    print("== inventory context ==", flush=True)
+    session.phase("inventory context")
     w, h = session.display_size()
     session.control.command("key e tap")
     inv = session.wait_status(lambda s: s.get("screen") in ("inventory", "creative"), 15,
@@ -622,7 +659,7 @@ def run(args: argparse.Namespace) -> int:
     session.wait_status(lambda s: s.get("screen") == "playing", 15, "back to playing")
 
     # Phase 7: menu opened while a touch is held; no stuck keys afterwards.
-    print("== menu while holding ==", flush=True)
+    session.phase("menu while holding")
     jx, jy = button_xy(w, h, "jump")
     proc = session.hold(jx, jy, 4000)
     session.wait_for(lambda: "Space" in session.status().get("keys", []), 4, "Space held")
@@ -642,7 +679,7 @@ def run(args: argparse.Namespace) -> int:
                   f"keys={sorted(keys)} physical={sorted(phys)}")
 
     # Phase 8: physical mouse probe + engine-level mouse while touch holds.
-    print("== touch + mouse ==", flush=True)
+    session.phase("touch + mouse")
     mouse_probe = adb.shell("input mouse motionevent DOWN 400 400", check=False)
     adb.shell("input mouse motionevent UP 400 400", check=False)
     mode_after_probe = session.status().get("input_mode")
@@ -679,7 +716,7 @@ def run(args: argparse.Namespace) -> int:
     session.screenshot("10-after-mouse")
 
     # Phase 9: chat via engine key + injected text (Android key pipeline).
-    print("== chat input ==", flush=True)
+    session.phase("chat input")
     session.control.command("key t tap")
     session.wait_status(lambda s: s.get("screen") == "chat", 10, "chat screen")
     time.sleep(1)
@@ -695,7 +732,7 @@ def run(args: argparse.Namespace) -> int:
     session.wait_status(lambda s: s.get("screen") == "playing", 10, "back to playing")
 
     # Phase 10: background/foreground focus loss.
-    print("== focus loss ==", flush=True)
+    session.phase("focus loss")
     adb.shell("input keyevent KEYCODE_HOME")
     time.sleep(4)
     adb.start_engine()
@@ -742,7 +779,7 @@ def run(args: argparse.Namespace) -> int:
         session.check("resume_after_focus_loss", False, str(error))
 
     # Phase 11: full restart keeps the saved layout and the K button.
-    print("== restart persistence ==", flush=True)
+    session.phase("restart persistence")
     adb.force_stop()
     # A fresh process: control.json must be recreated.
     adb.shell(f"rm -f {CONTROL_JSON}", check=False)
@@ -810,8 +847,8 @@ def main() -> int:
         try:
             out = Path(args.out)
             out.mkdir(parents=True, exist_ok=True)
-            log = subprocess.run([args.adb, "logcat", "-d"], capture_output=True,
-                                 text=True, timeout=60)
+            log = subprocess.run([args.adb, "logcat", "-d", "-t", "8000"],
+                                 capture_output=True, text=True, timeout=45)
             (out / "logcat-on-failure.txt").write_text(
                 log.stdout[-200000:], encoding="utf-8", errors="replace")
         except Exception:  # noqa: BLE001 - diagnostics are best effort
