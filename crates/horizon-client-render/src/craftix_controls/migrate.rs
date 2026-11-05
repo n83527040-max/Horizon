@@ -79,6 +79,29 @@ pub fn preview(source: &Settings) -> Migration {
     }
     Migration { layouts: Layouts { schema: 1, active, items }, warnings }
 }
+/// Add one legacy exported slot to the preview without modifying its source.
+/// Only that slot's selected mode is represented as a named new layout; the
+/// original slot file remains authoritative for unsupported old behaviors.
+pub fn add_slot(target: &mut Layouts, base: &Settings, bytes: &[u8], slot: u8) -> std::io::Result<Vec<String>> {
+    if !(1..=3).contains(&slot) || target.items.len() >= 16 {
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "invalid slot or too many layouts"));
+    }
+    let mut old=base.clone();
+    old.import_layout_json(bytes)?;
+    let mut converted=preview(&old);
+    let mut layout=converted.layouts.items.remove(converted.layouts.active);
+    layout.name=format!("Legacy slot {slot}");
+    if target.items.iter().any(|item| item.name.eq_ignore_ascii_case(&layout.name)) {
+        return Err(std::io::Error::new(std::io::ErrorKind::AlreadyExists,"slot already imported"));
+    }
+    target.items.push(layout);
+    if !target.valid() {
+        target.items.pop();
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData,"invalid migrated slot"));
+    }
+    converted.warnings.retain(|w| !w.starts_with("External numbered"));
+    Ok(converted.warnings)
+}
 fn circle(place: crate::touch::layout::Placement, scale: f32) -> Circle {
     Circle { center: place.center, radius: (place.size * scale * 0.5).clamp(0.02,0.24) }
 }
@@ -102,6 +125,20 @@ mod tests {
         assert_eq!(button.action,Some(Action::Key("key.keyboard.m".into())));
         assert_eq!(button.behavior,Behavior::Toggle); assert_eq!(button.visibility,Visibility::Inventory);
         assert!((button.circle.center[0]-(1.0-old.custom_buttons[0].layouts[1].center[0])).abs()<1e-6);
+    }
+    #[test]
+    fn exported_slot_is_imported_transactionally_and_source_is_unchanged() {
+        let base=Settings::default(); let mut slot=base.clone();
+        slot.custom_buttons.push(CustomButton::new("key.keyboard.m".into(),0));
+        let bytes=slot.layout_json().unwrap(); let before=bytes.clone();
+        let mut layouts=preview(&base).layouts;
+        add_slot(&mut layouts,&base,&bytes,2).unwrap();
+        assert_eq!(bytes,before); assert_eq!(layouts.items.last().unwrap().name,"Legacy slot 2");
+        assert!(layouts.items.last().unwrap().buttons.iter().any(|b| b.action==Some(Action::Key("key.keyboard.m".into()))));
+        let stable=layouts.clone();
+        assert!(add_slot(&mut layouts,&base,b"invalid json",1).is_err());
+        assert!(add_slot(&mut layouts,&base,&bytes,2).is_err());
+        assert_eq!(layouts,stable);
     }
     #[test]
     fn unbound_placeholder_is_never_a_fake_working_button() {

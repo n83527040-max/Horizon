@@ -15676,6 +15676,9 @@ impl ApplicationHandler for Game<'_> {
                     {
                         self.pad.touch.viewport(size.width, size.height);
                         self.android_custom_events();
+                        if craftix_experimental::enabled() {
+                            self.craftix_resize([size.width.max(1), size.height.max(1)]);
+                        }
                     }
                     if let Some(r) = &mut self.renderer {
                         r.resize(size.width, size.height);

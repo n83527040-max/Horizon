@@ -34,14 +34,26 @@ impl Default for Controls {
                 Err(error) => (Layouts::default(), Some(format!("Existing controls file invalid; it was not overwritten: {error}"))),
             },
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                // Preserve the legacy file, and only preview its conversion in memory.
-                let converted = std::fs::read("horizon-touch.json").ok()
-                    .and_then(|bytes| serde_json::from_slice::<horizon_client::touch::Settings>(&bytes).ok())
-                    .map(|old| horizon_client::craftix_controls::migrate::preview(&old));
-                if let Some(converted) = converted {
-                    for warning in &converted.warnings { log::warn!("Touch migration: {warning}"); }
-                    (converted.layouts, None)
-                } else { (Layouts::default(), None) }
+                // Preserve every old file; conversion only exists in memory until Save.
+                let legacy = std::fs::read("horizon-touch.json").ok()
+                    .and_then(|bytes| serde_json::from_slice::<horizon_client::touch::Settings>(&bytes).ok());
+                let base=legacy.unwrap_or_default();
+                let converted=horizon_client::craftix_controls::migrate::preview(&base);
+                for warning in &converted.warnings { log::warn!("Touch migration: {warning}"); }
+                let mut layouts=converted.layouts;
+                let dir=std::path::Path::new("craftix-controls");
+                if std::fs::symlink_metadata(dir).is_ok_and(|m| !m.file_type().is_symlink() && m.is_dir()) {
+                    for slot in 1..=3 {
+                        let path=dir.join(format!("slot-{slot}.json"));
+                        if std::fs::symlink_metadata(&path).is_ok_and(|m| !m.file_type().is_symlink() && m.is_file() && m.len() <= 128*1024) {
+                            match std::fs::read(path).and_then(|bytes| horizon_client::craftix_controls::migrate::add_slot(&mut layouts,&base,&bytes,slot)) {
+                                Ok(warnings) => for warning in warnings { log::warn!("Touch slot {slot}: {warning}"); },
+                                Err(error) => log::warn!("Touch slot {slot} was left unchanged: {error}"),
+                            }
+                        }
+                    }
+                }
+                (layouts,None)
             }
             Err(error) => (Layouts::default(), Some(format!("Cannot read existing controls file: {error}"))),
         };
@@ -97,11 +109,15 @@ impl Game<'_> {
         let size = self.window.as_ref().map(|w| w.inner_size());
         self.craftix_dispatch(events, size.map_or(1, |s| s.width), size.map_or(1, |s| s.height));
     }
-    pub(super) fn craftix_editor_touch(&mut self, touch: &Touch, size: [u32; 2]) {
+    pub(super) fn craftix_resize(&mut self, size: [u32; 2]) {
         if self.pad.craftix.viewport.is_some_and(|old| old != size) {
+            self.craftix_clear();
             if let Some(editor) = &mut self.pad.craftix.editor { editor.cancel_drag(); }
         }
         self.pad.craftix.viewport = Some(size);
+    }
+    pub(super) fn craftix_editor_touch(&mut self, touch: &Touch, size: [u32; 2]) {
+        self.craftix_resize(size);
         if touch.phase == TouchPhase::Cancelled {
             if let Some(editor) = &mut self.pad.craftix.editor { editor.cancel_drag(); }
             return;
@@ -119,6 +135,13 @@ impl Game<'_> {
             }
             UiEvent::Cancel => { self.pad.craftix.editor = None; crate::platform::hide(); }
             UiEvent::Save => {
+                // The only current entry point to the editor is More.
+                if !editor.model.staged.items.iter().all(|layout| layout.buttons.iter().any(|button|
+                    button.id == horizon_client::craftix_controls::layout::Id::More && button.enabled && button.opacity > 0.0
+                    && button.action == Some(horizon_client::craftix_controls::layout::Action::More))) {
+                    editor.error = "Every layout needs an enabled More button".into();
+                    return;
+                }
                 // Do not overwrite an invalid pre-existing file with defaults.
                 if let Some(error) = &self.pad.craftix.load_error { editor.error = error.clone(); return; }
                 // Do not activate unsaved edits when writing fails.
@@ -130,8 +153,7 @@ impl Game<'_> {
         }
     }
     pub(super) fn craftix_touch(&mut self, touch: &Touch, size: [u32; 2]) {
-        if self.pad.craftix.viewport.is_some_and(|old| old != size) { self.craftix_clear(); }
-        self.pad.craftix.viewport = Some(size);
+        self.craftix_resize(size);
         let point = [touch.location.x as f32 / size[0].max(1) as f32,
             touch.location.y as f32 / size[1].max(1) as f32];
         let aspect = size[0].max(1) as f32 / size[1].max(1) as f32;
