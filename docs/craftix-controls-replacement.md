@@ -200,3 +200,11 @@ releases for previously held hardware keys. Actual Android IME, multi-device
 ordering and background/focus transitions remain untested. Physical mouse
 overlap and claimed mod-item side effects are still unresolved. No device
 test or new signed APK has occurred; preserve the old default path.
+
+Verification of this follow-up: [controls run 42062963063](https://github.com/n83527040-max/Horizon/actions/runs/42062963063)
+passed the Rust controls and sandbox guest tests (including ordered modifier
+and main-key events), persistence/transfer/PNG tests, and Android arm64
+type-check at `c847c05`. [Android run 42064813399](https://github.com/n83527040-max/Horizon/actions/runs/42064813399)
+passed source checks plus Clippy/type-check on arm64 and armv7 at `857edf0`.
+The preceding run 42064067572 failed a Clippy `nonminimal_bool` check; it was
+fixed and rerun. The checks do not run the Android game or build a release APK.
