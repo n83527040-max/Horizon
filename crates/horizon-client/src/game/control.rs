@@ -1066,6 +1066,10 @@ impl Game<'_> {
             // preference that gates the replacement HUD (emulator tests).
             "input_mode": format!("{:?}", horizon_client::android_runtime::active_input()),
             "input_preference": format!("{:?}", horizon_client::android_runtime::input_mode()),
+            #[cfg(target_os = "android")]
+            "craftix_editor": self.pad.craftix.editor.is_some(),
+            #[cfg(target_os = "android")]
+            "craftix_editing_text": self.pad.craftix.editor.as_ref().is_some_and(|e| e.text_active()),
             "debug": {
                 "overlay": self.debug,
                 "hitboxes": self.debug_entry("entity_hitboxes"),

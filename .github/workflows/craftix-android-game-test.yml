@@ -1,0 +1,170 @@
+# Boots a real Android emulator, installs a test build of the launcher and
+# drives the actual game process (HorizonActivity): world entry through the
+# control socket, real touch input on the replacement HUD, the More editor
+# creating and saving a K button on device, menus while a touch is held,
+# focus loss and restart persistence. The test APK is a NON-public x86_64
+# build (control socket compiled in) and is never published.
+name: CRAFTIX Android game test
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: craftix-game-test-${{ github.ref }}
+  cancel-in-progress: true
+env:
+  CRAFTIX_KEYSTORE_BASE64: ${{ secrets.CRAFTIX_KEYSTORE_BASE64 }}
+  CRAFTIX_STORE_PASSWORD: ${{ secrets.CRAFTIX_STORE_PASSWORD }}
+  CRAFTIX_KEY_ALIAS: ${{ secrets.CRAFTIX_KEY_ALIAS }}
+  CRAFTIX_KEY_PASSWORD: ${{ secrets.CRAFTIX_KEY_PASSWORD }}
+  CARGO_TARGET_DIR: ${{ github.workspace }}/.local/test-target
+  CARGO_BUILD_JOBS: '2'
+jobs:
+  build-test-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            .local/test-target
+          key: ${{ runner.os }}-cargo-test-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-test-
+      - name: Install Android toolchain
+        run: |
+          set -euo pipefail
+          bash tools/ci_android_setup.sh
+          rustup target add x86_64-linux-android
+      - name: Decode the existing CRAFTIX release key
+        run: bash tools/ci_craftix_signing.sh
+      - name: Build the non-public Rust engine for x86_64
+        run: |
+          set -euo pipefail
+          exec > >(tee /tmp/native-build.log) 2>&1
+          trap 'printf "::error::"; tail -c 2200 /tmp/native-build.log | base64 -w0; echo' ERR
+          python3 tools/android_build.py --abi x86_64 --profile release --rust-only \
+            --sdk "$ANDROID_HOME" --java-home "$JAVA_HOME"
+          mkdir -p .local/android/gradle-jni/x86_64
+          cp "$CARGO_TARGET_DIR/x86_64-linux-android/release/libhorizon_android.so" \
+            .local/android/gradle-jni/x86_64/
+          NDK=$(find "$ANDROID_HOME/ndk" -mindepth 1 -maxdepth 1 -type d | head -1)
+          "$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip" --strip-unneeded \
+            .local/android/gradle-jni/x86_64/libhorizon_android.so
+          python3 tools/check_jni_symbols.py .local/android/gradle-jni/x86_64/libhorizon_android.so
+      - name: Obtain engine data from the published APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/previous
+          gh release download craftix-0.7.8 --pattern 'CRAFTIX-Flutter-Rust-0.7.8-arm64-v8a.apk' --dir /tmp/previous
+          python3 - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+          apk = next(Path('/tmp/previous').glob('*.apk'))
+          with ZipFile(apk) as archive:
+              matches = [n for n in archive.namelist() if n.endswith('engine-data.zip')]
+              if len(matches) != 1:
+                  raise SystemExit(f'Expected exactly one engine data file: {matches}')
+              Path('.local/android/gradle-assets/engine-data.zip').parent.mkdir(parents=True, exist_ok=True)
+              Path('.local/android/gradle-assets/engine-data.zip').write_bytes(archive.read(matches[0]))
+          PY
+      - name: Build the signed x86_64 test APK
+        run: |
+          set -euo pipefail
+          python3 tools/prepare_mixed_flutter.py --abi x86_64
+          cd flutter
+          flutter build apk --release --target-platform android-x86_64
+      - name: Verify the test APK
+        run: |
+          set -euo pipefail
+          mkdir -p .local/android/releases/test
+          APK=.local/android/releases/test/CRAFTIX-game-test-x86_64.apk
+          cp flutter/build/app/outputs/flutter-apk/app-release.apk "$APK"
+          BT="$ANDROID_HOME/build-tools/35.0.0"
+          SIGNER="$JAVA_HOME/bin/java -jar $BT/lib/apksigner.jar"
+          $SIGNER verify --verbose --print-certs "$APK" | tee .local/android/releases/test/certificate.txt
+          BADGING=$("$BT/aapt2" dump badging "$APK")
+          echo "$BADGING" | head -4
+          echo "$BADGING" | grep -q "native-code: 'x86_64'" || { echo '::error::APK lacks x86_64 native code'; exit 1; }
+          python3 tools/verify_mixed_apk.py "$APK" --aapt2 "$BT/aapt2" --apksigner "$SIGNER" \
+            --report .local/android/releases/test/verification.json
+          (cd .local/android/releases/test && sha256sum CRAFTIX-game-test-x86_64.apk > SHA256SUMS.txt)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: craftix-game-test-apk
+          path: .local/android/releases/test/
+          if-no-files-found: error
+      - name: Remove temporary keystore
+        if: always()
+        run: rm -f "$RUNNER_TEMP/craftix-release.jks"
+
+  game-test:
+    needs: build-test-apk
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Enable KVM for the emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Install SDK packages
+        run: |
+          set -euo pipefail
+          if [ -z "${ANDROID_HOME:-}" ]; then
+            curl -fsSL https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -o /tmp/cmdtools.zip
+            sudo mkdir -p /opt/android-sdk
+            sudo unzip -q /tmp/cmdtools.zip -d /opt/android-sdk/cmdline-tools
+            sudo mv /opt/android-sdk/cmdline-tools/cmdline-tools /opt/android-sdk/cmdline-tools/latest
+            echo "ANDROID_HOME=/opt/android-sdk" >> "$GITHUB_ENV"
+            export ANDROID_HOME=/opt/android-sdk
+          fi
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            "platform-tools" "emulator" "system-images;android-33;google_apis;x86_64"
+      - uses: actions/download-artifact@v4
+        with:
+          name: craftix-game-test-apk
+          path: /tmp/test-apk
+      - name: Run the game session on the emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 33
+          target: google_apis
+          arch: x86_64
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: |
+            python3 tools/test_craftix_game_emulator.py \
+              --apk /tmp/test-apk/CRAFTIX-game-test-x86_64.apk \
+              --out craftix-game-test
+      - name: Collect emulator diagnostics
+        if: always()
+        run: adb logcat -d > craftix-game-test/logcat-host.txt || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: craftix-game-test-results
+          path: craftix-game-test/
+          if-no-files-found: warn
