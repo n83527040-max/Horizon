@@ -13959,16 +13959,14 @@ impl Game<'_> {
             let mut skin = self.player_model.as_ref().and_then(|model| model.skin.clone());
             // Integrated single-player can have a launcher-provided offline skin
             // even when no remote profile has populated player_model.skin.
-            if skin.is_none() {
-                if let Some((pixels, _)) = horizon_client::skins::offline_skin() {
-                    const OFFLINE: &str = "horizon/offline_skin";
-                    if !self.skin_slots.contains(OFFLINE) || !self.gui.atlas.sprites.contains_key(OFFLINE) {
-                        self.store_skin(OFFLINE.into(), pixels.clone());
-                    }
-                    if self.gui.atlas.sprites.contains_key(OFFLINE) {
-                        self.skin_downloads.borrow_mut().drawn(OFFLINE);
-                        skin = Some(OFFLINE.into());
-                    }
+            if skin.is_none() && let Some((pixels, _)) = horizon_client::skins::offline_skin() {
+                const OFFLINE: &str = "horizon/offline_skin";
+                if !self.skin_slots.contains(OFFLINE) || !self.gui.atlas.sprites.contains_key(OFFLINE) {
+                    self.store_skin(OFFLINE.into(), pixels.clone());
+                }
+                if self.gui.atlas.sprites.contains_key(OFFLINE) {
+                    self.skin_downloads.borrow_mut().drawn(OFFLINE);
+                    skin = Some(OFFLINE.into());
                 }
             }
             if let Some(player) = &mut self.player {
@@ -14027,8 +14025,8 @@ impl Game<'_> {
             }
         }
         #[cfg(target_os = "android")]
-        if craftix_experimental::enabled() {
-            if let Some(editor) = &self.pad.craftix.editor { editor.draw(&mut hud, &self.gui.atlas); }
+        if craftix_experimental::enabled() && let Some(editor) = &self.pad.craftix.editor {
+            editor.draw(&mut hud, &self.gui.atlas);
         }
         self.flush_ime(&mut hud);
         // LevelLoadingScreen (Reason.OTHER) draws the title's panorama.
