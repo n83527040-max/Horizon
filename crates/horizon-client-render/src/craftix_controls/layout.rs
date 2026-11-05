@@ -14,9 +14,56 @@ pub enum Action {
     Sprint, Jump, Sneak, Attack, Use, Inventory, More, Chat, Pause, Settings, Players, Perspective,
     /// The engine translates this physical-key token; no extra function is implied.
     Key(String),
+    /// Ordered physical modifiers followed by a non-modifier key.
+    Chord { modifiers: Vec<String>, key: String },
     /// An existing game mapping, such as key.attack or key.hotbar.1.
     Binding(String),
 }
+
+/// Parse a key or an ordered physical shortcut typed in the editor.
+/// This models keyboard edges, not a promise that a particular mod supports
+/// modifier-based bindings.
+pub fn parse_key_action(text: &str) -> Option<Action> {
+    fn canonical(part: &str) -> String {
+        let part = part.trim().to_ascii_lowercase();
+        if part.starts_with("key.") { part } else { format!("key.keyboard.{part}") }
+    }
+    fn modifier(part: &str) -> Option<&'static str> {
+        match part.trim().to_ascii_lowercase().as_str() {
+            "ctrl" | "control" | "key.keyboard.left.control" => Some("key.keyboard.left.control"),
+            "key.keyboard.right.control" => Some("key.keyboard.right.control"),
+            "shift" | "key.keyboard.left.shift" => Some("key.keyboard.left.shift"),
+            "key.keyboard.right.shift" => Some("key.keyboard.right.shift"),
+            "alt" | "key.keyboard.left.alt" => Some("key.keyboard.left.alt"),
+            "key.keyboard.right.alt" => Some("key.keyboard.right.alt"),
+            _ => None,
+        }
+    }
+    let parts: Vec<_> = text.split('+').collect();
+    if parts.len() == 1 {
+        let key = canonical(parts[0]);
+        return crate::keybinds::key_code(&key).map(|_| Action::Key(key));
+    }
+    if parts.len() > 4 { return None; }
+    let mut modifiers = Vec::new();
+    for part in &parts[..parts.len()-1] {
+        let name = modifier(part)?.to_owned();
+        if modifiers.contains(&name) { return None; }
+        modifiers.push(name);
+    }
+    let last = parts[parts.len()-1].trim();
+    if modifier(last).is_some() { return None; }
+    let key = canonical(last);
+    crate::keybinds::key_code(&key)?;
+    Some(Action::Chord { modifiers, key })
+}
+
+pub fn valid_chord(modifiers: &[String], key: &str) -> bool {
+    if modifiers.is_empty() || modifiers.len() > 3 { return false; }
+    let text = format!("{}+{key}", modifiers.join("+"));
+    matches!(parse_key_action(&text), Some(Action::Chord { modifiers: parsed, key: parsed_key }) if parsed == modifiers && parsed_key == key)
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Behavior { #[default] Hold, Toggle, Single }
@@ -73,6 +120,7 @@ impl Button {
             && self.label.chars().count() <= 32
             && self.action.as_ref().is_none_or(|a| match a {
                 Action::Key(key) => crate::keybinds::key_code(key).is_some(),
+                Action::Chord { modifiers, key } => valid_chord(modifiers, key),
                 Action::Binding(name) => dispatchable_binding(name),
                 _ => true,
             })
@@ -153,6 +201,21 @@ impl Default for Layout {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn shortcut_parser_is_bounded_validated_and_round_trips() {
+        for text in ["Ctrl + M", "Shift+A", "Alt+K", "key.keyboard.right.control+key.keyboard.m"] {
+            let action=parse_key_action(text).unwrap();
+            let json=serde_json::to_string(&action).unwrap();
+            let restored: Action=serde_json::from_str(&json).unwrap();
+            assert_eq!(action,restored);
+            if let Action::Chord { modifiers,key }=restored { assert!(valid_chord(&modifiers,&key)); }
+            else { panic!("expected chord"); }
+        }
+        for text in ["Ctrl+", "+M", "Ctrl+Ctrl+M", "Alt+NotAKey", "Ctrl+Shift+Alt+Ctrl+M", "Ctrl+Shift"] {
+            assert!(parse_key_action(text).is_none(),"{text}");
+        }
+        assert_eq!(parse_key_action("A"),Some(Action::Key("key.keyboard.a".into())));
+    }
     #[test]
     fn default_buttons_have_valid_geometry_and_circular_hit_boxes() {
         let layout = Layout::default();

@@ -25,7 +25,7 @@ pub enum HostEvent {
 /// or prematurely release the other. Raw keys and bindings can overlap after
 /// rebinding; the host must additionally aggregate the resolved engine inputs.
 #[derive(Default)]
-pub struct Bridge { owners: BTreeMap<String, BTreeSet<Action>> }
+pub struct Bridge { owners: BTreeMap<String, BTreeSet<Action>>, order: Vec<String> }
 impl Bridge {
     pub fn translate(&mut self, events: impl IntoIterator<Item = Event>) -> Vec<HostEvent> {
         let mut out = Vec::new();
@@ -43,28 +43,38 @@ impl Bridge {
                         out.push(HostEvent::Ui(ui, down));
                         continue;
                     }
-                    let token = match &action {
-                        Action::Sprint => "action:key.sprint".into(),
-                        Action::Jump => "action:key.jump".into(),
-                        Action::Sneak => "action:key.sneak".into(),
-                        Action::Attack => "action:key.attack".into(),
-                        Action::Use => "action:key.use".into(),
-                        Action::Inventory => "action:key.inventory".into(),
-                        Action::Chat => "action:key.chat".into(),
-                        Action::Players => "action:key.playerlist".into(),
-                        Action::Perspective => "action:key.togglePerspective".into(),
-                        Action::Key(name) if crate::keybinds::key_code(name).is_some() => name.clone(),
-                        Action::Binding(name) if super::layout::dispatchable_binding(name) => format!("action:{name}"),
+                    let mut tokens = match &action {
+                        Action::Sprint => vec!["action:key.sprint".into()],
+                        Action::Jump => vec!["action:key.jump".into()],
+                        Action::Sneak => vec!["action:key.sneak".into()],
+                        Action::Attack => vec!["action:key.attack".into()],
+                        Action::Use => vec!["action:key.use".into()],
+                        Action::Inventory => vec!["action:key.inventory".into()],
+                        Action::Chat => vec!["action:key.chat".into()],
+                        Action::Players => vec!["action:key.playerlist".into()],
+                        Action::Perspective => vec!["action:key.togglePerspective".into()],
+                        Action::Key(name) if crate::keybinds::key_code(name).is_some() => vec![name.clone()],
+                        Action::Chord { modifiers, key } if super::layout::valid_chord(modifiers, key) => {
+                            let mut tokens = modifiers.clone(); tokens.push(key.clone()); tokens
+                        }
+                        Action::Binding(name) if super::layout::dispatchable_binding(name) => vec![format!("action:{name}")],
                         _ => continue,
                     };
-                    if down {
-                        let owners = self.owners.entry(token.clone()).or_default();
-                        let first = owners.is_empty();
-                        if owners.insert(action) && first { out.push(HostEvent::Input(token, true)); }
-                    } else if let Some(owners) = self.owners.get_mut(&token) {
-                        if owners.remove(&action) && owners.is_empty() {
-                            self.owners.remove(&token);
-                            out.push(HostEvent::Input(token, false));
+                    if !down { tokens.reverse(); }
+                    for token in tokens {
+                        if down {
+                            let owners = self.owners.entry(token.clone()).or_default();
+                            let first = owners.is_empty();
+                            if owners.insert(action.clone()) && first {
+                                self.order.push(token.clone());
+                                out.push(HostEvent::Input(token, true));
+                            }
+                        } else if let Some(owners) = self.owners.get_mut(&token) {
+                            if owners.remove(&action) && owners.is_empty() {
+                                self.owners.remove(&token);
+                                self.order.retain(|held| held != &token);
+                                out.push(HostEvent::Input(token, false));
+                            }
                         }
                     }
                 }
@@ -74,7 +84,8 @@ impl Bridge {
     }
     /// Safety net if the host tears down without draining router releases.
     pub fn clear(&mut self) -> Vec<HostEvent> {
-        std::mem::take(&mut self.owners).into_keys().map(|token| HostEvent::Input(token, false)).collect()
+        self.owners.clear();
+        std::mem::take(&mut self.order).into_iter().rev().map(|token| HostEvent::Input(token, false)).collect()
     }
 }
 
@@ -99,6 +110,24 @@ mod tests {
             HostEvent::Input("key.keyboard.m".into(),true), HostEvent::Input("action:key.attack".into(),true),
             HostEvent::Input("key.keyboard.m".into(),false)]);
         assert_eq!(bridge.clear(), vec![HostEvent::Input("action:key.attack".into(),false)]);
+    }
+    #[test]
+    fn chords_order_edges_and_share_keys_without_early_release() {
+        let mut bridge=Bridge::default();
+        let ctrl_m=super::super::layout::parse_key_action("Ctrl + M").unwrap();
+        let ctrl_k=super::super::layout::parse_key_action("Ctrl + K").unwrap();
+        assert_eq!(bridge.translate([Event::Key(ctrl_m.clone(),true)]), vec![
+            HostEvent::Input("key.keyboard.left.control".into(),true), HostEvent::Input("key.keyboard.m".into(),true)]);
+        assert_eq!(bridge.translate([Event::Key(ctrl_k.clone(),true)]), vec![HostEvent::Input("key.keyboard.k".into(),true)]);
+        assert_eq!(bridge.translate([Event::Key(ctrl_m,false)]), vec![HostEvent::Input("key.keyboard.m".into(),false)]);
+        assert_eq!(bridge.translate([Event::Key(ctrl_k,false)]), vec![
+            HostEvent::Input("key.keyboard.k".into(),false),HostEvent::Input("key.keyboard.left.control".into(),false)]);
+        let shift_a=super::super::layout::parse_key_action("Shift+A").unwrap();
+        let alt_k=super::super::layout::parse_key_action("Alt+K").unwrap();
+        bridge.translate([Event::Key(shift_a,true),Event::Key(alt_k,true)]);
+        assert_eq!(bridge.clear(),vec![HostEvent::Input("key.keyboard.k".into(),false),
+            HostEvent::Input("key.keyboard.left.alt".into(),false),HostEvent::Input("key.keyboard.a".into(),false),
+            HostEvent::Input("key.keyboard.left.shift".into(),false)]);
     }
     #[test]
     fn ui_and_motion_are_not_fabricated_as_keyboard_events() {

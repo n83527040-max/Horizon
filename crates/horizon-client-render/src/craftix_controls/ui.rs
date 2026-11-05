@@ -46,12 +46,11 @@ impl EditorUi {
                 if let Some(mut button) = self.selected_button().cloned() {
                     if field == TextField::ButtonName { button.label = value.into(); }
                     else {
-                        button.action = Some(if let Some(name) = value.strip_prefix("action:") {
-                            Action::Binding(name.to_owned())
-                        } else {
-                            let key = if value.starts_with("key.") { value.to_owned() } else { format!("key.keyboard.{}",value.to_lowercase()) };
-                            Action::Key(key)
-                        });
+                        let action = if let Some(name) = value.strip_prefix("action:") {
+                            Some(Action::Binding(name.to_owned()))
+                        } else { super::layout::parse_key_action(value) };
+                        let Some(action) = action else { self.error = "Invalid key or shortcut".into(); return; };
+                        button.action = Some(action);
                     }
                     self.model.edit_button(button.id, button)
                 } else { return; }
@@ -129,7 +128,7 @@ impl EditorUi {
         } else if y < 0.62 {
             if let Some(b)=self.selected_button() {
                 if matches!(b.id, Id::Custom(_)) {
-                    let initial=match &b.action { Some(Action::Key(key))=>key.clone(), Some(Action::Binding(name))=>format!("action:{name}"), _=>String::new() };
+                    let initial=match &b.action { Some(Action::Key(key))=>key.clone(), Some(Action::Binding(name))=>format!("action:{name}"), Some(Action::Chord { modifiers, key })=>format!("{}+{key}",modifiers.join("+")), _=>String::new() };
                     return self.text_request(TextField::ButtonKey,initial);
                 }
             }
