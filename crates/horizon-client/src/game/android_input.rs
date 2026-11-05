@@ -629,7 +629,10 @@ impl Game<'_> {
         self.debug_key(key, KeyAction::Release);
     }
     pub(super) fn android_release_touch_keys(&mut self, cancelled: bool) {
-        if cancelled && super::craftix_experimental::enabled() { self.craftix_clear(); }
+        if cancelled && super::craftix_experimental::enabled() {
+            self.craftix_clear();
+            if let Some(editor) = &mut self.pad.craftix.editor { editor.cancel_drag(); }
+        }
         if cancelled && matches!(self.screen, Screen::Inventory | Screen::Creative) {
             self.inv_clicks = Default::default();
             self.inv_drag = None;
