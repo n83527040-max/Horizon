@@ -66,7 +66,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          trap 'printf "::error::"; tail -c 12000 /tmp/native-check.log | base64 -w0; echo' ERR
+          trap 'printf "::error::"; tail -c 2200 /tmp/native-check.log | base64 -w0; echo' ERR
           python3 tools/android_build.py --abi "${{ matrix.abi }}" --clippy --public \
             --sdk "$ANDROID_HOME" --java-home "$JAVA_HOME_17_X64" 2>&1 | tee /tmp/native-check.log
 
