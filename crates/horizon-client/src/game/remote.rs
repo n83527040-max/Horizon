@@ -7493,14 +7493,24 @@ impl Game<'_> {
         use horizon_client::interaction_input::Button;
         let input = match button {
             MouseButton::Left => {
-                self.toggles
-                    .button(2, pressed, false, self.settings.toggle_attack);
+                #[cfg(target_os = "android")]
+                let craftix_merged = self.pad.processing_craftix_toggle;
+                #[cfg(not(target_os = "android"))]
+                let craftix_merged = false;
+                if !craftix_merged {
+                    self.toggles.button(2, pressed, false, self.settings.toggle_attack);
+                }
                 self.left = self.toggles.is_down(2);
                 Some(Button::Attack)
             }
             MouseButton::Right => {
-                self.toggles
-                    .button(3, pressed, false, self.settings.toggle_use);
+                #[cfg(target_os = "android")]
+                let craftix_merged = self.pad.processing_craftix_toggle;
+                #[cfg(not(target_os = "android"))]
+                let craftix_merged = false;
+                if !craftix_merged {
+                    self.toggles.button(3, pressed, false, self.settings.toggle_use);
+                }
                 self.right = self.toggles.is_down(3);
                 Some(Button::Use)
             }

@@ -6,6 +6,9 @@
 #[derive(Clone, Debug)]
 pub struct KeyState {
     pub is_down: bool,
+    /// A touch source already applies its own Hold/Toggle policy; its level
+    /// is combined with the engine's independently toggled hardware state.
+    virtual_down: bool,
     click_count: i32,
     released_by_screen_when_down: bool,
     toggle: Option<bool>,
@@ -20,6 +23,7 @@ impl KeyState {
     pub fn plain() -> Self {
         Self {
             is_down: false,
+            virtual_down: false,
             click_count: 0,
             released_by_screen_when_down: false,
             toggle: None,
@@ -145,7 +149,15 @@ impl Default for ToggleKeys {
 }
 impl ToggleKeys {
     pub fn is_down(&self, slot: usize) -> bool {
-        self.0[slot].is_down
+        self.0[slot].is_down || self.0[slot].virtual_down
+    }
+    /// Set a touch-owned level without applying the engine's toggle a second
+    /// time. A touch click is generated only when no other source was down.
+    pub fn virtual_hold(&mut self, slot: usize, down: bool) {
+        let was_down = self.is_down(slot);
+        let key = &mut self.0[slot];
+        key.virtual_down = down;
+        if down && !was_down { key.click(); }
     }
     /// `KeyboardHandler.keyPress` for a key bound to `slot`: a release sets
     /// the mapping up (`KeyMapping.set(key, false)`); a press or a repeat
@@ -182,6 +194,7 @@ impl ToggleKeys {
     /// `Gui.setScreen` with a screen: `KeyMapping.releaseAll`.
     pub fn screen_opened(&mut self, needs_toggle: [bool; 4]) {
         for (key, option) in self.0.iter_mut().zip(needs_toggle) {
+            key.virtual_down = false;
             key.release(option);
         }
     }
@@ -197,6 +210,7 @@ impl ToggleKeys {
     /// `LocalPlayer.respawn`: `KeyMapping.resetToggleKeys`.
     pub fn respawn(&mut self) {
         for key in &mut self.0 {
+            key.virtual_down = false;
             key.reset();
             // As with the vanilla option, the death screen closing after
             // this still restores a toggle it released.
@@ -208,6 +222,22 @@ impl ToggleKeys {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn virtual_hold_does_not_double_toggle_engine_state() {
+        let mut keys=ToggleKeys::default();
+        keys.key(SNEAK,KeyAction::Press,false,true);
+        keys.key(SNEAK,KeyAction::Release,false,true);
+        assert!(keys.is_down(SNEAK));
+        keys.virtual_hold(SNEAK,true); keys.virtual_hold(SNEAK,false);
+        assert!(keys.is_down(SNEAK), "touch release must preserve hardware latch");
+        keys.virtual_hold(SNEAK,true);
+        keys.key(SNEAK,KeyAction::Press,false,true);
+        keys.key(SNEAK,KeyAction::Release,false,true);
+        assert!(keys.is_down(SNEAK), "touch still owns sneak");
+        keys.virtual_hold(SNEAK,false); assert!(!keys.is_down(SNEAK));
+        keys.virtual_hold(ATTACK,true); assert!(keys.is_down(ATTACK));
+        keys.screen_opened([true,true,true,true]); assert!(!keys.is_down(ATTACK));
+    }
     #[test]
     fn toggle_flips_on_press_and_ignores_release() {
         let mut k = KeyState::toggle(true, true);

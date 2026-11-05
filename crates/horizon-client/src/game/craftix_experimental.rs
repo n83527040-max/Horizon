@@ -66,7 +66,7 @@ impl Game<'_> {
     fn craftix_dispatch(&mut self, events: Vec<HostEvent>, width: u32, height: u32) {
         for event in events {
             match event {
-                HostEvent::Input(name, down) => self.android_dispatch_touch_inputs([(name, down)]),
+                HostEvent::Input(name, down) => self.android_dispatch_craftix_inputs([(name, down)]),
                 HostEvent::Move(_) => {}, // the latest state is merged in poll_pads
                 HostEvent::Look(delta) => {
                     let factor = height as f32 / width.max(height).max(1) as f32 * 180.0;

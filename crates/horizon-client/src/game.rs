@@ -6921,8 +6921,8 @@ impl Game<'_> {
     /// keyboard and controllers both end here).
     fn mapped_key(&mut self, key: KeyCode, pressed: bool, repeat: bool) -> Result<()> {
         #[cfg(target_os = "android")]
-        if (!pressed && self.android_custom_key_held(key))
-            || (pressed && !repeat && !self.pad.processing_mapped && self.pad.custom_inputs.contains(&Ok(key))) {
+        if !self.pad.processing_craftix_toggle && ((!pressed && self.android_custom_key_held(key))
+            || (pressed && !repeat && !self.pad.processing_mapped && self.pad.custom_inputs.contains(&Ok(key)))) {
             return Ok(());
         }
         // Sneak and sprint are ToggleKeyMappings: a press (or a key
@@ -6934,6 +6934,13 @@ impl Game<'_> {
             _ => None,
         };
         if let Some((slot, option)) = toggle {
+            #[cfg(target_os = "android")]
+            if self.pad.processing_craftix_toggle {
+                // The source level was already merged without changing the
+                // engine's physical/controller toggle latch.
+                self.sync_toggle(slot);
+                return if pressed { self.key_pressed(key) } else { Ok(()) };
+            }
             let action = match (pressed, repeat) {
                 (false, _) => KeyAction::Release,
                 (_, false) => KeyAction::Press,
@@ -14621,8 +14628,8 @@ impl Game<'_> {
     /// A mouse button while playing (window or control socket).
     fn play_mouse(&mut self, button: MouseButton, pressed: bool) -> Result<()> {
         #[cfg(target_os = "android")]
-        if (!pressed && self.android_custom_mouse_held(button))
-            || (pressed && !self.pad.processing_mapped && self.pad.custom_inputs.contains(&Err(button))) {
+        if !self.pad.processing_craftix_toggle && ((!pressed && self.android_custom_mouse_held(button))
+            || (pressed && !self.pad.processing_mapped && self.pad.custom_inputs.contains(&Err(button)))) {
             return Ok(());
         }
         // A mod's claimed item takes the use button (capability `input`).
@@ -14649,13 +14656,23 @@ impl Game<'_> {
                 if pressed {
                     self.attack_clicks += 1;
                 }
-                self.toggles
-                    .button(2, pressed, false, self.settings.toggle_attack);
+                #[cfg(target_os = "android")]
+                let craftix_merged = self.pad.processing_craftix_toggle;
+                #[cfg(not(target_os = "android"))]
+                let craftix_merged = false;
+                if !craftix_merged {
+                    self.toggles.button(2, pressed, false, self.settings.toggle_attack);
+                }
                 self.left = self.toggles.is_down(2);
             }
             MouseButton::Right => {
-                self.toggles
-                    .button(3, pressed, false, self.settings.toggle_use);
+                #[cfg(target_os = "android")]
+                let craftix_merged = self.pad.processing_craftix_toggle;
+                #[cfg(not(target_os = "android"))]
+                let craftix_merged = false;
+                if !craftix_merged {
+                    self.toggles.button(3, pressed, false, self.settings.toggle_use);
+                }
                 self.right = self.toggles.is_down(3);
                 // handleKeybinds consumes use clicks without acting while an
                 // item is in use. Minecraft.tick runs them after the attack

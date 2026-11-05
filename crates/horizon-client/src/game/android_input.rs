@@ -204,6 +204,12 @@ impl Game<'_> {
     /// ownership path. Kept independent of the legacy router so its eventual
     /// replacement can use the same dispatch without synthetic winit events.
     pub(super) fn android_dispatch_touch_inputs(&mut self, events: impl IntoIterator<Item = (String, bool)>) {
+        self.android_dispatch_touch_inputs_from(events, false);
+    }
+    pub(super) fn android_dispatch_craftix_inputs(&mut self, events: impl IntoIterator<Item = (String, bool)>) {
+        self.android_dispatch_touch_inputs_from(events, true);
+    }
+    fn android_dispatch_touch_inputs_from(&mut self, events: impl IntoIterator<Item = (String, bool)>, craftix: bool) {
         for (name, down) in events {
             let is_action = name.starts_with("action:");
             let inputs = if let Some(mapping) = name.strip_prefix("action:") {
@@ -231,6 +237,29 @@ impl Game<'_> {
                 }
                 self.settings.keys.translate_all(key)
             };
+            // ToggleKeyMapping already implements hardware's own toggle mode.
+            // New touch buttons supply an independently owned held level, so
+            // they must never flip the engine's toggle a second time.
+            let (toggle_inputs, inputs): (Vec<_>, Vec<_>) = inputs.into_iter().partition(|input| {
+                craftix && Self::craftix_toggle_slot(*input).is_some()
+            });
+            if craftix {
+                for (input, pressed) in self.pad.craftix_toggle_inputs.edge(&name, down, toggle_inputs) {
+                    let slot = Self::craftix_toggle_slot(input).expect("only toggle inputs stored");
+                    let before = self.toggles.is_down(slot);
+                    let active = pressed && !self.pad_in_menu();
+                    self.toggles.virtual_hold(slot, active);
+                    let after = self.toggles.is_down(slot);
+                    if before == after { continue; }
+                    self.pad.processing_craftix_toggle = true;
+                    let result = match input {
+                        Ok(key) => self.mapped_key(key, after, false),
+                        Err(button) => self.android_custom_mouse(button, after),
+                    };
+                    self.pad.processing_craftix_toggle = false;
+                    if let Err(error) = result { log::warn!("CRAFTIX touch input: {error}"); }
+                }
+            }
             let edges = self.pad.custom_inputs.edge(&name, down, inputs);
             for (input, pressed) in edges {
                 // Do not inject a second press while a hardware source owns it.
@@ -253,6 +282,15 @@ impl Game<'_> {
         }
     }
 
+    fn craftix_toggle_slot(input: std::result::Result<KeyCode, MouseButton>) -> Option<usize> {
+        match input {
+            Ok(KeyCode::ShiftLeft) => Some(0),
+            Ok(KeyCode::ControlLeft) => Some(1),
+            Err(MouseButton::Left) => Some(2),
+            Err(MouseButton::Right) => Some(3),
+            _ => None,
+        }
+    }
     fn android_custom_mouse(&mut self, button: MouseButton, down: bool) -> Result<()> {
         if !matches!(self.screen, Screen::Inventory | Screen::Creative) {
             return self.play_mouse(button, down);

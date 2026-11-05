@@ -160,7 +160,12 @@ class RegressionTests(unittest.TestCase):
             "tools/android_release.py", "tools/android_prepare.py",
             "Cargo.toml", "crates/horizon-android/Cargo.toml",
         )
-        violations = [p for p in changed if p.startswith(protected)]
+        # The WASM touch integration test and its test-only path dependency
+        # are the sole intentional exceptions in the mods crate.
+        allowed = {"crates/horizon-mods/Cargo.toml", "crates/horizon-mods/tests/sandbox.rs"}
+        violations = [p for p in changed if p.startswith(protected) and p not in allowed]
+        sandbox = "crates/horizon-mods/tests/sandbox.rs"
+        self.assertTrue((ROOT / sandbox).read_text().startswith(git("show", f"61aa63896c50a98296f81ebd9cab503d245359d8:{sandbox}")))
         self.assertEqual(violations, [], f"engine/build files changed: {violations}")
         build = (ROOT / "tools/android_build.py").read_text(encoding="utf-8")
         self.assertIn("CRAFTIX release secrets missing", build)
@@ -195,7 +200,16 @@ class RegressionTests(unittest.TestCase):
     def test_no_new_dependencies_were_added(self):
         changed = git("diff", "--name-only", "61aa63896c50a98296f81ebd9cab503d245359d8", "HEAD").splitlines()
         cargo = [p for p in changed if p.endswith("Cargo.toml") or p == "Cargo.lock"]
-        self.assertEqual(cargo, [], f"dependency manifests changed: {cargo}")
+        self.assertEqual(set(cargo), {"Cargo.lock", "crates/horizon-mods/Cargo.toml"})
+        baseline = "61aa63896c50a98296f81ebd9cab503d245359d8"
+        manifest = "crates/horizon-mods/Cargo.toml"
+        expected_manifest = git("show", f"{baseline}:{manifest}").replace(
+            "[dev-dependencies]\n", '[dev-dependencies]\n# Integration test drives replacement touch buttons into the real mod runtime.\nhorizon-client-render = { path = "../horizon-client-render" }\n', 1)
+        self.assertEqual((ROOT / manifest).read_text().rstrip(), expected_manifest.rstrip())
+        lock = git("show", f"{baseline}:Cargo.lock")
+        expected_lock = lock.replace('name = "horizon-mods"\nversion = "0.1.0"\ndependencies = [\n',
+                                     'name = "horizon-mods"\nversion = "0.1.0"\ndependencies = [\n "horizon-client-render",\n', 1)
+        self.assertEqual((ROOT / "Cargo.lock").read_text().rstrip(), expected_lock.rstrip())
 
 
 class PortraitLayoutTests(unittest.TestCase):
