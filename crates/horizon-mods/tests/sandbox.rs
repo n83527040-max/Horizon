@@ -1355,4 +1355,22 @@ fn craftix_touch_key_events_reach_real_mod_runtime() {
     router.clear(); pump(&mut router,&mut bridge,&mut mods);
     assert!(mods.command("input_poll"));
     assert_eq!(text(&mut mods),["key-down wheel", "key-up wheel"]);
+
+    // A held and a toggled custom button share one mod key: no duplicate
+    // down and no release until the final owner is switched off.
+    assert!(mods.rebind(0, "wheel", "key.keyboard.k"));
+    let mut shared=layout.clone();
+    shared.buttons.iter_mut().find(|b| b.id==k).unwrap().behavior=Behavior::Hold;
+    let second=shared.buttons.iter_mut().find(|b| b.id==a).unwrap();
+    second.action=Some(horizon_client_render::craftix_controls::layout::Action::Key("key.keyboard.k".into()));
+    second.behavior=Behavior::Toggle;
+    let first_point=shared.buttons.iter().find(|b| b.id==k).unwrap().circle.center;
+    let second_point=shared.buttons.iter().find(|b| b.id==a).unwrap().circle.center;
+    router.begin(&shared,4,first_point,16.0/9.0,300);
+    router.begin(&shared,5,second_point,16.0/9.0,300); router.end(5);
+    router.end(4); pump(&mut router,&mut bridge,&mut mods);
+    assert!(mods.command("input_poll")); assert_eq!(text(&mut mods),["key-down wheel"]);
+    router.begin(&shared,6,second_point,16.0/9.0,400); router.end(6);
+    pump(&mut router,&mut bridge,&mut mods);
+    assert!(mods.command("input_poll")); assert_eq!(text(&mut mods),["key-up wheel"]);
 }
