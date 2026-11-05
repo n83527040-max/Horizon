@@ -47,7 +47,7 @@ mod tests {
         builtin.circle.center=[0.60,0.25]; builtin.behavior=Behavior::Hold;
         layout.buttons.push(Button { id: Id::Custom(47), action: Some(Action::Key("key.keyboard.k".into())),
             circle: Circle { center: [0.75,0.25], radius: 0.04 }, opacity: 1.0,
-            behavior: Behavior::Hold, icon: Icon::Text, enabled: true, visibility: Visibility::Always, label: "K".into() });
+            behavior: Behavior::Hold, icon: Icon::Text, icon_rgba_16: None, enabled: true, visibility: Visibility::Always, label: "K".into() });
         let mut bindings=KeyBinds::default(); bindings.set("key.sneak","key.keyboard.k");
         let mut router=Router::default(); let mut bridge=Bridge::default();
         let mut owners=ToggleOwners::default(); let mut toggles=ToggleKeys::default();

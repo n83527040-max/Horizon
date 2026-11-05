@@ -108,6 +108,9 @@ pub struct Button {
     pub opacity: f32,
     pub behavior: Behavior,
     pub icon: Icon,
+    /// Embedded 16x16 RGBA PNG preview; absent in older layouts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon_rgba_16: Option<String>,
     pub enabled: bool,
     /// Missing from schema-1 files made before contextual visibility was added.
     #[serde(default)]
@@ -118,6 +121,7 @@ impl Button {
     pub fn valid(&self) -> bool {
         self.circle.valid() && self.opacity.is_finite() && (0.0..=1.0).contains(&self.opacity)
             && self.label.chars().count() <= 32
+            && self.icon_rgba_16.as_deref().is_none_or(super::png_icon::valid)
             && self.action.as_ref().is_none_or(|a| match a {
                 Action::Key(key) => crate::keybinds::key_code(key).is_some(),
                 Action::Chord { modifiers, key } => valid_chord(modifiers, key),
@@ -194,7 +198,7 @@ impl Default for Layout {
         Self { name: "Standard".into(), joystick_dead_zone: 0.12, joystick_sensitivity: 1.0,
             camera_sensitivity: 1.0, buttons: defs.into_iter().map(|(id, action, x,y,r,behavior)| Button {
                 id, action, circle: Circle { center: [x,y], radius: r }, opacity: 0.85,
-                behavior, icon: Icon::Text, enabled: true, visibility: Visibility::Always, label: String::new(),
+                behavior, icon: Icon::Text, icon_rgba_16: None, enabled: true, visibility: Visibility::Always, label: String::new(),
             }).collect() }
     }
 }

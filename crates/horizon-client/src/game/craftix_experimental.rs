@@ -29,11 +29,10 @@ pub(super) struct Controls {
 impl Default for Controls {
     fn default() -> Self {
         // Separate file: never overwrite or implicitly replace legacy settings.
-        let (layouts, load_error) = match std::fs::read("craftix-controls-v1.json") {
-            Ok(bytes) => match Layouts::from_json(&bytes) {
-                Ok(layouts) => (layouts, None),
-                Err(error) => (Layouts::default(), Some(format!("Existing controls file invalid; it was not overwritten: {error}"))),
-            },
+        let (layouts, load_error) = match Layouts::load(std::path::Path::new("craftix-controls-v1.json")) {
+            Ok(layouts) => (layouts, None),
+            Err(error) if error.kind() == std::io::ErrorKind::InvalidData =>
+                (Layouts::default(), Some(format!("Existing controls file invalid; it was not overwritten: {error}"))),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 // Preserve every old file; conversion only exists in memory until Save.
                 let legacy = std::fs::read("horizon-touch.json").ok()

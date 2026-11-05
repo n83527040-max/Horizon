@@ -13,3 +13,4 @@ pub mod ui;
 
 pub mod toggle_owners;
 pub mod transfer;
+pub mod png_icon;

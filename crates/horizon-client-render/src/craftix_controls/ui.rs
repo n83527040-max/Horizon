@@ -4,9 +4,9 @@ use super::{editor::{Editor, Layouts}, layout::{Action, Behavior, Icon, Id}, pai
 use crate::hud::{rgba, HudAtlas, HudBatch};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Page { Buttons, Layouts, Position }
+pub enum Page { Buttons, Layouts, Position, Icons }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum TextField { ButtonName, ButtonKey, NewLayout, CopyLayout, LayoutName }
+enum TextField { ButtonName, ButtonKey, NewLayout, CopyLayout, LayoutName, PngFile }
 #[derive(Clone, Debug, PartialEq)]
 pub enum UiEvent { None, ShowText(String), Import, Export, Save, Cancel }
 
@@ -44,6 +44,14 @@ impl EditorUi {
             TextField::NewLayout => self.model.create(value),
             TextField::CopyLayout => self.model.duplicate(value),
             TextField::LayoutName => self.model.rename(value),
+            TextField::PngFile => {
+                if let Some(mut button) = self.selected_button().cloned().filter(|b| matches!(b.id, Id::Custom(_))) {
+                    match super::png_icon::load(std::path::Path::new("."), value) {
+                        Ok(icon) => { button.icon_rgba_16 = Some(icon); self.model.edit_button(button.id, button) }
+                        Err(error) => Err(error),
+                    }
+                } else { return; }
+            }
             TextField::ButtonName | TextField::ButtonKey => {
                 if let Some(mut button) = self.selected_button().cloned() {
                     if field == TextField::ButtonName { button.label = value.into(); }
@@ -77,7 +85,8 @@ impl EditorUi {
         if !start { return UiEvent::None; }
         if point[1] < 0.12 {
             self.model.cancel_drag(); self.dragging=None;
-            self.page = if point[0] < 0.34 { Page::Buttons } else if point[0] < 0.67 { Page::Layouts } else { Page::Position };
+            self.page = if point[0] < 0.25 { Page::Buttons } else if point[0] < 0.50 { Page::Layouts }
+                else if point[0] < 0.75 { Page::Position } else { Page::Icons };
             return UiEvent::None;
         }
         if point[1] > 0.90 {
@@ -92,6 +101,20 @@ impl EditorUi {
             return UiEvent::None;
         }
         let x=point[0]; let y=point[1];
+        if self.page == Page::Icons {
+            if y < 0.28 {
+                let len=self.layout().buttons.len();
+                if len>0 { self.selected=if x<0.5 { (self.selected+len-1)%len } else { (self.selected+1)%len }; }
+            } else if y < 0.42 {
+                if self.selected_button().is_some_and(|b| matches!(b.id,Id::Custom(_))) {
+                    return self.text_request(TextField::PngFile,"icon.png".into());
+                }
+                self.error="Select a custom button first".into();
+            } else if y < 0.53 {
+                self.edit_selected(|b| b.icon_rgba_16=None);
+            }
+            return UiEvent::None;
+        }
         if self.page == Page::Layouts {
             if y < 0.28 {
                 let len=self.model.staged.items.len(); let i=self.model.staged.active;
@@ -150,8 +173,8 @@ impl EditorUi {
     pub fn draw(&self, b: &mut HudBatch, atlas: &HudAtlas) {
         if self.page == Page::Position { paint::paint(b,atlas,self.layout(),&paint::Animator::default()); }
         else { b.fill(atlas,0.0,0.0,b.width,b.height,rgba(8,6,18,220)); }
-        let tabs=["Buttons","Layouts","Position"];
-        for (i,label) in tabs.iter().enumerate() { plate(b,atlas,[i as f32/3.0,0.02,0.32,0.09],label,self.page==[Page::Buttons,Page::Layouts,Page::Position][i]); }
+        let tabs=["Buttons","Layouts","Position","Icons"];
+        for (i,label) in tabs.iter().enumerate() { plate(b,atlas,[i as f32/4.0,0.02,0.245,0.09],label,self.page==[Page::Buttons,Page::Layouts,Page::Position,Page::Icons][i]); }
         if self.page == Page::Buttons {
             let selected=self.selected_button();
             let label=selected.map_or("No button".into(),|button| format!("{:?} {}",button.id,button.label));
@@ -173,6 +196,18 @@ impl EditorUi {
             plate(b,atlas,[0.02,0.71,0.96,0.10],&format!("-  Camera sensitivity {:.1}  +",self.layout().camera_sensitivity),false);
             plate(b,atlas,[0.02,0.83,0.46,0.06],"Import transfer JSON",false);
             plate(b,atlas,[0.52,0.83,0.46,0.06],"Export transfer JSON",false);
+        }
+        if self.page == Page::Icons {
+            let selected=self.selected_button();
+            let label=selected.map_or("No button".into(),|button| format!("{:?} {}",button.id,button.label));
+            plate(b,atlas,[0.02,0.16,0.96,0.10],&format!("<  {label}  >"),false);
+            plate(b,atlas,[0.02,0.30,0.96,0.10],"Select PNG filename",false);
+            plate(b,atlas,[0.02,0.43,0.96,0.08],"Clear PNG",false);
+            plate(b,atlas,[0.02,0.54,0.96,0.08],"Put PNG in Files / Control layouts",false);
+            if let Some(icon)=selected.and_then(|button| button.icon_rgba_16.as_deref()) {
+                let side=b.height*0.20;
+                super::png_icon::paint(b,atlas,icon,[b.width/2.0-side/2.0,b.height*0.65,side,side],255);
+            }
         }
         if !self.error.is_empty() { plate(b,atlas,[0.02,0.86,0.96,0.035],&self.error,false); }
         plate(b,atlas,[0.01,0.91,0.31,0.08],"Cancel",false);
@@ -242,7 +277,7 @@ mod tests {
     #[test]
     fn named_layout_create_and_reset_use_the_editor_model() {
         let mut ui=EditorUi::new(Layouts::default()).unwrap();
-        ui.touch(1,[0.5,0.05],1.7,true,false);
+        ui.touch(1,[0.375,0.05],1.7,true,false);
         assert!(matches!(ui.touch(1,[0.2,0.33],1.7,true,false),UiEvent::ShowText(_)));
         ui.text_insert("Building"); ui.finish_text();
         assert_eq!(ui.layout().name,"Building"); assert!(ui.model.staged.valid());

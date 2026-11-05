@@ -66,6 +66,7 @@ pub fn preview(source: &Settings) -> Migration {
                     CustomIcon::Text => Icon::Text, CustomIcon::Attack => Icon::Sword, CustomIcon::Use => Icon::Use,
                     CustomIcon::Jump => Icon::Jump, CustomIcon::Sneak => Icon::Sneak, CustomIcon::Sprint => Icon::Sprint,
                 },
+                icon_rgba_16: None,
                 visibility: match old.visibility {
                     CustomVisibility::Always => Visibility::Always, CustomVisibility::Gameplay => Visibility::Gameplay,
                     CustomVisibility::Inventory => Visibility::Inventory,

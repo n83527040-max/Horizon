@@ -1,8 +1,8 @@
 //! Transactional, named layouts for the replacement editor.
 use super::layout::{Action, Behavior, Button, Circle, Icon, Id, Layout};
 use serde::{Deserialize, Serialize};
-use std::{collections::BTreeSet, io::{self, Write}, path::Path};
-const MAX_BYTES: usize = 128 * 1024;
+use std::{collections::BTreeSet, io::{self, Read, Write}, path::Path};
+const MAX_BYTES: usize = 2 * 1024 * 1024;
 const MAX_LAYOUTS: usize = 16;
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Layouts { pub schema: u8, pub active: usize, pub items: Vec<Layout> }
@@ -15,6 +15,12 @@ impl Layouts {
         self.schema == 1 && !self.items.is_empty() && self.items.len() <= MAX_LAYOUTS
             && self.active < self.items.len()
             && self.items.iter().all(|l| l.valid() && names.insert(l.name.trim().to_lowercase()))
+    }
+    /// Read a bounded amount even if a damaged file is arbitrarily large.
+    pub fn load(path: &Path) -> io::Result<Self> {
+        let mut bytes=Vec::new();
+        std::fs::File::open(path)?.take(MAX_BYTES as u64 + 1).read_to_end(&mut bytes)?;
+        Self::from_json(&bytes)
     }
     pub fn from_json(bytes: &[u8]) -> io::Result<Self> {
         if bytes.len() > MAX_BYTES { return Err(invalid("layout file too large")); }
@@ -106,7 +112,7 @@ impl Editor {
         let id = (0..u32::MAX).map(Id::Custom).find(|id| !layout.buttons.iter().any(|b| b.id == *id))
             .ok_or_else(|| invalid("no button IDs available"))?;
         let button = Button { id, action: Some(action), circle: Circle { center: [0.7, 0.30], radius: 0.05 },
-            opacity: 0.85, behavior: Behavior::Hold, icon, enabled: true, visibility: super::layout::Visibility::Always, label: name.trim().into() };
+            opacity: 0.85, behavior: Behavior::Hold, icon, icon_rgba_16: None, enabled: true, visibility: super::layout::Visibility::Always, label: name.trim().into() };
         if !button.valid() || button.label.is_empty() { return Err(invalid("invalid button or binding")); }
         layout.buttons.push(button);
         Ok(id)

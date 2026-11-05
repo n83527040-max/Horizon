@@ -3,7 +3,7 @@
 use super::editor::{Editor, Layouts};
 use std::{fs, io::{self, Read}, path::{Path, PathBuf}};
 
-const LIMIT: u64 = 128 * 1024;
+const LIMIT: u64 = 2 * 1024 * 1024;
 const TRANSFER: &str = "transfer-v1.json";
 
 fn transfer_path(home: &Path) -> io::Result<PathBuf> {
