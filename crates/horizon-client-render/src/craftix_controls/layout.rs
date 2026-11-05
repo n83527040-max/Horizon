@@ -97,6 +97,28 @@ impl Layout {
             && self.joystick_sensitivity.is_finite() && (0.25..=3.0).contains(&self.joystick_sensitivity)
             && self.camera_sensitivity.is_finite() && (0.25..=3.0).contains(&self.camera_sensitivity)
     }
+    /// Resolve against the actual GUI-pixel hotbar without changing the saved
+    /// layout. Painting and hit testing must use the same resolved copy.
+    pub fn resolved(&self, width: f32, height: f32) -> Self {
+        let mut out=self.clone();
+        if !width.is_finite() || !height.is_finite() || width<=0.0 || height<=0.0 { return out; }
+        let aspect=width/height;
+        let hotbar=[width/2.0-90.0,height-22.0,width/2.0+90.0,height];
+        for button in &mut out.buttons {
+            let r=button.circle.radius.min(0.5).min(aspect*0.5);
+            button.circle.radius=r;
+            let rx=r/aspect;
+            button.circle.center[0]=button.circle.center[0].clamp(rx,1.0-rx);
+            button.circle.center[1]=button.circle.center[1].clamp(r,1.0-r);
+            let x=button.circle.center[0]*width; let y=button.circle.center[1]*height; let radius=r*height;
+            let closest_x=x.clamp(hotbar[0],hotbar[2]);
+            let closest_y=y.clamp(hotbar[1],hotbar[3]);
+            if (x-closest_x).hypot(y-closest_y)<radius {
+                button.circle.center[1]=((hotbar[1]-radius-3.0)/height).clamp(r,1.0-r);
+            }
+        }
+        out
+    }
     pub fn hit(&self, point: [f32; 2], aspect: f32) -> Option<&Button> {
         self.hit_for(point, aspect, false)
     }
@@ -140,6 +162,21 @@ mod tests {
         assert_eq!(layout.hit(jump.circle.center, aspect).unwrap().id, Id::Jump);
         let corner = [jump.circle.center[0] + jump.circle.radius * 0.9 / aspect, jump.circle.center[1] + jump.circle.radius * 0.9];
         assert_ne!(layout.hit(corner, aspect).map(|b| b.id), Some(Id::Jump));
+    }
+    #[test]
+    fn resolved_layout_keeps_controls_off_a_real_small_screen_hotbar() {
+        let saved=Layout::default();
+        for (width,height) in [(320.0_f32,240.0_f32),(427.0,240.0),(600.0,270.0)] {
+            let resolved=saved.resolved(width,height);
+            for b in &resolved.buttons {
+                let x=b.circle.center[0]*width; let y=b.circle.center[1]*height; let r=b.circle.radius*height;
+                let closest_x=x.clamp(width/2.0-90.0,width/2.0+90.0);
+                let closest_y=y.clamp(height-22.0,height);
+                assert!((x-closest_x).hypot(y-closest_y)>=r-0.001,"{:?} at {width}x{height}",b.id);
+                assert!(x-r>=-0.001 && x+r<=width+0.001 && y-r>=-0.001 && y+r<=height+0.001);
+            }
+        }
+        assert_eq!(saved,Layout::default());
     }
     #[test]
     fn factory_movement_buttons_do_not_overlap_on_phones() {

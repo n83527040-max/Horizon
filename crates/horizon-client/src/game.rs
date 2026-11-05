@@ -14000,9 +14000,9 @@ impl Game<'_> {
                 let controls = &mut self.pad.craftix;
                 let elapsed = controls.last_frame.elapsed().as_secs_f32();
                 controls.last_frame = Instant::now();
-                let layout = &controls.layouts.items[controls.layouts.active];
-                controls.animation.advance(layout, &controls.router, elapsed);
-                horizon_client::craftix_controls::paint::paint(&mut hud, &self.gui.atlas, layout, &controls.animation);
+                let layout = controls.layouts.items[controls.layouts.active].resolved(hud.width,hud.height);
+                controls.animation.advance(&layout, &controls.router, elapsed);
+                horizon_client::craftix_controls::paint::paint(&mut hud, &self.gui.atlas, &layout, &controls.animation);
             } else {
                 self.pad.touch.draw(&mut hud, &self.gui.atlas);
             }

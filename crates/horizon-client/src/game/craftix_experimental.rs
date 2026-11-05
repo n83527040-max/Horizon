@@ -140,9 +140,9 @@ impl Game<'_> {
             if touch.phase == TouchPhase::Ended { self.pad.craftix.reserved.remove(&touch.id); }
             return;
         }
+        let batch = horizon_client::hud::HudBatch::new(size);
+        let layout = self.pad.craftix.layouts.items[self.pad.craftix.layouts.active].resolved(batch.width,batch.height);
         if touch.phase == TouchPhase::Started {
-            let layout = &self.pad.craftix.layouts.items[self.pad.craftix.layouts.active];
-            let batch = horizon_client::hud::HudBatch::new(size);
             let p = [touch.location.x as f32 / batch.scale, touch.location.y as f32 / batch.scale];
             if layout.hit(point, aspect).is_none()
                 && let Some(slot) = horizon_client::touch::hotbar_slot(batch.width, batch.height, p)
@@ -152,11 +152,10 @@ impl Game<'_> {
                 return;
             }
         }
-        let layout = &self.pad.craftix.layouts.items[self.pad.craftix.layouts.active];
         match touch.phase {
-            TouchPhase::Started => self.pad.craftix.router.begin(layout, touch.id, point, aspect,
+            TouchPhase::Started => self.pad.craftix.router.begin(&layout, touch.id, point, aspect,
                 self.started.elapsed().as_millis().min(u64::MAX as u128) as u64),
-            TouchPhase::Moved => self.pad.craftix.router.moved(layout, touch.id, point, aspect),
+            TouchPhase::Moved => self.pad.craftix.router.moved(&layout, touch.id, point, aspect),
             TouchPhase::Ended => self.pad.craftix.router.end(touch.id),
             TouchPhase::Cancelled => unreachable!(),
         }
