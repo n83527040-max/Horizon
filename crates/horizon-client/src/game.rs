@@ -15087,7 +15087,8 @@ impl ApplicationHandler for Game<'_> {
         {
             return;
         }
-        // The editor's IME owns text presses, not gameplay. Pair suppressed
+        // The editor owns keyboard presses, not gameplay or mod shortcuts.
+        // Text itself arrives via the IME bridge. Pair suppressed
         // presses with their releases, even if the field closes in between;
         // a key already held before the editor opened must still be released.
         #[cfg(target_os = "android")]
@@ -15098,7 +15099,7 @@ impl ApplicationHandler for Game<'_> {
         {
             let code = match event.physical_key { PhysicalKey::Code(key) => Some(key), _ => None };
             let was_hardware_held = code.is_some_and(|key| self.pad.hardware_keys.contains(&key));
-            let editing = self.pad.craftix.editor.as_ref().is_some_and(|e| e.text_active());
+            let editing = self.pad.craftix.editor.is_some();
             if self.pad.editor_suppressed_keys.suppress(code, event.state == ElementState::Pressed, editing, was_hardware_held) {
                 return;
             }
