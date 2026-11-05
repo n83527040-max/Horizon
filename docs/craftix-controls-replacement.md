@@ -132,10 +132,30 @@ The first full check failed because `sdkmanager` was missing from PATH; after
 using the existing SDK setup script, it exposed two clippy errors that were
 fixed. No Android device/gameplay test or new APK/signing verification occurred.
 
-**Do not enable the new path by default yet:** the new router implements
-Hold/Toggle itself, while `mapped_key` and `play_mouse`/`remote_mouse` also
-apply the engine's optional toggle-crouch, toggle-sprint, toggle-attack and
-toggle-use mappings. Those combined latches can disagree or stick. Correctly
-resolve source ownership and test all combinations, including controller and
-hardware, before claiming these modes work or deleting the old path. Other
-known gaps are listed in the follow-up above.
+### Follow-up: separate toggle ownership and a real WASM guest
+
+The opt-in Android path now separates the touch-owned held level from the
+engine's own toggle state for sneak, sprint, attack and use. It aggregates
+resolved inputs before merging them, and local and remote handlers consume
+only effective transitions. The old dispatch remains the default, and its
+keypad event ordering is preserved. This is not a claim that every combination
+of real hardware, controller, mod, lifecycle and gameplay is verified.
+
+On arm64 Android the default Rust feature set includes the WASM mod runtime;
+legacy armv7 builds explicitly disable it. The replacement delivers raw key
+hooks before keypad consumption, but still is not a complete synthetic
+`winit::KeyboardInput`. No claim is made for Java/Fabric/Forge mods.
+
+[CI run 42055251200](https://github.com/n83527040-max/Horizon/actions/runs/42055251200)
+passed desktop tests, including the shared toggle-ownership path and a real
+sandboxed WASM guest reached by K/A touch-router and bridge events, and
+Android arm64 type-check. The WASM test calls the runtime as a modeled forwarding
+step: it does **not** instantiate Android `Game`, a device or full gameplay.
+The test is not a general guarantee of third-party mod compatibility. APK and
+native clippy jobs were skipped. No new APK or device test is available.
+
+**Do not enable the new path by default yet.** Features and validation listed
+above remain incomplete, including inventory-context buttons, actual IME and
+rendering, user PNG icons, in-editor import/export, shortcut modifiers, safe
+areas and real-device lifecycle/controller interactions. Preserve the old
+system until these are complete and tested.

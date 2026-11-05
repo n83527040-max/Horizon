@@ -87,11 +87,11 @@ The ordinary game still uses the old controls. The initial editor is wired to
 the new router and More only in that experimental path.
 
 The integration and editor need actual gameplay testing, comprehensive UX and
-feature completion before the default path changes. In particular, the editor's
-Hold/Toggle modes can interact incorrectly with the engine's own toggle-crouch,
-toggle-sprint, toggle-attack and toggle-use options: the router latches an input
-while the underlying `ToggleKeyMapping` can also latch on press. Resolve this
-with shared physical/controller ownership and tests before enabling by default.
+feature completion before the default path changes. The replacement now uses a
+separate touch-owned level for sneak/sprint/attack/use instead of applying the
+engine toggle a second time. Core tests cover overlapping touch and hardware
+latches and the three modes; Android Game, controllers and real devices still
+need runtime verification, especially local/remote mouse and context changes.
 Inventory-context custom buttons, global HUD settings, shortcut modifiers,
 complete legacy migration, safe-area handling and dense-layout collision checks
 also remain open. See `docs/craftix-controls-replacement.md` for details.
