@@ -1060,16 +1060,23 @@ impl Game<'_> {
             .iter()
             .map(|(id, (pos, stage, _))| json!({ "id": id, "pos": pos, "stage": stage }))
             .collect();
+        // The replacement editor's state (emulator tests close IME fields
+        // without losing the editor); the module is Android-only.
+        #[cfg(target_os = "android")]
+        let (craftix_editor, craftix_editing_text) = (
+            self.pad.craftix.editor.is_some(),
+            self.pad.craftix.editor.as_ref().is_some_and(|e| e.text_active()),
+        );
+        #[cfg(not(target_os = "android"))]
+        let (craftix_editor, craftix_editing_text) = (false, false);
         let mut status = json!({
             "screen": self.screen_name(),
             // Which device class input was last seen from, and the configured
             // preference that gates the replacement HUD (emulator tests).
             "input_mode": format!("{:?}", horizon_client::android_runtime::active_input()),
             "input_preference": format!("{:?}", horizon_client::android_runtime::input_mode()),
-            #[cfg(target_os = "android")]
-            "craftix_editor": self.pad.craftix.editor.is_some(),
-            #[cfg(target_os = "android")]
-            "craftix_editing_text": self.pad.craftix.editor.as_ref().is_some_and(|e| e.text_active()),
+            "craftix_editor": craftix_editor,
+            "craftix_editing_text": craftix_editing_text,
             "debug": {
                 "overlay": self.debug,
                 "hitboxes": self.debug_entry("entity_hitboxes"),
