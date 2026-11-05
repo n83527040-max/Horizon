@@ -224,10 +224,27 @@ class Session:
         """Compact, annotation-friendly view of the installer's on-device state."""
         out = self.adb.shell(
             f"ls {READY_DIR} {READY_DIR}/*/ 2>/dev/null | tr '\\n' ' '; "
+            f"echo; find {DATA}/cache -maxdepth 3 2>/dev/null | head -12 | tr '\\n' ' '; "
             f"echo; du -sk {DATA}/cache {DATA}/.local/horizon-client "
             f"{DATA}/.local/downloads 2>/dev/null | tr '\\n' ' '",
             check=False)
         return " ".join(out.split())[:380]
+
+    def failure_snapshot(self) -> str:
+        """One annotation-sized digest: launcher error, log, processes, storage.
+
+        Artifact downloads are unreachable from the agent sandbox, so the
+        evidence has to travel inside a GitHub annotation message.
+        """
+        out = self.adb.shell(
+            f"echo 'ERROR-FILE:'; cat {DATA}/android-error.txt 2>/dev/null | head -c 500; "
+            f"echo; echo 'SESSION:'; cat {DATA}/performance/current-session.json 2>/dev/null "
+            f"| head -c 400; echo; echo 'DIAG-LOG:'; tail -c 900 "
+            f"{DATA}/performance/diagnostic.log 2>/dev/null; "
+            f"echo 'PROCS:'; ps -A 2>/dev/null | grep -i craftix | head -5 | tr '\\n' ' '; "
+            f"echo; echo 'STORAGE:'; du -sk {DATA}/cache {DATA}/.local 2>/dev/null | tr '\\n' ' '",
+            timeout=60, check=False)
+        return " ".join(out.split())[:3400]
 
     def status(self) -> dict:
         if not self.control:
@@ -408,7 +425,8 @@ def run(args: argparse.Namespace) -> int:
             adb.logcat(out, "install-stalled")
             session.fatal(
                 "first_run_install_stalled",
-                f"no on-device progress for 15 minutes; state: {state or '(nothing)'}")
+                f"no on-device progress for 15 minutes; state: {state or '(nothing)'}; "
+                f"snapshot: {session.failure_snapshot()}")
         if time.time() >= next_notice:
             print(f"::notice::game-test install waiting: {state}", flush=True)
             next_notice = time.time() + 300
@@ -417,7 +435,8 @@ def run(args: argparse.Namespace) -> int:
         adb.logcat(out, "install-timeout")
         session.fatal(
             "first_run_install",
-            f"resources not ready within 60 minutes; state: {last_state or '(nothing)'}")
+            f"resources not ready within 60 minutes; state: {last_state or '(nothing)'}; "
+            f"snapshot: {session.failure_snapshot()}")
     session.check("first_run_install", True, "horizon-resources + downloads + audio present")
     adb.force_stop()
 
@@ -437,7 +456,10 @@ def run(args: argparse.Namespace) -> int:
         try:
             session.control = session.connect_control(420)
         except RuntimeError as error2:
-            session.fatal("game_launch", str(error2))
+            session.fatal(
+                "game_launch",
+                f"{error2}; state: {session.install_state()}; "
+                f"snapshot: {session.failure_snapshot()}")
     status = session.wait_status(
         lambda s: s.get("screen") in ("title", "playing"), 300, "title screen")
     session.check("game_reached_title", True, f"screen={status.get('screen')}")
