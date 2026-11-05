@@ -157,11 +157,9 @@ step: it does **not** instantiate Android `Game`, a device or full gameplay.
 The test is not a general guarantee of third-party mod compatibility. APK and
 native clippy jobs were skipped. No new APK or device test is available.
 
-**Do not enable the new path by default yet.** Features and validation listed
-above remain incomplete, including inventory-context buttons, actual IME and
-rendering, user PNG icons, in-editor import/export, shortcut modifiers, safe
-areas and real-device lifecycle/controller interactions. Preserve the old
-system until these are complete and tested.
+**Do not enable the new path by default yet.** See the newer follow-up below:
+some features have since been implemented, but device/game integration and
+important overlapping input cases remain unverified.
 
 Final checks in this iteration: [run 42056034148](https://github.com/n83527040-max/Horizon/actions/runs/42056034148)
 passed the controls suite (including the two-button K ownership test with a
@@ -170,3 +168,35 @@ real WASM guest) and Android arm64 type-check on `a7f8b09`.
 passed source checks and Android Clippy/type-check for arm64 and armv7 at
 `7195fe7`. Neither run builds an APK or executes on a device. The intervening
 commits changed documentation only.
+
+### Newer follow-up: shortcuts, icons, transfers and inventory overlay
+
+The experimental editor accepts Ctrl/Shift/Alt chords, and the bridge owns
+individual keys, presses modifiers first, releases the main key first and
+releases remaining keys in reverse acquisition order on teardown. The guest
+test observes separately registered modifier and main-key events; it does not
+prove that a mod's binding system has native chord support. The dispatch still
+is not a complete `WindowEvent`, and `ModifiersChanged` is not synthesized.
+
+The editor's Icons page imports a PNG by filename from the Android Documents
+Provider's **Control layouts** folder. Users first copy the file there using
+Files; this is not a native picker. PNG is bounded and embedded as a 16x16 RGBA
+thumbnail in the layout, so JSON transfer carries the icon. Import/export
+buttons use `Control layouts/transfer-v1.json`; import remains staged until
+Save, while Cancel preserves the original. Existing invalid saved files are
+not overwritten. Both mechanisms need device/IME and rendering verification.
+
+Custom buttons can select Always, Gameplay or Inventory visibility. The
+experimental inventory path draws/hit-tests custom buttons only outside a
+conservatively protected container/recipe region and clears input on context
+changes. It does not support arbitrary menu/custom contexts, and collisions
+with every modded/extended screen are not established. `mod_key` intentionally
+uses inventory browser events when applicable and otherwise suppresses mod key
+downs while a screen is open; inventory buttons must not be described as
+general-purpose WASM mod shortcuts.
+
+The editor text guard suppresses paired IME key presses/releases and preserves
+releases for previously held hardware keys. Actual Android IME, multi-device
+ordering and background/focus transitions remain untested. Physical mouse
+overlap and claimed mod-item side effects are still unresolved. No device
+test or new signed APK has occurred; preserve the old default path.

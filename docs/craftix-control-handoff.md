@@ -95,9 +95,11 @@ need runtime verification, especially local/remote mouse and context changes.
 Physical mouse presses while a touch level is already active still enter the
 normal engine mouse handler: duplicate click/mod-use side effects and claimed
 items need explicit integration coverage before calling this fully resolved.
-Inventory-context custom buttons, global HUD settings, shortcut modifiers,
-complete legacy migration, safe-area handling and dense-layout collision checks
-also remain open. See `docs/craftix-controls-replacement.md` for details.
+The newer follow-up implements bounded PNG previews, explicit JSON transfer,
+modifier edges and a conservative custom inventory overlay. These remain
+experimental and not device-validated. Menus/custom contexts, native picker,
+full modifier semantics, complete migration, safe-area handling and dense-layout
+collision checks remain open. See `docs/craftix-controls-replacement.md`.
 
 ## Backup and how to recover
 
