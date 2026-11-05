@@ -14,6 +14,8 @@ pub enum Action {
     Sprint, Jump, Sneak, Attack, Use, Inventory, More, Chat, Pause, Settings, Players, Perspective,
     /// The engine translates this physical-key token; no extra function is implied.
     Key(String),
+    /// An existing game mapping, such as key.attack or key.hotbar.1.
+    Binding(String),
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -55,6 +57,7 @@ impl Button {
             && self.label.chars().count() <= 32
             && self.action.as_ref().is_none_or(|a| match a {
                 Action::Key(key) => crate::keybinds::key_code(key).is_some(),
+                Action::Binding(name) => crate::keybinds::MAPPINGS.iter().any(|mapping| mapping.0 == name),
                 _ => true,
             })
             && (self.id != Id::Joystick || self.action.is_none())

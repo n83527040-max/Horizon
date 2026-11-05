@@ -31,8 +31,22 @@ impl Layouts {
     /// Write a fresh temporary sibling and replace only after successful sync.
     pub fn save(&self, path: &Path) -> io::Result<()> {
         let bytes = self.to_json()?;
-        let temp = path.with_extension("craftix-tmp");
-        let mut f = std::fs::OpenOptions::new().create_new(true).write(true).open(&temp)?;
+        // A crash can leave an old temporary sibling behind. A fixed filename
+        // would permanently block all future saves, and removing it blindly
+        // would race a concurrent writer. Reserve a unique sibling instead.
+        static NEXT_TEMP: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let temp_name = path.as_os_str().to_os_string();
+        let (temp, mut f) = loop {
+            let serial = NEXT_TEMP.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let mut name = temp_name.clone();
+            name.push(format!(".craftix-{}-{serial}.tmp", std::process::id()));
+            let temp = std::path::PathBuf::from(name);
+            match std::fs::OpenOptions::new().create_new(true).write(true).open(&temp) {
+                Ok(file) => break (temp, file),
+                Err(err) if err.kind() == io::ErrorKind::AlreadyExists => continue,
+                Err(err) => return Err(err),
+            }
+        };
         let result = (|| { f.write_all(&bytes)?; f.sync_all()?; drop(f); std::fs::rename(&temp,path) })();
         if result.is_err() { let _ = std::fs::remove_file(&temp); }
         result
@@ -176,6 +190,20 @@ mod tests {
         assert_eq!(restored.items[0].buttons.iter().find(|b| b.id==id),Some(&button));
         let mut editor=Editor::new(restored).unwrap(); editor.delete_button(id).unwrap();
         assert!(!editor.staged.items[0].buttons.iter().any(|b| b.id==id));
+    }
+    #[test]
+    fn save_survives_a_stale_temporary_file_and_replaces_existing_data() {
+        let root = std::env::temp_dir().join(format!("craftix-stale-save-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("layouts.json");
+        let stale = path.with_extension("craftix-tmp");
+        std::fs::write(&stale, b"left by a crashed writer").unwrap();
+        let first = Layouts::default(); first.save(&path).unwrap();
+        let mut second = first.clone(); second.items[0].name = "New name".into();
+        second.save(&path).unwrap();
+        assert_eq!(Layouts::from_json(&std::fs::read(&path).unwrap()).unwrap(), second);
+        assert_eq!(std::fs::read(stale).unwrap(), b"left by a crashed writer");
+        std::fs::remove_dir_all(root).unwrap();
     }
     #[test]
     fn saved_layouts_round_trip_and_invalid_import_is_rejected() {

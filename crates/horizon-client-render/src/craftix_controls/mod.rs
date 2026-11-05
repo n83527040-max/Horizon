@@ -7,3 +7,4 @@ pub mod editor;
 pub mod input;
 pub mod layout;
 pub mod paint;
+pub mod bridge;
