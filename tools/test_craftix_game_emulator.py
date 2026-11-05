@@ -28,7 +28,7 @@ from pathlib import Path
 
 PKG = "com.craftix.launcher"
 ACTIVITY = "dev.horizon.android.HorizonActivity"
-LAUNCH_INTENT = ["am", "start", "-n", f"{PKG}/{ACTIVITY}", "-e", "horizon.launch_game", "true"]
+LAUNCH_INTENT = ["am", "start", "-n", f"{PKG}/{ACTIVITY}", "--ez", "horizon.launch_game", "true"]
 DATA = f"/data/data/{PKG}"
 CONTROL_JSON = f"{DATA}/control.json"
 LAYOUT_FILE = f"{DATA}/craftix-controls-v1.json"
@@ -409,6 +409,19 @@ def run(args: argparse.Namespace) -> int:
     session.phase("first run: engine resource install")
     print(f"::notice::game-test install waiting: {session.install_state()}", flush=True)
     adb.start_engine()
+    # The worker creates <cache>/minecraft-downloads as soon as action() runs.
+    try:
+        session.wait_for(
+            lambda: adb.shell(
+                f"[ -d {DATA}/cache/minecraft-downloads ] && echo yes || echo no",
+                check=False).strip() == "yes",
+            90, "install worker download cache", 3)
+    except RuntimeError:
+        adb.logcat(out, "worker-never-started")
+        session.fatal(
+            "install_worker_never_started",
+            "action() did not spawn the install worker; "
+            f"state: {session.install_state()}; snapshot: {session.failure_snapshot()}")
     install_deadline = time.time() + 3600
     last_progress = time.time()
     last_state = ""

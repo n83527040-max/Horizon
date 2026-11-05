@@ -1047,7 +1047,10 @@ fn intent_extra(name: &str, boolean: bool) -> Option<String> {
 }
 
 pub fn launch_game_requested() -> bool {
+    // The in-app bridge stores a boolean extra; `am start --ez/-e` may deliver
+    // it as either a boolean or a string depending on how it was launched.
     intent_extra("horizon.launch_game", true) == Some("true".to_string())
+        || intent_extra("horizon.launch_game", false).as_deref() == Some("true")
 }
 
 // ------------------------------------------------------------------ JNI entry points
