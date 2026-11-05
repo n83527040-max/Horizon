@@ -223,12 +223,16 @@ impl Game<'_> {
                 let Some(key) = horizon_client::keybinds::key_code(&name) else { continue; };
                 if down { self.pad.custom_keys.insert(key); } else { self.pad.custom_keys.remove(&key); }
                 if !self.pad.hardware_keys.contains(&key) {
+                    // Preserve the legacy keypad path. Replacement custom keys
+                    // must reach mod hooks even if the keypad also consumes them.
+                    if !craftix && (!self.pad_in_menu() || !down)
+                        && horizon_client::android_runtime::keypad_key(key, down) {
+                        continue;
+                    }
                     if down { self.physical_keys.insert(key); } else { self.physical_keys.remove(&key); }
-                    // Custom physical-key events must reach mod hooks even if the
-                    // keypad profile also consumes this key as a controller input.
                     self.mod_key(key, down, false);
                     self.native_key_event(key, down, false);
-                    if (!self.pad_in_menu() || !down)
+                    if craftix && (!self.pad_in_menu() || !down)
                         && horizon_client::android_runtime::keypad_key(key, down) {
                         continue;
                     }
