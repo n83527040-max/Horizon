@@ -162,3 +162,11 @@ above remain incomplete, including inventory-context buttons, actual IME and
 rendering, user PNG icons, in-editor import/export, shortcut modifiers, safe
 areas and real-device lifecycle/controller interactions. Preserve the old
 system until these are complete and tested.
+
+Final checks in this iteration: [run 42056034148](https://github.com/n83527040-max/Horizon/actions/runs/42056034148)
+passed the controls suite (including the two-button K ownership test with a
+real WASM guest) and Android arm64 type-check on `a7f8b09`.
+[Run 42057288839](https://github.com/n83527040-max/Horizon/actions/runs/42057288839)
+passed source checks and Android Clippy/type-check for arm64 and armv7 at
+`7195fe7`. Neither run builds an APK or executes on a device. The intervening
+commits changed documentation only.
