@@ -36,7 +36,7 @@ pub(super) struct Pads {
     #[cfg(target_os = "android")]
     pub(super) processing_craftix_toggle: bool,
     #[cfg(target_os = "android")]
-    pub(super) craftix_toggle_inputs: horizon_client::touch::InputOwners<std::result::Result<KeyCode, winit::event::MouseButton>>,
+    pub(super) craftix_toggle_inputs: horizon_client::craftix_controls::toggle_owners::ToggleOwners,
     #[cfg(target_os = "android")]
     pub(super) hardware_keys: std::collections::HashSet<KeyCode>,
     #[cfg(target_os = "android")]

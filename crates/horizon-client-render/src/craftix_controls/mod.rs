@@ -10,3 +10,5 @@ pub mod paint;
 pub mod bridge;
 pub mod migrate;
 pub mod ui;
+
+pub mod toggle_owners;
