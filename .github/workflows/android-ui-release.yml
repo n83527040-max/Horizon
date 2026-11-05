@@ -240,14 +240,20 @@ jobs:
           mkdir -p .local/android/releases/test
           APK=.local/android/releases/test/CRAFTIX-game-test-x86_64.apk
           cp flutter/build/app/outputs/flutter-apk/app-release.apk "$APK"
+          # AGP drops the v1 (JAR) signature at minSdk >= 24; the same owner
+          # key re-signs with v1+v2 exactly as the release flow does.
+          bash tools/resign_craftix_apk.sh "$APK"
           BT="$ANDROID_HOME/build-tools/35.0.0"
           SIGNER="$JAVA_HOME/bin/java -jar $BT/lib/apksigner.jar"
           $SIGNER verify --verbose --print-certs "$APK" | tee .local/android/releases/test/certificate.txt
           BADGING=$("$BT/aapt2" dump badging "$APK")
           echo "$BADGING" | head -4
           echo "$BADGING" | grep -q "native-code: 'x86_64'" || { echo '::error::APK lacks x86_64 native code'; exit 1; }
-          python3 tools/verify_mixed_apk.py "$APK" --aapt2 "$BT/aapt2" --apksigner "$SIGNER" \
-            --report .local/android/releases/test/verification.json
+          if ! python3 tools/verify_mixed_apk.py "$APK" --aapt2 "$BT/aapt2" --apksigner "$SIGNER" \
+              --report .local/android/releases/test/verification.json 2>&1 | tee /tmp/verify.log; then
+            grep "^ERROR:" /tmp/verify.log | tail -8 | sed 's/^/::error::verify: /'
+            exit 1
+          fi
           (cd .local/android/releases/test && sha256sum CRAFTIX-game-test-x86_64.apk > SHA256SUMS.txt)
       - uses: actions/upload-artifact@v4
         with:
