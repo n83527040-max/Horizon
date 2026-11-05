@@ -1302,3 +1302,57 @@ fn browser_lists_items_and_hears_the_player() {
     }
     assert_eq!(said(&mut mods, "browser_poll")[0], "256 events");
 }
+
+/// Real sandboxed guest, but no Android activity or Game instance is started.
+/// The explicit bridge callback models the Game's mod_key forwarding step.
+#[test]
+fn craftix_touch_key_events_reach_real_mod_runtime() {
+    use horizon_client_render::craftix_controls::{
+        bridge::{Bridge, HostEvent}, editor::{Editor, Layouts}, input::Router,
+        layout::{Behavior, Icon},
+    };
+    let mut mods = load("horizon_mods_test_ui_guest.hmod");
+    assert!(mods.command("input_claim"));
+    mods.drain();
+    let mut editor = Editor::new(Layouts::default()).unwrap();
+    let k = editor.add_key("My Mod Menu", "key.keyboard.k", Icon::Text).unwrap();
+    let a = editor.add_key("Mod A", "key.keyboard.a", Icon::Text).unwrap();
+    for (id, point) in [(k,[0.62,0.28]),(a,[0.74,0.28])] {
+        let mut button=editor.staged.items[0].buttons.iter().find(|b| b.id==id).unwrap().clone();
+        button.circle.center=point; button.behavior=Behavior::Single;
+        editor.edit_button(id,button).unwrap();
+    }
+    let layouts=editor.commit().unwrap();
+    let layout=&layouts.items[0];
+    let mut router=Router::default(); let mut bridge=Bridge::default();
+    let pump = |router: &mut Router, bridge: &mut Bridge, mods: &mut Mods| {
+        for event in bridge.translate(router.drain()) {
+            if let HostEvent::Input(token, down) = event {
+                assert!(token.starts_with("key.keyboard."));
+                mods.key(&token, down);
+            }
+        }
+    };
+    let text = |mods: &mut Mods| -> Vec<String> {
+        mods.drain().into_iter().filter_map(|o| match o { Output::Chat { text, .. } => Some(text), _ => None }).collect()
+    };
+    for (index, id, expected) in [(1, k, "key.keyboard.k"), (2, a, "key.keyboard.a")] {
+        assert!(mods.rebind(0, "wheel", expected));
+        let point=layout.buttons.iter().find(|b| b.id==id).unwrap().circle.center;
+        router.begin(layout,index,point,16.0/9.0,0);
+        router.end(index);
+        pump(&mut router,&mut bridge,&mut mods);
+        router.tick(100);
+        pump(&mut router,&mut bridge,&mut mods);
+        assert!(mods.command("input_poll"));
+        assert_eq!(text(&mut mods),["key-down wheel", "key-up wheel"]);
+    }
+    // Touch cancellation must release a held custom mod shortcut exactly once.
+    let mut held=layout.clone();
+    held.buttons.iter_mut().find(|b| b.id==a).unwrap().behavior=Behavior::Hold;
+    let point=held.buttons.iter().find(|b| b.id==a).unwrap().circle.center;
+    router.begin(&held,3,point,16.0/9.0,200); pump(&mut router,&mut bridge,&mut mods);
+    router.clear(); pump(&mut router,&mut bridge,&mut mods);
+    assert!(mods.command("input_poll"));
+    assert_eq!(text(&mut mods),["key-down wheel", "key-up wheel"]);
+}

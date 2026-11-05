@@ -123,6 +123,8 @@ jobs:
           trap 'printf "::error::"; tail -c 4000 /tmp/check.log | base64 -w0; echo' ERR
           cargo test -p horizon-client-render --lib touch:: -- --nocapture 2>&1 | tee /tmp/check.log
           cargo test -p horizon-client-render --lib craftix_controls:: -- --nocapture 2>&1 | tee /tmp/check.log
+          rustup target add wasm32-unknown-unknown
+          cargo test -p horizon-mods --features runtime,pack --test sandbox craftix_touch_key_events_reach_real_mod_runtime -- --nocapture 2>&1 | tee /tmp/check.log
   controls-android-check:
     if: ${{ !inputs.native_checks && !inputs.build_apk }}
     runs-on: ubuntu-latest

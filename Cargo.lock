@@ -1687,6 +1687,7 @@ dependencies = [
 name = "horizon-mods"
 version = "0.1.0"
 dependencies = [
+ "horizon-client-render",
  "horizon-shader-api",
  "log",
  "minisign-verify",
