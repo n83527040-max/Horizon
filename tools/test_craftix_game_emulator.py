@@ -636,9 +636,11 @@ def run(args: argparse.Namespace) -> int:
     session.control.command("pad stick left 0 0")
     full = session.status()
     snap = full.get("player") or {}
-    session.check("control_stick_moves_player", control_speed > 0.3,
-                  f"max horizontal speed {control_speed:.2f} m/s from "
-                  f"'pad stick left 1 0'; max |move_vector|={move_max:.2f} "
+    # Velocity is blocks/tick: a plain walk settles near 0.216 (4.3 m/s).
+    session.check("control_stick_moves_player", control_speed > 0.08,
+                  f"max horizontal speed {control_speed:.3f} b/t ("
+                  f"{control_speed * 20:.1f} m/s) from 'pad stick left 1 0'; "
+                  f"max |move_vector|={move_max:.2f} "
                   f"max |applied_input|={applied_max:.2f}; "
                   f"movement_speed={snap.get('movement_speed')} "
                   f"flying={snap.get('flying')} sprinting={snap.get('sprinting')} "
@@ -691,16 +693,18 @@ def run(args: argparse.Namespace) -> int:
         session.finish(proc)
 
     # Push in several screen directions: one heading can be pinned against
-    # terrain, which reads as a dead stick.
+    # terrain, which reads as a dead stick. Left goes first: it is the open
+    # heading the control probe already walked.
     step = int(w * 0.24)
-    for dx, dy in ((step, 0), (-step, 0), (0, -step)):
+    for dx, dy in ((-step, 0), (step, 0), (0, -step)):
         drag(dx, dy)
     pos1 = ((session.status().get("player") or {}).get("position") or [0, 0, 0])
     ticks1 = int(session.status().get("ticks") or 0)
     drift = math.hypot(float(pos1[0]) - float(pos0[0]), float(pos1[2]) - float(pos0[2]))
     session.check("hud_joystick_moves_player",
-                  max_speed > 0.3 or drift > 1.0,
-                  f"max horizontal speed {max_speed:.2f} m/s; player drift "
+                  max_speed > 0.08 or drift > 1.0,
+                  f"max horizontal speed {max_speed:.3f} b/t ("
+                  f"{max_speed * 20:.1f} m/s); player drift "
                   f"{drift:.2f} m over three swipes (pos {pos0} -> {pos1}); "
                   f"max |craftix_movement|={stick_seen['craftix']:.2f} "
                   f"max |pad_left|={stick_seen['pad']:.2f} "
@@ -759,7 +763,7 @@ def run(args: argparse.Namespace) -> int:
 
     # Replace the prefilled value with "k" using injected editor text/keys.
     adb.shell("input keyevent 123")  # MOVE_END
-    adb.shell("input keyevent " + " ".join(["67"] * 40))  # DEL x40
+    del_flood(adb, 40)
     adb.shell("input text k")
     time.sleep(1)
     session.check("editor_key_field_finished", finish_field(),
@@ -770,7 +774,7 @@ def run(args: argparse.Namespace) -> int:
     session.tap(round(0.5 * w), round(0.45 * h))
     time.sleep(3)
     adb.shell("input keyevent 123")
-    adb.shell("input keyevent " + " ".join(["67"] * 40))
+    del_flood(adb, 40)
     adb.shell("input text K")
     time.sleep(1)
     session.check("editor_name_field_finished", finish_field(),
@@ -1092,6 +1096,21 @@ def main() -> int:
         except Exception:  # noqa: BLE001 - diagnostics are best effort
             pass
         return 2
+
+
+
+
+def del_flood(adb, count: int) -> None:
+    """Clear an IME field in small keyevent batches; one giant adb call can
+    wedge the emulator for a full minute."""
+    sent = 0
+    while sent < count:
+        batch = min(10, count - sent)
+        try:
+            adb.shell("input keyevent " + " ".join(["67"] * batch), timeout=30)
+        except Exception:  # noqa: BLE001
+            time.sleep(1)
+        sent += batch
 
 
 if __name__ == "__main__":
