@@ -617,13 +617,16 @@ def run(args: argparse.Namespace) -> int:
         move_max = max(move_max, math.hypot(mv[0], mv[1]))
         time.sleep(0.4)
     session.control.command("pad stick left 0 0")
-    snap = session.status().get("player") or {}
+    full = session.status()
+    snap = full.get("player") or {}
     session.check("control_stick_moves_player", control_speed > 0.3,
                   f"max horizontal speed {control_speed:.2f} m/s from "
                   f"'pad stick left 1 0'; max |move_vector|={move_max:.2f} "
                   f"max |applied_input|={applied_max:.2f}; "
                   f"movement_speed={snap.get('movement_speed')} "
-                  f"flying={snap.get('flying')} sprinting={snap.get('sprinting')}")
+                  f"flying={snap.get('flying')} sprinting={snap.get('sprinting')} "
+                  f"feet_block={full.get('feet_block')} "
+                  f"nudge={snap.get('nudge')}")
     time.sleep(1)
 
     # Land on fresh open ground: spawn geometry can box the player in, which

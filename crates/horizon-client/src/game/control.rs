@@ -998,6 +998,8 @@ impl Game<'_> {
                     .map(|i| i.cached_value()),
                 "flying": p.flying,
                 "sprinting": p.sprinting,
+                // Pending push-out of a block the player overlaps.
+                "nudge": [p.nudge[0].unwrap_or(0.0), p.nudge[1].unwrap_or(0.0)],
                 "on_ground": p.ground.on_ground,
                 "health": p.health.health(),
                 // The maximum the HUD's hearts last read (its cached value).
@@ -1087,7 +1089,18 @@ impl Game<'_> {
             (self.pad.craftix.router.movement(), self.pad.state.left);
         #[cfg(not(target_os = "android"))]
         let (craftix_movement, pad_left) = ([0.0f32; 2], [0.0f32; 2]);
+        // The block at the player's feet: a walk that crawls while
+        // applied_input is full usually means overlapping geometry.
+        let feet_block = self.player.as_ref().map(|p| {
+            let state = self.world.block(
+                p.position.x.floor() as i32,
+                p.position.y.floor() as i32,
+                p.position.z.floor() as i32,
+            );
+            self.res.facts().get(state).name.to_string()
+        });
         let mut status = json!({
+            "feet_block": feet_block,
             "screen": self.screen_name(),
             // Which device class input was last seen from, and the configured
             // preference that gates the replacement HUD (emulator tests).
