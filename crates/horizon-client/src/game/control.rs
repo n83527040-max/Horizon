@@ -1086,6 +1086,11 @@ impl Game<'_> {
             "craftix_editing_text": craftix_editing_text,
             "craftix_movement": craftix_movement,
             "pad_left": pad_left,
+            // Why pad_move() may return None while the stick is fully tilted.
+            "focused": self.focused,
+            "pad_menu": self.pad_in_menu(),
+            "pad_move": self.pad_move(),
+            "sleeping": self.sleeping.is_some(),
             "debug": {
                 "overlay": self.debug,
                 "hitboxes": self.debug_entry("entity_hitboxes"),

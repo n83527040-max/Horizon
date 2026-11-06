@@ -612,7 +612,8 @@ def run(args: argparse.Namespace) -> int:
     pos0 = ((session.status().get("player") or {}).get("position") or [0, 0, 0])
     max_speed = 0.0
 
-    stick_seen = {"craftix": 0.0, "pad": 0.0}
+    stick_seen = {"craftix": 0.0, "pad": 0.0, "move": 0.0}
+    gates = {"focused": True, "pad_menu": None, "sleeping": None}
 
     def drag(dx: int, dy: int) -> None:
         """One swipe in screen space; sample velocity and stick signals."""
@@ -632,6 +633,13 @@ def run(args: argparse.Namespace) -> int:
             stick_seen["craftix"] = max(stick_seen["craftix"],
                                         math.hypot(cm[0], cm[1]))
             stick_seen["pad"] = max(stick_seen["pad"], math.hypot(pl[0], pl[1]))
+            pm = status.get("pad_move")
+            if isinstance(pm, list) and len(pm) == 2:
+                stick_seen["move"] = max(stick_seen["move"],
+                                         math.hypot(pm[0], pm[1]))
+            gates["focused"] = bool(status.get("focused"))
+            gates["pad_menu"] = status.get("pad_menu")
+            gates["sleeping"] = status.get("sleeping")
             time.sleep(0.4)
         session.finish(proc)
 
@@ -647,7 +655,9 @@ def run(args: argparse.Namespace) -> int:
                   f"max horizontal speed {max_speed:.2f} m/s; player drift "
                   f"{drift:.2f} m over three swipes (pos {pos0} -> {pos1}); "
                   f"max |craftix_movement|={stick_seen['craftix']:.2f} "
-                  f"max |pad_left|={stick_seen['pad']:.2f}")
+                  f"max |pad_left|={stick_seen['pad']:.2f} "
+                  f"max |pad_move|={stick_seen['move']:.2f} "
+                  f"gates={gates}")
     moved_log = adb.shell("logcat -d | grep -c 'CRAFTIX touch moved pointer'", check=False)
     session.check("touch_moved_events_arrive", int(moved_log or 0) > 0,
                   f"CRAFTIX touch Moved log lines: {moved_log}")
