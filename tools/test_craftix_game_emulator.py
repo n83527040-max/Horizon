@@ -30,9 +30,13 @@ PKG = "com.craftix.launcher"
 ACTIVITY = "dev.horizon.android.HorizonActivity"
 LAUNCH_INTENT = ["am", "start", "-n", f"{PKG}/{ACTIVITY}", "--ez", "horizon.launch_game", "true"]
 DATA = f"/data/data/{PKG}"
-CONTROL_JSON = f"{DATA}/control.json"
-LAYOUT_FILE = f"{DATA}/craftix-controls-v1.json"
-READY_DIR = f"{DATA}/.local/horizon-client"
+# Android's internalDataPath (what android_main calls `home`) is the
+# Context.getFilesDir() directory, not the package root: control.json,
+# craftix-controls-v1.json, saves/ and .local/ all live under files/.
+HOME = f"{DATA}/files"
+CONTROL_JSON = f"{HOME}/control.json"
+LAYOUT_FILE = f"{HOME}/craftix-controls-v1.json"
+READY_DIR = f"{HOME}/.local/horizon-client"
 
 # Layout::default() (layout.rs), center/radius in surface fractions.
 DEFAULT_BUTTONS = {
@@ -254,8 +258,7 @@ class Session:
             f"echo; echo 'FILES:'; ls {DATA}/files 2>/dev/null | head -24 | tr '\\n' ' '; "
             f"echo; echo 'ERR:'; for f in $(find {DATA} -maxdepth 4 -name android-error.txt "
             f"2>/dev/null | head -2); do head -c 500 $f; echo; done; "
-            f"echo 'DIAG:'; tail -c 900 {DATA}/files/performance/diagnostic.log 2>/dev/null; "
-            f"tail -c 400 {DATA}/performance/diagnostic.log 2>/dev/null; "
+            f"echo 'DIAG:'; tail -c 900 {HOME}/performance/diagnostic.log 2>/dev/null; "
             f"echo 'PCACHE:'; ls -R {DATA}/cache 2>/dev/null | head -30 | tr '\\n' ' '",
             timeout=60, check=False)
         return " ".join(out.split())[:3600]
@@ -487,7 +490,7 @@ def run(args: argparse.Namespace) -> int:
         adb.logcat(out, "launch-failed")
         print(f"control socket missing ({error}); retrying with renderer=open-gl", flush=True)
         adb.force_stop()
-        adb.shell(f"echo '{{\"renderer\":\"open-gl\"}}' > {DATA}/android-launcher.json")
+        adb.shell(f"echo '{{\"renderer\":\"open-gl\"}}' > {HOME}/android-launcher.json")
         adb.start_engine()
         try:
             session.control = session.connect_control(420)
