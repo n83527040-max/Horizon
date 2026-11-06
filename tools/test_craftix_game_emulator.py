@@ -600,17 +600,38 @@ def run(args: argparse.Namespace) -> int:
     session.check("hud_attack_registers", bool(attacks) or bool(broke),
                   f"mobs={session.status().get('mobs')} attacks={json.dumps(attacks)[:200]}")
 
-    # Joystick: real touch drag -> player velocity. Stay grounded: a mid-air
-    # teleport leaves only trivial air-strafe, which reads as a dead stick.
-    grounded = session.wait_for(
-        lambda: (session.status().get("player") or {}).get("on_ground"), 30,
-        "player on the ground before the joystick drag")
-    session.check("joystick_player_grounded", bool(grounded),
-                  "on_ground before the drag")
+    # Isolate the product chain first: the control protocol's virtual stick
+    # goes PadState -> pad_move -> physics without any touch involved.
+    session.control.command("pad stick left 1 0")
+    control_speed = 0.0
+    deadline = time.time() + 3
+    while time.time() < deadline:
+        player = session.status().get("player") or {}
+        velocity = player.get("velocity") or [0, 0, 0]
+        control_speed = max(control_speed, math.hypot(velocity[0], velocity[2]))
+        time.sleep(0.4)
+    session.control.command("pad stick left 0 0")
+    session.check("control_stick_moves_player", control_speed > 0.3,
+                  f"max horizontal speed {control_speed:.2f} m/s from "
+                  f"'pad stick left 1 0'")
+    time.sleep(1)
+
+    # Land on fresh open ground: spawn geometry can box the player in, which
+    # reads as a dead stick even when the vector arrives.
+    pos_now = ((session.status().get("player") or {}).get("position") or [0, 64, 0])
+    session.control.command(
+        f"tp {float(pos_now[0]):.1f} 160 {float(pos_now[2]):.1f}")
+    landed = session.wait_for(
+        lambda: (session.status().get("player") or {}).get("on_ground"), 40,
+        "landing after the sky drop")
+    session.check("joystick_player_grounded", bool(landed),
+                  f"landed at {((session.status().get('player') or {}).get('position'))}")
+    time.sleep(2)
     jox, joy = button_xy(w, h, "joystick")
     joy_y = joy
     pos0 = ((session.status().get("player") or {}).get("position") or [0, 0, 0])
     max_speed = 0.0
+    ticks0 = int(session.status().get("ticks") or 0)
 
     stick_seen = {"craftix": 0.0, "pad": 0.0, "move": 0.0}
     gates = {"focused": True, "pad_menu": None, "sleeping": None}
@@ -649,6 +670,7 @@ def run(args: argparse.Namespace) -> int:
     for dx, dy in ((step, 0), (-step, 0), (0, -step)):
         drag(dx, dy)
     pos1 = ((session.status().get("player") or {}).get("position") or [0, 0, 0])
+    ticks1 = int(session.status().get("ticks") or 0)
     drift = math.hypot(float(pos1[0]) - float(pos0[0]), float(pos1[2]) - float(pos0[2]))
     session.check("hud_joystick_moves_player",
                   max_speed > 0.3 or drift > 1.0,
@@ -657,7 +679,7 @@ def run(args: argparse.Namespace) -> int:
                   f"max |craftix_movement|={stick_seen['craftix']:.2f} "
                   f"max |pad_left|={stick_seen['pad']:.2f} "
                   f"max |pad_move|={stick_seen['move']:.2f} "
-                  f"gates={gates}")
+                  f"gates={gates} ticks {ticks0}->{ticks1}")
     moved_log = adb.shell("logcat -d | grep -c 'CRAFTIX touch moved pointer'", check=False)
     session.check("touch_moved_events_arrive", int(moved_log or 0) > 0,
                   f"CRAFTIX touch Moved log lines: {moved_log}")
