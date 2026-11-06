@@ -230,7 +230,39 @@ class Session:
         the before/after performance evidence for the release report.
         """
         assert self.control is not None, "control socket required for perf"
+
+        def _proc() -> tuple[str, str, str]:
+            """(utime+stime ticks, pid, VmRSS) for the busiest CRAFTIX process.
+
+            dumpsys meminfo prints nothing usable for this package, and
+            pidof alone can pick an idle secondary process, so every craftix
+            process is ranked by resident set and the largest wins.
+            """
+            pids = self.adb.shell(
+                "{ pidof com.craftix.launcher; "
+                "  ps -A -o PID=,NAME= 2>/dev/null | awk '/craftix/{print $1}'; "
+                "} | tr ' ' '\\n' | grep -E '^[0-9]+$' | sort -u",
+                check=False).split()
+            best = ("", "", "")
+            best_rss = -1
+            for pid in pids:
+                mem = self.adb.shell(
+                    f"grep VmRSS /proc/{pid}/status 2>/dev/null", check=False)
+                try:
+                    rss = int(mem.split()[1])
+                except (IndexError, ValueError):
+                    continue
+                if rss <= best_rss:
+                    continue
+                ticks = self.adb.shell(
+                    f"awk '{{print $14 + $15}}' /proc/{pid}/stat 2>/dev/null",
+                    check=False).strip().split()
+                best_rss = rss
+                best = (ticks[0] if ticks else "", pid, " ".join(mem.split()))
+            return best
+
         s0 = self.status()
+        ticks0, pid0, _ = _proc()
         t0 = time.time()
         time.sleep(seconds)
         s1 = self.status()
@@ -243,45 +275,32 @@ class Session:
                 k: v for k, v in reply.items() if k != "ok"}
         except Exception as error:  # noqa: BLE001 - recorded in the report
             stats = {"error": str(error)}
-        # Memory and CPU straight from /proc: dumpsys meminfo prints nothing
-        # useful for this package on the test image.
-        def _ticks() -> tuple[str, str]:
-            pid = self.adb.shell(
-                "pidof com.craftix.launcher | cut -d' ' -f1",
-                check=False).strip().split()
-            pid = pid[0] if pid else ""
-            if not pid:
-                return "", ""
-            ticks = self.adb.shell(
-                f"awk '{{print $14 + $15}}' /proc/{pid}/stat 2>/dev/null",
-                check=False).strip()
-            mem = self.adb.shell(
-                f"grep -E 'VmRSS' /proc/{pid}/status 2>/dev/null",
-                check=False).strip()
-            return ticks.split()[0] if ticks.split() else "", mem
-        cpu0, _ = _ticks()
-        cpu1, mem = _ticks()
+        ticks1, pid1, mem = _proc()
         cpu_pct = ""
         try:
-            if cpu0 and cpu1 and dt:
-                cpu_pct = f"{(int(cpu1) - int(cpu0)) / dt:.1f}%"
+            # /proc clocks are USER_HZ=100 ticks: percent = delta / window.
+            if pid0 and pid0 == pid1 and ticks0 and ticks1 and dt:
+                cpu_pct = f"{(int(ticks1) - int(ticks0)) / dt:.1f}%"
         except ValueError:
             pass
+        fps = round(frames / dt, 1) if dt else 0.0
         sample = {
             "label": label,
             "window_s": round(dt, 1),
             "frames": frames,
-            "fps": round(frames / dt, 1) if dt else 0.0,
+            "fps": fps,
+            "frame_ms": round(dt * 1000.0 / frames, 1) if frames else None,
             "tps": round(ticks / dt, 1) if dt else 0.0,
             "screen": s1.get("screen"),
-            "meminfo": " ".join((mem or "").split())[:200],
+            "meminfo": mem[:200],
             "cpu": cpu_pct,
             "stats": stats,
         }
         self.perf[label] = sample
         print(f"::notice::game-test perf {label}: fps={sample['fps']} "
-              f"tps={sample['tps']} cpu={sample['cpu']} "
-              f"mem={sample['meminfo'][:120]}"[:300], flush=True)
+              f"frame_ms={sample['frame_ms']} tps={sample['tps']} "
+              f"cpu={sample['cpu']} mem={sample['meminfo'][:110]}"[:330],
+              flush=True)
         return sample
 
     def check(self, name: str, ok: bool, detail: str = "") -> bool:
