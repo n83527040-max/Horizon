@@ -52,6 +52,8 @@ pub(super) struct Controls {
     pub(super) reserved: BTreeSet<u64>,
     pub(super) viewport: Option<[u32; 2]>,
     inventory_active: bool,
+    /// Diagnostic: pointers that delivered a Moved phase at least once.
+    moved_seen: BTreeSet<u64>,
 }
 impl Default for Controls {
     fn default() -> Self {
@@ -85,7 +87,8 @@ impl Default for Controls {
             Err(error) => (Layouts::default(), Some(format!("Cannot read existing controls file: {error}"))),
         };
         Self { layouts, editor: None, load_error, router: Router::default(), bridge: Bridge::default(), animation: Animator::default(),
-            last_frame: Instant::now(), reserved: BTreeSet::new(), viewport: None, inventory_active: false }
+            last_frame: Instant::now(), reserved: BTreeSet::new(),
+        moved_seen: BTreeSet::new(), viewport: None, inventory_active: false }
     }
 }
 impl Game<'_> {
@@ -272,7 +275,12 @@ impl Game<'_> {
         match touch.phase {
             TouchPhase::Started => self.pad.craftix.router.begin(&layout, touch.id, point, aspect,
                 self.started.elapsed().as_millis().min(u64::MAX as u128) as u64),
-            TouchPhase::Moved => self.pad.craftix.router.moved(&layout, touch.id, point, aspect),
+            TouchPhase::Moved => {
+                if self.pad.craftix.moved_seen.insert(touch.id) {
+                    log::info!("CRAFTIX touch moved pointer={} phase=Moved", touch.id);
+                }
+                self.pad.craftix.router.moved(&layout, touch.id, point, aspect)
+            }
             TouchPhase::Ended => self.pad.craftix.router.end(touch.id),
             TouchPhase::Cancelled => unreachable!(),
         }

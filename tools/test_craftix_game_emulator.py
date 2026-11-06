@@ -638,7 +638,25 @@ def run(args: argparse.Namespace) -> int:
                   max_speed > 0.3 or drift > 1.0,
                   f"max horizontal speed {max_speed:.2f} m/s; player drift "
                   f"{drift:.2f} m over three swipes (pos {pos0} -> {pos1})")
-    time.sleep(3)
+    moved_log = adb.shell("logcat -d | grep -c 'CRAFTIX touch moved pointer'", check=False)
+    session.check("touch_moved_events_arrive", int(moved_log or 0) > 0,
+                  f"CRAFTIX touch Moved log lines: {moved_log}")
+    # A drag over empty space is the camera (Role::Look): it proves Moved
+    # events reach the router even when the stick itself misbehaves.
+    yaw0 = float(session.status().get("yaw") or 0)
+    session.control.command("look 0 0")
+    time.sleep(1)
+    yaw0 = float(session.status().get("yaw") or 0)
+    lx, ly = round(0.45 * w), round(0.35 * h)
+    subprocess.run(
+        ["adb", "shell", "input", "swipe", str(lx), str(ly),
+         str(lx + int(w * 0.25)), str(ly), "900"],
+        check=False, timeout=15)
+    time.sleep(1)
+    yaw1 = float(session.status().get("yaw") or 0)
+    session.check("look_drag_rotates_camera", abs(yaw1 - yaw0) > 2.0,
+                  f"yaw {yaw0} -> {yaw1} during an empty-area drag")
+    time.sleep(2)
 
     # Phase 5: More opens the editor; create + save a K button on device.
     session.phase("editor create/save")
