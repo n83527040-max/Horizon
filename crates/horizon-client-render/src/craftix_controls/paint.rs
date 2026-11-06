@@ -79,7 +79,7 @@ pub fn paint(b: &mut HudBatch, a: &HudAtlas, layout: &Layout, animation: &Animat
 }
 pub fn paint_for(b: &mut HudBatch, a: &HudAtlas, layout: &Layout, animation: &Animator, inventory: bool) {
     for button in &layout.buttons {
-        if !button.enabled || !layout.hidden_groups.contains(&button.group)
+        if !button.enabled || layout.hidden_groups.contains(&button.group)
             || !button.visibility.permits(inventory) || button.opacity <= 0.0 { continue; }
         let press=animation.press(button.id);
         let alpha=(button.opacity.clamp(0.0,1.0)*255.0) as u8;

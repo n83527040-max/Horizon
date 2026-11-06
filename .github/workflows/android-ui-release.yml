@@ -156,7 +156,7 @@ jobs:
   build-test-apk:
     if: ${{ inputs.game_test }}
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 180
     env:
       CRAFTIX_KEYSTORE_BASE64: ${{ secrets.CRAFTIX_KEYSTORE_BASE64 }}
       CRAFTIX_STORE_PASSWORD: ${{ secrets.CRAFTIX_STORE_PASSWORD }}
@@ -255,6 +255,36 @@ jobs:
             exit 1
           fi
           (cd .local/android/releases/test && sha256sum CRAFTIX-game-test-x86_64.apk > SHA256SUMS.txt)
+      - name: Build the baseline APK (pre-replacement controls)
+        run: |
+          set -euo pipefail
+          BASELINE_REF=2148f795b7fdd7e235ec8843f5009a7080b0bf16
+          git fetch --depth=1 origin "$BASELINE_REF"
+          git worktree add /tmp/baseline-src "$BASELINE_REF"
+          cd /tmp/baseline-src
+          # Shared target dir: dependency crates stay warm from the post-change
+          # build above; only the workspace crates rebuild to the old sources.
+          python3 tools/android_build.py --abi x86_64 --profile release --rust-only \
+            --sdk "$ANDROID_HOME" --java-home "$JAVA_HOME"
+          mkdir -p .local/android/gradle-jni/x86_64
+          cp "$CARGO_TARGET_DIR/x86_64-linux-android/release/libhorizon_android.so" \
+            .local/android/gradle-jni/x86_64/
+          NDK=$(find "$ANDROID_HOME/ndk" -mindepth 1 -maxdepth 1 -type d | head -1)
+          "$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip" --strip-unneeded \
+            .local/android/gradle-jni/x86_64/libhorizon_android.so
+          python3 tools/check_jni_symbols.py .local/android/gradle-jni/x86_64/libhorizon_android.so
+          mkdir -p .local/android/gradle-assets
+          cp "$GITHUB_WORKSPACE/.local/android/gradle-assets/engine-data.zip" \
+            .local/android/gradle-assets/
+          python3 tools/prepare_mixed_flutter.py --abi x86_64
+          cd flutter
+          flutter build apk --release --target-platform android-x64 \
+            2>&1 | tee /tmp/flutter-build-baseline.log
+          cd ..
+          APK="$GITHUB_WORKSPACE/.local/android/releases/test/CRAFTIX-game-test-x86_64-baseline.apk"
+          cp flutter/build/app/outputs/flutter-apk/app-release.apk "$APK"
+          bash tools/resign_craftix_apk.sh "$APK"
+          echo "::notice::baseline APK built for the before/after sample"
       - uses: actions/upload-artifact@v4
         with:
           name: craftix-game-test-apk
@@ -268,7 +298,7 @@ jobs:
     if: ${{ inputs.game_test }}
     needs: build-test-apk
     runs-on: ubuntu-latest
-    timeout-minutes: 150
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -310,7 +340,7 @@ jobs:
           disable-animations: true
           script: |
             python3 --version
-            python3 tools/test_craftix_game_emulator.py --apk /tmp/test-apk/CRAFTIX-game-test-x86_64.apk --out craftix-game-test
+            python3 tools/test_craftix_game_emulator.py --apk /tmp/test-apk/CRAFTIX-game-test-x86_64.apk --baseline-apk /tmp/test-apk/CRAFTIX-game-test-x86_64-baseline.apk --out craftix-game-test
       - name: Collect emulator diagnostics
         if: always()
         timeout-minutes: 3

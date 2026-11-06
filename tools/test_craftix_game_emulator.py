@@ -93,6 +93,39 @@ def button_xy(width: int, height: int, name: str) -> tuple[int, int]:
     return round(cx * width), round(cy * height)
 
 
+# The shipped default layout (Layout::default): anchor% + height-relative
+# size, resolved with the same aspect/hotbar rules as resolve_into.
+DEFAULT_RECTS = {
+    "joystick": (0.1121, 0.7953, 0.3417, 0.3417),
+    "sprint": (0.0846, 0.44, 0.16, 0.11),
+    "attack": (0.7614, 0.548, 0.215, 0.138),
+    "use": (0.869, 0.548, 0.215, 0.138),
+    "jump": (0.869, 0.708, 0.215, 0.138),
+    "sneak": (0.7614, 0.708, 0.215, 0.138),
+    "inventory": (0.733, 1.0, 0.12, 0.12),
+    "more": (1.0, 0.1239, 0.2289, 0.11),
+    "chat": (0.1154, 0.1239, 0.2289, 0.11),
+    "pause": (0.0, 0.0, 0.2289, 0.11),
+    "perspective": (0.2308, 0.0, 0.2289, 0.11),
+    "players": (0.0, 0.1239, 0.2289, 0.11),
+    "f3": (0.1154, 0.0, 0.2289, 0.11),
+    "gui": (1.0, 0.0, 0.2289, 0.11),
+    "settings": (0.35, 0.5, 0.1, 0.1),
+}
+
+
+def rect_button_xy(w, h, name):
+    ax, ay, sw, sh = DEFAULT_RECTS[name]
+    aspect = w / h
+    w_frac = min(sw / aspect, 1.0)
+    x = (1.0 - w_frac) * ax + w_frac / 2.0
+    y = ay - sh / 2.0
+    # Mirror apply_resolution's hotbar avoidance for safety.
+    if (0.5 * w - 90) <= x * w <= (0.5 * w + 90) and y * h >= h - 22:
+        y = (h - 22 - sh * h - 3) / max(h - sh * h, 1.0) / h + sh / 2.0
+    return round(x * w), round(y * h)
+
+
 class Adb:
     def __init__(self, binary: str = "adb"):
         self.adb = binary
@@ -187,6 +220,45 @@ class Session:
         self.control: Control | None = None
         self.width = 0
         self.height = 0
+        self.perf: dict = {}
+
+    def sample_perf(self, label: str, seconds: float = 20.0) -> dict:
+        """FPS/TPS over a wall-clock window plus frame-time and memory stats.
+
+        The same world sampled before and after the controls replacement is
+        the before/after performance evidence for the release report.
+        """
+        assert self.control is not None, "control socket required for perf"
+        s0 = self.status()
+        t0 = time.time()
+        time.sleep(seconds)
+        s1 = self.status()
+        dt = time.time() - t0
+        frames = max(0, int(s1.get("frames") or 0) - int(s0.get("frames") or 0))
+        ticks = max(0, int(s1.get("ticks") or 0) - int(s0.get("ticks") or 0))
+        try:
+            reply = self.control.command("stats")
+            stats = reply.get("data") or reply.get("stats") or {
+                k: v for k, v in reply.items() if k != "ok"}
+        except Exception as error:  # noqa: BLE001 - recorded in the report
+            stats = {"error": str(error)}
+        pss = self.adb.shell(
+            "dumpsys meminfo com.craftix.launcher | grep -E 'TOTAL PSS|TOTAL RSS' "
+            "| head -2", check=False)
+        sample = {
+            "label": label,
+            "window_s": round(dt, 1),
+            "frames": frames,
+            "fps": round(frames / dt, 1) if dt else 0.0,
+            "tps": round(ticks / dt, 1) if dt else 0.0,
+            "screen": s1.get("screen"),
+            "meminfo": " ".join((pss or "").split())[:300],
+            "stats": stats,
+        }
+        self.perf[label] = sample
+        print(f"::notice::game-test perf {label}: fps={sample['fps']} "
+              f"tps={sample['tps']} mem={sample['meminfo'][:120]}"[:300], flush=True)
+        return sample
 
     def check(self, name: str, ok: bool, detail: str = "") -> bool:
         self.results.append({"name": name, "ok": bool(ok), "detail": detail})
@@ -421,8 +493,11 @@ def run(args: argparse.Namespace) -> int:
 
     adb.wait_boot()
     adb.root()
-    adb.run("install", "-r", args.apk, timeout=600)
-    session.check("install", True, f"installed {Path(args.apk).name}")
+    # With --baseline-apk the pre-change build boots first so the same world
+    # can be sampled before the upgrade measures the replacement.
+    boot_apk = args.baseline_apk or args.apk
+    adb.run("install", "-r", boot_apk, timeout=600)
+    session.check("install", True, f"installed {Path(boot_apk).name}")
 
     # Phase 1: first run installs engine resources (auto_play launch).
     session.phase("first run: engine resource install")
@@ -481,6 +556,30 @@ def run(args: argparse.Namespace) -> int:
     session.check("first_run_install", True, "horizon-resources + downloads + audio present")
     adb.force_stop()
 
+    if args.baseline_apk:
+        session.phase("baseline perf (pre-replacement controls)")
+        adb.start_engine()
+        try:
+            session.control = session.connect_control(420)
+        except RuntimeError as error:
+            adb.logcat(out, "baseline-launch-failed")
+            session.fatal("baseline_launch", f"{error}; state: {session.install_state()}")
+        session.wait_status(
+            lambda st: st.get("screen") in ("title", "playing"), 300,
+            "baseline title screen")
+        time.sleep(3)
+        session.sample_perf("baseline_title", seconds=15)
+        session.control.try_command("open CraftixTest 0 creative")
+        session.wait_status(
+            lambda st: st.get("screen") == "playing", 300, "baseline world")
+        time.sleep(15)
+        session.sample_perf("baseline_world", seconds=20)
+        adb.force_stop()
+        adb.run("install", "-r", args.apk, timeout=600)
+        session.check("upgrade_from_baseline", True,
+                      f"upgraded baseline -> {Path(args.apk).name}")
+        session.control = None
+
     # Phase 2: relaunch into the game with a pre-seeded controls file.
     session.phase("game launch")
     push_layout_file(adb)
@@ -504,6 +603,9 @@ def run(args: argparse.Namespace) -> int:
     status = session.wait_status(
         lambda s: s.get("screen") in ("title", "playing"), 300, "title screen")
     session.check("game_reached_title", True, f"screen={status.get('screen')}")
+    session.check("no_legacy_panel_on_title",
+                  status.get("legacy_panel") is False,
+                  f"legacy_panel={status.get('legacy_panel')}")
     title_log = adb.shell("logcat -d", check=False)
     (out / "logcat-title.txt").write_text(title_log, encoding="utf-8", errors="replace")
     session.check("replacement_controls_active_log",
@@ -521,8 +623,13 @@ def run(args: argparse.Namespace) -> int:
     session.width, session.height = session.display_size()
     session.check("world_playing", True,
                   f"player at {status['player']['position']} window={session.width}x{session.height}")
+    session.check("no_legacy_panel_in_world",
+                  status.get("legacy_panel") is False,
+                  f"legacy_panel={status.get('legacy_panel')}")
     time.sleep(4)
     session.screenshot("01-playing-hud")
+    time.sleep(15)
+    session.sample_perf("post_world", seconds=20)
 
     keys = set(session.status().get("keys", []))
     phys = set(session.status().get("physical_keys", []))
@@ -1050,6 +1157,48 @@ def run(args: argparse.Namespace) -> int:
     session.check("k_button_works_after_restart", bool(saw_k), "persisted layout live")
     session.finish(proc)
 
+    # Phase: the shipped default layout (no file on disk) is the new
+    # rectangular HUD; jump and F3 must work through it.
+    session.phase("default rectangular layout")
+    adb.force_stop()
+    adb.shell(f"rm -f {LAYOUT_FILE}")
+    adb.start_engine()
+    session.control = session.connect_control(420)
+    status = session.wait_status(
+        lambda st: st.get("screen") in ("title", "playing"), 300,
+        "default-layout title")
+    session.check("default_layout_title_no_legacy_panel",
+                  status.get("legacy_panel") is False,
+                  f"legacy_panel={status.get('legacy_panel')}")
+    session.control.try_command("open CraftixTest 0 creative")
+    status = session.wait_status(
+        lambda st: st.get("screen") == "playing", 300,
+        "default-layout world")
+    time.sleep(10)
+    session.check("default_layout_world_no_legacy_panel",
+                  status.get("legacy_panel") is False,
+                  f"legacy_panel={status.get('legacy_panel')}")
+    jx, jy = rect_button_xy(w, h, "jump")
+    proc = session.hold(jx, jy, 900)
+    session.wait_for(
+        lambda: "Space" in session.status().get("keys", []), 5,
+        "default-layout jump")
+    session.check("default_layout_jump_works", True,
+                  f"hold at {jx},{jy} pressed Space")
+    session.finish(proc)
+    time.sleep(1)
+    fx, fy = rect_button_xy(w, h, "f3")
+    dbg0 = bool((session.status().get("debug") or {}).get("overlay"))
+    session.tap(fx, fy)
+    time.sleep(1)
+    dbg1 = bool((session.status().get("debug") or {}).get("overlay"))
+    session.tap(fx, fy)
+    time.sleep(1)
+    dbg2 = bool((session.status().get("debug") or {}).get("overlay"))
+    session.check("default_layout_f3_toggles_debug",
+                  dbg1 != dbg0 and dbg2 == dbg0,
+                  f"debug.overlay {dbg0}->{dbg1}->{dbg2} at {fx},{fy}")
+
     # Logcat assertions for the replacement path being active.
     logcat = adb.shell("logcat -d", check=False)
     (out / "logcat-final.txt").write_text(logcat, encoding="utf-8", errors="replace")
@@ -1067,7 +1216,12 @@ def run(args: argparse.Namespace) -> int:
     failed = [r for r in session.results if not r["ok"]]
     report = session.write_report(
         "completed",
-        {"apk": str(args.apk), "window": [session.width, session.height]},
+        {
+            "apk": str(args.apk),
+            "baseline_apk": str(args.baseline_apk) if args.baseline_apk else None,
+            "window": [session.width, session.height],
+            "perf": session.perf,
+        },
     )
     print(json.dumps({"passed": report["passed"], "failed": report["failed"]}, indent=2))
     return 1 if failed else 0
@@ -1076,6 +1230,8 @@ def run(args: argparse.Namespace) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--apk", required=True, type=Path)
+    parser.add_argument("--baseline-apk", type=Path, default=None,
+                        help="pre-change APK to sample before the upgrade")
     parser.add_argument("--out", default="craftix-game-test", type=Path)
     parser.add_argument("--adb", default="adb")
     args = parser.parse_args()

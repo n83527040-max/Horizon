@@ -254,6 +254,10 @@ impl Router {
                 self.acquire(Action::Sprint, Owner::Lock);
             } else {
                 self.unlock();
+                if self.movement != [0.0, 0.0] {
+                    self.movement = [0.0; 2];
+                    self.events.push(Event::Move(self.movement));
+                }
             }
         }
         let held: Vec<_> = self.owners.iter().filter(|(_, owners)| owners.contains(&Owner::Finger(id)))

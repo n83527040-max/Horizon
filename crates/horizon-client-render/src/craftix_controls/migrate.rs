@@ -49,7 +49,11 @@ pub fn preview(source: &Settings) -> Migration {
             button.enabled = settings.visible(control);
             if id == Id::Sprint && settings.sprint_toggle { button.behavior = Behavior::Toggle; }
         }
+        let mut used: std::collections::BTreeSet<u32> = layout.buttons.iter()
+            .filter_map(|b| match b.id { Id::Custom(i) => Some(i), _ => None }).collect();
         for (index, old) in settings.custom_buttons.iter().enumerate() {
+            let slot = (0..u32::MAX).find(|i| !used.contains(i)).unwrap_or(0);
+            used.insert(slot);
             let mut place = old.layouts[mode.index()];
             if settings.left_handed { place.center[0] = 1.0 - place.center[0]; }
             let action = if let Some(name) = old.key.strip_prefix("action:") {
@@ -63,7 +67,7 @@ pub fn preview(source: &Settings) -> Migration {
             }
             let label = if old.name.is_empty() { old.key.chars().take(32).collect() } else { old.name.clone() };
             layout.buttons.push(Button {
-                id: Id::Custom(index as u32), action, circle: circle(place,settings.button_scale),
+                id: Id::Custom(slot), action, circle: circle(place,settings.button_scale),
                 rect: None,
                 opacity: place.opacity, enabled, label,
                 penetrable: false, group: 0,
