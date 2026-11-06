@@ -571,12 +571,16 @@ def run(args: argparse.Namespace) -> int:
         lambda: (session.status().get("mobs") or 0) > 0, 15, "zombie in status.mobs")
     session.check("zombie_spawned_for_attacks", bool(zombie_up),
                   f"status.mobs={session.status().get('mobs')}")
-    session.control.command("look 0 40")  # positive pitch looks down
+    session.control.command("look 0 89")  # nearly straight down
     time.sleep(1)
-    before = session.status().get("target") or {}
+    st = session.status()
+    before = st.get("target") or {}
     aim_ok = session.check(
         "attack_aim_has_target", bool(before),
-        f"crosshair target before attack: {json.dumps(before)[:200]}")
+        f"yaw={st.get('yaw')} pitch={st.get('pitch')} "
+        f"pos={(st.get('player') or {}).get('position')} "
+        f"on_ground={(st.get('player') or {}).get('on_ground')} "
+        f"pending={st.get('pending_chunks')} target={json.dumps(before)[:120]}")
     broke = False
     if aim_ok:
         ax, ay = button_xy(w, h, "attack")
@@ -605,17 +609,9 @@ def run(args: argparse.Namespace) -> int:
                   "on_ground before the drag")
     jox, joy = button_xy(w, h, "joystick")
     joy_y = joy
-    drag_to = jox + int(w * 0.24)
-    steps_xy = []
-    for step in range(1, 9):
-        xi = jox + (drag_to - jox) * step // 8
-        steps_xy.append(f"sleep 0.25; input touchscreen motionevent MOVE {xi} {joy_y}")
-    joystick_script = (
-        f"input touchscreen motionevent DOWN {jox} {joy_y}; "
-        + "; ".join(steps_xy)
-        + f"; input touchscreen motionevent UP {drag_to} {joy_y}")
     proc = subprocess.Popen(
-        ["adb", "shell", joystick_script],
+        ["adb", "shell", "input", "swipe", str(jox), str(joy_y),
+         str(jox + int(w * 0.24)), str(joy_y), "2200"],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     max_speed = 0.0
     deadline = time.time() + 5
@@ -813,7 +809,7 @@ def run(args: argparse.Namespace) -> int:
     session.control.command("summon zombie")
     session.wait_for(lambda: (session.status().get("mobs") or 0) > 0, 15,
                      "zombie for simultaneous click")
-    session.control.command("look 0 40")  # positive pitch looks down
+    session.control.command("look 0 89")  # nearly straight down
     time.sleep(1)
     click_before = session.status().get("target") or {}
     proc = session.hold(jx, jy, 2500)
