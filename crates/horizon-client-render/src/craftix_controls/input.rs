@@ -311,7 +311,6 @@ impl Router {
     pub fn active(&self, action: &Action) -> bool { self.owners.contains_key(action) }
     pub fn drain(&mut self) -> Vec<Event> { std::mem::take(&mut self.events) }
 }
-fn inventory_hit(_layout: &Layout, _p: [f32; 2], _aspect: f32) -> bool { false }
 #[cfg(test)]
 mod tests {
     use super::*;

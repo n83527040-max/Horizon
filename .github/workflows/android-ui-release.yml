@@ -124,7 +124,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          trap 'printf "::error::"; tail -c 4000 /tmp/check.log | base64 -w0; echo' ERR
+          trap 'printf "::error::"; tail -c 2400 /tmp/check.log | base64 -w0; echo' ERR
           cargo test -p horizon-client-render --lib touch:: -- --nocapture 2>&1 | tee /tmp/check.log
           cargo test -p horizon-client-render --lib craftix_controls:: -- --nocapture 2>&1 | tee /tmp/check.log
           cargo test -p horizon-client-input --lib keymapping:: -- --nocapture 2>&1 | tee /tmp/check.log
@@ -148,7 +148,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          trap 'printf "::error::"; tail -c 4000 /tmp/check.log | base64 -w0; echo' ERR
+          trap 'printf "::error::"; tail -c 2400 /tmp/check.log | base64 -w0; echo' ERR
           python3 tools/android_build.py --abi arm64-v8a --check --sdk "$ANDROID_HOME" --java-home "$JAVA_HOME_17_X64" 2>&1 | tee /tmp/check.log
 
   # Real Android game session: builds a non-public x86_64 test APK, boots an

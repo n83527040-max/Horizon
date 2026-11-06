@@ -1319,7 +1319,7 @@ fn craftix_touch_key_events_reach_real_mod_runtime() {
     let a = editor.add_key("Mod A", "key.keyboard.a", Icon::Text).unwrap();
     for (id, point) in [(k,[0.62,0.28]),(a,[0.74,0.28])] {
         let mut button=editor.staged.items[0].buttons.iter().find(|b| b.id==id).unwrap().clone();
-        button.circle.center=point; button.behavior=Behavior::Single;
+        button.set_center(point, 16.0/9.0); button.behavior=Behavior::Single;
         editor.edit_button(id,button).unwrap();
     }
     let layouts=editor.commit().unwrap();
@@ -1338,7 +1338,7 @@ fn craftix_touch_key_events_reach_real_mod_runtime() {
     };
     for (index, id, expected) in [(1, k, "key.keyboard.k"), (2, a, "key.keyboard.a")] {
         assert!(mods.rebind(0, "wheel", expected));
-        let point=layout.buttons.iter().find(|b| b.id==id).unwrap().circle.center;
+        let point=layout.buttons.iter().find(|b| b.id==id).unwrap().center(16.0/9.0);
         router.begin(layout,index,point,16.0/9.0,0);
         router.end(index);
         pump(&mut router,&mut bridge,&mut mods);
@@ -1350,7 +1350,7 @@ fn craftix_touch_key_events_reach_real_mod_runtime() {
     // Touch cancellation must release a held custom mod shortcut exactly once.
     let mut held=layout.clone();
     held.buttons.iter_mut().find(|b| b.id==a).unwrap().behavior=Behavior::Hold;
-    let point=held.buttons.iter().find(|b| b.id==a).unwrap().circle.center;
+    let point=held.buttons.iter().find(|b| b.id==a).unwrap().center(16.0/9.0);
     router.begin(&held,3,point,16.0/9.0,200); pump(&mut router,&mut bridge,&mut mods);
     router.clear(); pump(&mut router,&mut bridge,&mut mods);
     assert!(mods.command("input_poll"));
@@ -1364,8 +1364,8 @@ fn craftix_touch_key_events_reach_real_mod_runtime() {
     let second=shared.buttons.iter_mut().find(|b| b.id==a).unwrap();
     second.action=Some(horizon_client_render::craftix_controls::layout::Action::Key("key.keyboard.k".into()));
     second.behavior=Behavior::Toggle;
-    let first_point=shared.buttons.iter().find(|b| b.id==k).unwrap().circle.center;
-    let second_point=shared.buttons.iter().find(|b| b.id==a).unwrap().circle.center;
+    let first_point=shared.buttons.iter().find(|b| b.id==k).unwrap().center(16.0/9.0);
+    let second_point=shared.buttons.iter().find(|b| b.id==a).unwrap().center(16.0/9.0);
     router.begin(&shared,4,first_point,16.0/9.0,300);
     router.begin(&shared,5,second_point,16.0/9.0,300); router.end(5);
     router.end(4); pump(&mut router,&mut bridge,&mut mods);
@@ -1386,7 +1386,7 @@ fn craftix_touch_key_events_reach_real_mod_runtime() {
         let button=chord_layout.buttons.iter_mut().find(|b| b.id==k).unwrap();
         button.action=horizon_client_render::craftix_controls::layout::parse_key_action(shortcut);
         button.behavior=Behavior::Hold;
-        let point=button.circle.center;
+        let point=button.center(16.0/9.0);
         router.begin(&chord_layout,7,point,16.0/9.0,500); router.end(7);
         pump(&mut router,&mut bridge,&mut mods);
         assert!(mods.command("input_poll"));
