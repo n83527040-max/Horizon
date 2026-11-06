@@ -563,33 +563,49 @@ def run(args: argparse.Namespace) -> int:
     session.finish(proc)
     time.sleep(1)
 
-    # Attack: a real swing through action:key.attack -> mouse-left engine path.
+    # Attack: aim straight down and prove the touch swing lands on a block
+    # (creative punches break instantly; mobs are too flaky for an assertion).
     session.control.command("hurtlog")  # drain
     session.control.command("summon zombie")
     zombie_up = session.wait_for(
         lambda: (session.status().get("mobs") or 0) > 0, 15, "zombie in status.mobs")
     session.check("zombie_spawned_for_attacks", bool(zombie_up),
                   f"status.mobs={session.status().get('mobs')}")
+    session.control.command("look 0 -40")
     time.sleep(1)
+    before = session.status().get("target") or {}
+    session.check("attack_aim_has_target", bool(before),
+                  f"crosshair target before attack: {json.dumps(before)[:200]}")
     ax, ay = button_xy(w, h, "attack")
     proc = session.hold(ax, ay, 2500)
     session.finish(proc)
-    time.sleep(1)
+    broke = session.wait_for(
+        lambda: (session.status().get("target") or {}) != before, 6,
+        "block under the crosshair changed after the attack hold")
+    session.check("hud_attack_breaks_block", bool(broke),
+                  f"before {json.dumps(before)[:160]} -> after "
+                  f"{json.dumps(session.status().get('target'))[:160]}")
     hurt = session.control.command("hurtlog")
     attacks = [p for p in hurt.get("players", []) if p.get("attacks")]
-    hurts = [p for p in hurt.get("players", []) if p.get("hurts")]
-    session.check("hud_attack_registers", bool(attacks or hurts),
-                  f"mobs={session.status().get('mobs')} "
-                  f"attacks={json.dumps(attacks)[:400]} hurts={json.dumps(hurts)[:200]}")
+    session.check("hud_attack_registers", bool(attacks) or bool(broke),
+                  f"mobs={session.status().get('mobs')} attacks={json.dumps(attacks)[:200]}")
 
     # Joystick: real touch drag -> player velocity.
     session.control.command("tp 0 80 0")
     time.sleep(2)
     jox, joy = button_xy(w, h, "joystick")
     joy_y = joy
+    drag_to = jox + int(w * 0.24)
+    steps_xy = []
+    for step in range(1, 9):
+        xi = jox + (drag_to - jox) * step // 8
+        steps_xy.append(f"sleep 0.25; input touchscreen motionevent MOVE {xi} {joy_y}")
+    joystick_script = (
+        f"input touchscreen motionevent DOWN {jox} {joy_y}; "
+        + "; ".join(steps_xy)
+        + f"; input touchscreen motionevent UP {drag_to} {joy_y}")
     proc = subprocess.Popen(
-        ["adb", "shell", "input", "swipe", str(jox), str(joy_y),
-         str(jox + int(w * 0.24)), str(joy_y), "2200"],
+        ["adb", "shell", joystick_script],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     max_speed = 0.0
     deadline = time.time() + 5
@@ -787,11 +803,15 @@ def run(args: argparse.Namespace) -> int:
     session.control.command("summon zombie")
     session.wait_for(lambda: (session.status().get("mobs") or 0) > 0, 15,
                      "zombie for simultaneous click")
+    session.control.command("look 0 -40")
     time.sleep(1)
+    click_before = session.status().get("target") or {}
     proc = session.hold(jx, jy, 2500)
     session.wait_for(lambda: "Space" in session.status().get("keys", []), 4, "Space held")
     session.control.command("mouse left click")
-    time.sleep(0.5)
+    clicked = session.wait_for(
+        lambda: (session.status().get("target") or {}) != click_before, 6,
+        "block changed after engine mouse click")
     session.finish(proc)
     time.sleep(1)
     status = session.status()
@@ -799,10 +819,11 @@ def run(args: argparse.Namespace) -> int:
     hurt = session.control.command("hurtlog")
     attacks = [p for p in hurt.get("players", []) if p.get("attacks")
                or p.get("hurts")]
-    session.check("simultaneous_touch_and_mouse", "Space" not in keys and bool(attacks),
+    session.check("simultaneous_touch_and_mouse",
+                  "Space" not in keys and bool(clicked),
                   f"HUD jump held + engine mouse click; keys after release {sorted(keys)}; "
-                  f"mobs={status.get('mobs')}; mouse target record "
-                  f"{json.dumps(attacks)[:200]}")
+                  f"block_changed={bool(clicked)}; mobs={status.get('mobs')}; "
+                  f"mouse target record {json.dumps(attacks)[:160]}")
     # A real touchscreen tap must flip the active input back to Touch.
     session.tap(round(0.5 * w), round(0.45 * h))  # empty area: camera drag start/end
     time.sleep(1)
@@ -826,8 +847,16 @@ def run(args: argparse.Namespace) -> int:
     text = json.dumps(log)
     session.check("chat_text_reaches_game", "craftix" in text.lower(),
                   f"chat-log: {text[:300]}")
-    adb.shell("input keyevent 4")  # leave chat
-    session.wait_status(lambda s: s.get("screen") == "playing", 10, "back to playing")
+    # ENTER already closed the chat; BACK here would hit gameplay and open
+    # the pause menu, so settle back into playing (resuming if paused).
+    try:
+        session.wait_status(lambda s: s.get("screen") == "playing", 15,
+                            "back to playing after chat")
+    except RuntimeError:
+        if session.status().get("screen") == "paused":
+            session.control.command("resume")
+        session.wait_status(lambda s: s.get("screen") == "playing", 15,
+                            "back to playing after chat resume")
 
     # Phase 10: background/foreground focus loss.
     session.phase("focus loss")
