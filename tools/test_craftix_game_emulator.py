@@ -1197,7 +1197,11 @@ def run(args: argparse.Namespace) -> int:
     session.check("default_layout_world_no_legacy_panel",
                   status.get("legacy_panel") is False,
                   f"legacy_panel={status.get('legacy_panel')}")
-    jx, jy = rect_button_xy(w, h, "jump")
+    # The default Jump rect overlaps Sneak's rect (same y band); the reverse
+    # hit scan awards the overlap to the later button (Sneak -> Shift). Tap
+    # the left part of Jump's box, clear of Sneak (x < 0.665 on 16:9).
+    _, jy = rect_button_xy(w, h, "jump")
+    jx = round(0.58 * w)
     proc = session.hold(jx, jy, 3000)
     session.wait_for(
         lambda: "Space" in session.status().get("keys", []), 8,
