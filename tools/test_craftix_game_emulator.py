@@ -612,8 +612,10 @@ def run(args: argparse.Namespace) -> int:
     pos0 = ((session.status().get("player") or {}).get("position") or [0, 0, 0])
     max_speed = 0.0
 
+    stick_seen = {"craftix": 0.0, "pad": 0.0}
+
     def drag(dx: int, dy: int) -> None:
-        """One swipe in screen space; sample velocity and drift while it runs."""
+        """One swipe in screen space; sample velocity and stick signals."""
         nonlocal max_speed
         proc = subprocess.Popen(
             ["adb", "shell", "input", "swipe", str(jox), str(joy_y),
@@ -621,9 +623,15 @@ def run(args: argparse.Namespace) -> int:
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         deadline = time.time() + 4
         while time.time() < deadline:
-            player = session.status().get("player") or {}
+            status = session.status()
+            player = status.get("player") or {}
             velocity = player.get("velocity") or [0, 0, 0]
             max_speed = max(max_speed, math.hypot(velocity[0], velocity[2]))
+            cm = status.get("craftix_movement") or [0, 0]
+            pl = status.get("pad_left") or [0, 0]
+            stick_seen["craftix"] = max(stick_seen["craftix"],
+                                        math.hypot(cm[0], cm[1]))
+            stick_seen["pad"] = max(stick_seen["pad"], math.hypot(pl[0], pl[1]))
             time.sleep(0.4)
         session.finish(proc)
 
@@ -637,7 +645,9 @@ def run(args: argparse.Namespace) -> int:
     session.check("hud_joystick_moves_player",
                   max_speed > 0.3 or drift > 1.0,
                   f"max horizontal speed {max_speed:.2f} m/s; player drift "
-                  f"{drift:.2f} m over three swipes (pos {pos0} -> {pos1})")
+                  f"{drift:.2f} m over three swipes (pos {pos0} -> {pos1}); "
+                  f"max |craftix_movement|={stick_seen['craftix']:.2f} "
+                  f"max |pad_left|={stick_seen['pad']:.2f}")
     moved_log = adb.shell("logcat -d | grep -c 'CRAFTIX touch moved pointer'", check=False)
     session.check("touch_moved_events_arrive", int(moved_log or 0) > 0,
                   f"CRAFTIX touch Moved log lines: {moved_log}")

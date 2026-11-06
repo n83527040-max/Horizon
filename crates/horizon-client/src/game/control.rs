@@ -1069,6 +1069,13 @@ impl Game<'_> {
         );
         #[cfg(not(target_os = "android"))]
         let (craftix_editor, craftix_editing_text) = (false, false);
+        // Live stick signals (emulator tests separate a dead joystick from a
+        // chain that drops the vector before walking).
+        #[cfg(target_os = "android")]
+        let (craftix_movement, pad_left) =
+            (self.pad.craftix.router.movement(), self.pad.state.left);
+        #[cfg(not(target_os = "android"))]
+        let (craftix_movement, pad_left) = ([0.0f32; 2], [0.0f32; 2]);
         let mut status = json!({
             "screen": self.screen_name(),
             // Which device class input was last seen from, and the configured
@@ -1077,6 +1084,8 @@ impl Game<'_> {
             "input_preference": format!("{:?}", horizon_client::android_runtime::input_mode()),
             "craftix_editor": craftix_editor,
             "craftix_editing_text": craftix_editing_text,
+            "craftix_movement": craftix_movement,
+            "pad_left": pad_left,
             "debug": {
                 "overlay": self.debug,
                 "hitboxes": self.debug_entry("entity_hitboxes"),
