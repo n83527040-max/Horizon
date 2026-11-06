@@ -571,17 +571,23 @@ def run(args: argparse.Namespace) -> int:
         lambda: (session.status().get("mobs") or 0) > 0, 15, "zombie in status.mobs")
     session.check("zombie_spawned_for_attacks", bool(zombie_up),
                   f"status.mobs={session.status().get('mobs')}")
-    session.control.command("look 0 -40")
+    session.control.command("look 0 40")  # positive pitch looks down
     time.sleep(1)
     before = session.status().get("target") or {}
-    session.check("attack_aim_has_target", bool(before),
-                  f"crosshair target before attack: {json.dumps(before)[:200]}")
-    ax, ay = button_xy(w, h, "attack")
-    proc = session.hold(ax, ay, 2500)
-    session.finish(proc)
-    broke = session.wait_for(
-        lambda: (session.status().get("target") or {}) != before, 6,
-        "block under the crosshair changed after the attack hold")
+    aim_ok = session.check(
+        "attack_aim_has_target", bool(before),
+        f"crosshair target before attack: {json.dumps(before)[:200]}")
+    broke = False
+    if aim_ok:
+        ax, ay = button_xy(w, h, "attack")
+        proc = session.hold(ax, ay, 2500)
+        session.finish(proc)
+        try:
+            broke = session.wait_for(
+                lambda: (session.status().get("target") or {}) != before, 6,
+                "block under the crosshair changed after the attack hold")
+        except RuntimeError:
+            broke = False
     session.check("hud_attack_breaks_block", bool(broke),
                   f"before {json.dumps(before)[:160]} -> after "
                   f"{json.dumps(session.status().get('target'))[:160]}")
@@ -803,15 +809,19 @@ def run(args: argparse.Namespace) -> int:
     session.control.command("summon zombie")
     session.wait_for(lambda: (session.status().get("mobs") or 0) > 0, 15,
                      "zombie for simultaneous click")
-    session.control.command("look 0 -40")
+    session.control.command("look 0 40")  # positive pitch looks down
     time.sleep(1)
     click_before = session.status().get("target") or {}
     proc = session.hold(jx, jy, 2500)
     session.wait_for(lambda: "Space" in session.status().get("keys", []), 4, "Space held")
     session.control.command("mouse left click")
-    clicked = session.wait_for(
-        lambda: (session.status().get("target") or {}) != click_before, 6,
-        "block changed after engine mouse click")
+    clicked = False
+    try:
+        clicked = session.wait_for(
+            lambda: (session.status().get("target") or {}) != click_before, 6,
+            "block changed after engine mouse click")
+    except RuntimeError:
+        clicked = False
     session.finish(proc)
     time.sleep(1)
     status = session.status()
@@ -822,8 +832,9 @@ def run(args: argparse.Namespace) -> int:
     session.check("simultaneous_touch_and_mouse",
                   "Space" not in keys and bool(clicked),
                   f"HUD jump held + engine mouse click; keys after release {sorted(keys)}; "
-                  f"block_changed={bool(clicked)}; mobs={status.get('mobs')}; "
-                  f"mouse target record {json.dumps(attacks)[:160]}")
+                  f"block_changed={bool(clicked)}; click_before={json.dumps(click_before)[:100]}; "
+                  f"mobs={status.get('mobs')}; mouse target record "
+                  f"{json.dumps(attacks)[:120]}")
     # A real touchscreen tap must flip the active input back to Touch.
     session.tap(round(0.5 * w), round(0.45 * h))  # empty area: camera drag start/end
     time.sleep(1)
