@@ -604,16 +604,17 @@ def run(args: argparse.Namespace) -> int:
     # under the player so terrain geometry cannot mask the walk chain.
     pos_a = (session.status().get("player") or {}).get("position") or [0, 64, 0]
     ax_, az_ = int(math.floor(float(pos_a[0]))), int(math.floor(float(pos_a[2])))
+    # Build high above any water or terrain so the room stays dry.
     session.control.command(
-        f"fill {ax_-7} 56 {az_-7} {ax_+7} 62 {az_+7} air")
+        f"fill {ax_-7} 70 {az_-7} {ax_+7} 76 {az_+7} air")
     session.control.command(
-        f"fill {ax_-7} 55 {az_-7} {ax_+7} 55 {az_+7} stone")
-    session.control.command(f"tp {ax_+0.5} 56 {az_+0.5}")
+        f"fill {ax_-7} 69 {az_-7} {ax_+7} 69 {az_+7} stone")
+    session.control.command(f"tp {ax_+0.5} 70 {az_+0.5}")
     room_ok = session.wait_for(
         lambda: (session.status().get("player") or {}).get("on_ground"), 30,
         "landing on the arena floor")
     session.check("walk_arena_ready", bool(room_ok),
-                  f"open room around {ax_},{az_} floor y=55")
+                  f"open room around {ax_},{az_} floor y=69")
     time.sleep(1)
 
     # Isolate the product chain first: the control protocol's virtual stick
@@ -642,6 +643,8 @@ def run(args: argparse.Namespace) -> int:
                   f"movement_speed={snap.get('movement_speed')} "
                   f"flying={snap.get('flying')} sprinting={snap.get('sprinting')} "
                   f"feet_block={full.get('feet_block')} "
+                  f"ground_block={full.get('ground_block')} "
+                  f"friction_attr={snap.get('friction_attr')} "
                   f"nudge={snap.get('nudge')}")
     time.sleep(1)
 

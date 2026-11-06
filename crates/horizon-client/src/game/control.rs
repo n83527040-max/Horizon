@@ -1000,6 +1000,12 @@ impl Game<'_> {
                 "sprinting": p.sprinting,
                 // Pending push-out of a block the player overlaps.
                 "nudge": [p.nudge[0].unwrap_or(0.0), p.nudge[1].unwrap_or(0.0)],
+                // Scales ground drag; 1.0 is the vanilla default.
+                "friction_attr": p
+                    .attributes
+                    .lookup(p.attributes.key("minecraft:friction_modifier").as_ref())
+                    .and_then(|h| p.attributes.instance(&h).ok())
+                    .map(|i| i.cached_value()),
                 "on_ground": p.ground.on_ground,
                 "health": p.health.health(),
                 // The maximum the HUD's hearts last read (its cached value).
@@ -1099,8 +1105,18 @@ impl Game<'_> {
             );
             self.res.facts().get(state).name.to_string()
         });
+        // The block the body stands on: its friction multiplies ground drag.
+        let ground_block = self.player.as_ref().map(|p| {
+            let state = self.world.block(
+                p.position.x.floor() as i32,
+                p.position.y.floor() as i32 - 1,
+                p.position.z.floor() as i32,
+            );
+            self.res.facts().get(state).name.to_string()
+        });
         let mut status = json!({
             "feet_block": feet_block,
+            "ground_block": ground_block,
             "screen": self.screen_name(),
             // Which device class input was last seen from, and the configured
             // preference that gates the replacement HUD (emulator tests).
