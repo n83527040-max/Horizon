@@ -600,6 +600,22 @@ def run(args: argparse.Namespace) -> int:
     session.check("hud_attack_registers", bool(attacks) or bool(broke),
                   f"mobs={session.status().get('mobs')} attacks={json.dumps(attacks)[:200]}")
 
+    # A guaranteed open room: clear a 15x15x7 space with a fresh stone floor
+    # under the player so terrain geometry cannot mask the walk chain.
+    pos_a = (session.status().get("player") or {}).get("position") or [0, 64, 0]
+    ax_, az_ = int(math.floor(float(pos_a[0]))), int(math.floor(float(pos_a[2])))
+    session.control.command(
+        f"fill {ax_-7} 56 {az_-7} {ax_+7} 62 {az_+7} air")
+    session.control.command(
+        f"fill {ax_-7} 55 {az_-7} {ax_+7} 55 {az_+7} stone")
+    session.control.command(f"tp {ax_+0.5} 56 {az_+0.5}")
+    room_ok = session.wait_for(
+        lambda: (session.status().get("player") or {}).get("on_ground"), 30,
+        "landing on the arena floor")
+    session.check("walk_arena_ready", bool(room_ok),
+                  f"open room around {ax_},{az_} floor y=55")
+    time.sleep(1)
+
     # Isolate the product chain first: the control protocol's virtual stick
     # goes PadState -> pad_move -> physics without any touch involved.
     session.control.command("pad stick left 1 0")
@@ -629,17 +645,11 @@ def run(args: argparse.Namespace) -> int:
                   f"nudge={snap.get('nudge')}")
     time.sleep(1)
 
-    # Land on fresh open ground: spawn geometry can box the player in, which
-    # reads as a dead stick even when the vector arrives.
-    pos_now = ((session.status().get("player") or {}).get("position") or [0, 64, 0])
-    session.control.command(
-        f"tp {float(pos_now[0]):.1f} 160 {float(pos_now[2]):.1f}")
-    landed = session.wait_for(
-        lambda: (session.status().get("player") or {}).get("on_ground"), 40,
-        "landing after the sky drop")
-    session.check("joystick_player_grounded", bool(landed),
-                  f"landed at {((session.status().get('player') or {}).get('position'))}")
-    time.sleep(2)
+    grounded = session.wait_for(
+        lambda: (session.status().get("player") or {}).get("on_ground"), 15,
+        "grounded before the joystick drag")
+    session.check("joystick_player_grounded", bool(grounded),
+                  "on the arena floor before the drag")
     jox, joy = button_xy(w, h, "joystick")
     joy_y = joy
     pos0 = ((session.status().get("player") or {}).get("position") or [0, 0, 0])
