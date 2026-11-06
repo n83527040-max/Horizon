@@ -129,28 +129,9 @@ impl Router {
         // The pointer can leave the window while held; bound extreme finite
         // coordinates too, to prevent overflow and NaN movement/camera deltas.
         let p = p.map(|v| v.clamp(0.0, 1.0));
-        // Button chains are processed outside the map borrow because they
-        // release/acquire actions through &mut self.
+        // Button chains release/acquire through &mut self, so their state is
+        // cloned out of the map before any whole-struct borrow.
         let button_state = match self.pointers.get(&id) {
-            Some(Role::Joystick { center, radius }) => {
-                let center = *center;
-                let radius = (*radius).max(1e-6);
-                let v = [(p[0] - center[0]) * aspect / radius, (center[1] - p[1]) / radius];
-                let len = v[0].hypot(v[1]);
-                let dead = layout.joystick_dead_zone.clamp(0.0, 0.5);
-                let amount = ((len - dead) / (1.0 - dead) * layout.joystick_sensitivity).clamp(0.0, 1.0);
-                self.movement = if len > 0.0 { [v[0] / len * amount, v[1] / len * amount] } else { [0.0; 2] };
-                self.events.push(Event::Move(self.movement));
-                // Fall through: the tail arms the forward-lock check.
-                None
-            }
-            Some(Role::Look(last)) => {
-                let last = *last;
-                let delta = [(p[0] - last[0]) * aspect * layout.camera_sensitivity, (p[1] - last[1]) * layout.camera_sensitivity];
-                if let Some(Role::Look(slot)) = self.pointers.get_mut(&id) { *slot = p; }
-                self.events.push(Event::Look(delta));
-                return;
-            }
             Some(Role::Button { look, chain }) => Some((*look, chain.clone())),
             _ => None,
         };
@@ -235,6 +216,25 @@ impl Router {
             }
             self.pointers.insert(id, Role::Button { look, chain });
             return;
+        }
+        // Joystick and camera motion: field-disjoint borrows only.
+        match self.pointers.get_mut(&id) {
+            Some(Role::Joystick { center, radius }) => {
+                let center = *center;
+                let radius = (*radius).max(1e-6);
+                let v = [(p[0] - center[0]) * aspect / radius, (center[1] - p[1]) / radius];
+                let len = v[0].hypot(v[1]);
+                let dead = layout.joystick_dead_zone.clamp(0.0, 0.5);
+                let amount = ((len - dead) / (1.0 - dead) * layout.joystick_sensitivity).clamp(0.0, 1.0);
+                self.movement = if len > 0.0 { [v[0] / len * amount, v[1] / len * amount] } else { [0.0; 2] };
+                self.events.push(Event::Move(self.movement));
+            }
+            Some(Role::Look(last)) => {
+                let delta = [(p[0] - last[0]) * aspect * layout.camera_sensitivity, (p[1] - last[1]) * layout.camera_sensitivity];
+                *last = p;
+                self.events.push(Event::Look(delta));
+            }
+            _ => {}
         }
         // Joystick forward lock (Zalith lockEvents): a strong north flick
         // keeps walking forward with sprint after the finger lifts.

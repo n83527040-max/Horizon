@@ -118,7 +118,7 @@ pub struct Circle {
 impl Circle {
     pub fn contains(self, point: [f32; 2], aspect: f32) -> bool {
         let dx = (point[0] - self.center[0]) * aspect;
-        let dy = (point[1] - self.center[1]);
+        let dy = point[1] - self.center[1];
         dx * dx + dy * dy <= self.radius * self.radius
     }
     pub fn valid(self) -> bool {
@@ -239,13 +239,15 @@ impl Button {
     /// Editor size slider: overall height fraction, scaling both axes.
     pub fn set_size_value(&mut self, value: f32) {
         let value = value.clamp(0.03, 0.45);
-        if let Some(rect) = &mut self.rect {
-            let current = self.size_value().max(1e-6);
-            let factor = value / current;
-            rect.size = [
-                (rect.size[0] * factor).clamp(0.03, 0.45),
-                (rect.size[1] * factor).clamp(0.03, 0.45),
-            ];
+        let current = if self.rect.is_some() { self.size_value() } else { 0.0 };
+        if self.rect.is_some() {
+            let factor = value / current.max(1e-6);
+            if let Some(rect) = &mut self.rect {
+                rect.size = [
+                    (rect.size[0] * factor).clamp(0.03, 0.45),
+                    (rect.size[1] * factor).clamp(0.03, 0.45),
+                ];
+            }
         } else {
             self.circle.radius = (value * 0.5).clamp(0.02, 0.24);
         }

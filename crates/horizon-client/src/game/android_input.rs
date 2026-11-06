@@ -387,7 +387,7 @@ impl Game<'_> {
         // is active: it is not painted there, so its regions must not swallow
         // touches on the title, login, lists or settings. Release paths above
         // still run, so keys held before a mode switch cannot stick.
-        if craftix_experimental::enabled() {
+        if super::craftix_experimental::enabled() {
             return Ok(false);
         }
         if let Some(action) = self

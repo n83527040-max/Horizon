@@ -39,7 +39,7 @@ impl Bridge {
                         Action::Pause => Some(UiAction::Pause),
                         Action::Settings => Some(UiAction::Settings),
                         Action::Keyboard => Some(UiAction::Keyboard),
-                        Action::Group(group) => Some(UiAction::Group(*group)),
+                        Action::Group(group) => Some(UiAction::Group(group)),
                         _ => None,
                     } {
                         out.push(HostEvent::Ui(ui, down));

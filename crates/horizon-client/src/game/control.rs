@@ -1095,6 +1095,16 @@ impl Game<'_> {
             (self.pad.craftix.router.movement(), self.pad.state.left);
         #[cfg(not(target_os = "android"))]
         let (craftix_movement, pad_left) = ([0.0f32; 2], [0.0f32; 2]);
+        // Whether the legacy floating auxiliary panel (…/F3/F5/Chat/Keys
+        // plus the menu Mouse/Back strip) would paint this frame. The
+        // replacement path must keep it false everywhere; emulator tests
+        // assert it on the title screen and in the world.
+        #[cfg(target_os = "android")]
+        let legacy_panel = !super::craftix_experimental::enabled()
+            && (crate::touch_visible() || self.settings.keypad.enabled)
+            && self.pad.touch.editor.is_none();
+        #[cfg(not(target_os = "android"))]
+        let legacy_panel = false;
         // The block at the player's feet: a walk that crawls while
         // applied_input is full usually means overlapping geometry.
         let feet_block = self.player.as_ref().map(|p| {
@@ -1126,6 +1136,7 @@ impl Game<'_> {
             "craftix_editing_text": craftix_editing_text,
             "craftix_movement": craftix_movement,
             "pad_left": pad_left,
+            "legacy_panel": legacy_panel,
             // Why pad_move() may return None while the stick is fully tilted.
             "focused": self.focused,
             "pad_menu": self.pad_in_menu(),
