@@ -67,7 +67,9 @@ def main():
     args.report.write_text(json.dumps(result, indent=2) + '\n', encoding='utf-8')
     print(json.dumps(result, indent=2))
     for line in [f"Old {old['versionName']} code {old['versionCode']} package {old['package']}",
+                 f"Old APK SHA-256: {old.get('sha256', 'n/a')}",
                  f"New {new['versionName']} code {new['versionCode']} package {new['package']}",
+                 f"New APK SHA-256: {new.get('sha256', 'n/a')}",
                  f"Release certificate SHA-256: {key}",
                  f"Certificate/API checks: {'PASS' if not errors else 'FAIL'}; actual device install not tested"]:
         print(f'::notice::{line}')
