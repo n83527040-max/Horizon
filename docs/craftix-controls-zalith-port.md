@@ -103,3 +103,25 @@ affiliated with the Zalith Launcher project.
   (main menu without floating buttons, world HUD, multi-touch
   move+camera+attack, inventory/chat, custom buttons, long-session key
   release, FPS/RAM before-after).
+
+## Load path on boot (observed behaviour)
+
+`Controls::default()` resolves `craftix-controls-v1.json` as follows:
+
+- **File present and valid** — its layouts are used as-is.
+- **File missing (`NotFound`)** — the host runs `migrate::preview` over the
+  legacy `horizon-touch.json` settings (or `Settings::default()` when that
+  file is absent too). Legacy-mapped buttons (Jump, Attack, joystick, …)
+  keep their **old circle positions** (e.g. Jump at 0.94/0.5); buttons with
+  no legacy equivalent (F3, IME, GUI, Ctrl, Alt, More) keep the
+  `Layout::default()` rectangle anchors. Nothing is written back until the
+  player saves.
+- **File present but invalid** — `Layouts::default()` (the full
+  rectangular Zalith-style HUD) is activated **in memory only**;
+  `load_error` is recorded, which blocks Save in the editor so the player's
+  file is never silently replaced.
+
+Consequence for tests: removing the file does **not** exercise the shipped
+rectangular default; an empty-but-present schema
+(`{"schema":1,"active":0,"items":[]}`) is the stable way to select
+`Layout::default()` on a device.

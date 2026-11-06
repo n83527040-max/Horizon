@@ -1175,11 +1175,17 @@ def run(args: argparse.Namespace) -> int:
     session.check("k_button_works_after_restart", bool(saw_k), "persisted layout live")
     session.finish(proc)
 
-    # Phase: the shipped default layout (no file on disk) is the new
+    # Phase: the shipped default layout (Layout::default) is the new
     # rectangular HUD; jump and F3 must work through it.
+    # A MISSING file does NOT select it: the host previews a conversion of
+    # the legacy touch settings instead (Jump stays at the old 0.94,0.5
+    # circle). A present-but-empty schema takes the InvalidData path, which
+    # activates Layout::default() in memory and never overwrites the file.
     session.phase("default rectangular layout")
     adb.force_stop()
     adb.shell(f"rm -f {LAYOUT_FILE}")
+    adb.shell(f"printf '%s' '{{\"schema\":1,\"active\":0,\"items\":[]}}' "
+              f"> {LAYOUT_FILE}")
     adb.shell(f"rm -f {CONTROL_JSON}", check=False)
     adb.start_engine()
     session.control = session.connect_control(420)
@@ -1197,11 +1203,10 @@ def run(args: argparse.Namespace) -> int:
     session.check("default_layout_world_no_legacy_panel",
                   status.get("legacy_panel") is False,
                   f"legacy_panel={status.get('legacy_panel')}")
-    # The default Jump rect overlaps Sneak's rect (same y band); the reverse
-    # hit scan awards the overlap to the later button (Sneak -> Shift). Tap
-    # the left part of Jump's box, clear of Sneak (x < 0.665 on 16:9).
-    _, jy = rect_button_xy(w, h, "jump")
-    jx = round(0.58 * w)
+    # The default Jump rect overlaps Sneak and the joystick rects, but
+    # hit_for scans in reverse button order, so Jump (later in the list)
+    # wins every overlapping point — its rect center is the safest tap.
+    jx, jy = rect_button_xy(w, h, "jump")
     proc = session.hold(jx, jy, 3000)
     session.wait_for(
         lambda: "Space" in session.status().get("keys", []), 8,
