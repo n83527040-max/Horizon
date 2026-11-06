@@ -506,17 +506,30 @@ def run(args: argparse.Namespace) -> int:
     adb.start_engine()
     time.sleep(10)
     startup = adb.shell(
-        "logcat -d -v brief -t 600 2>/dev/null | grep -iE 'Horizon|panic|FATAL' "
+        "logcat -d -v brief -t 4000 2>/dev/null | grep -iE 'Horizon|panic|FATAL' "
         "| head -18 | head -c 1700", check=False)
     print(f"::notice::game-test startup-log: {' '.join(startup.split())}", flush=True)
     # The worker creates <cache>/minecraft-downloads as soon as action() runs.
+    # A runner sharing its CPU with build-test-apk can starve the emulator
+    # through the first boot, so allow a long window and one relaunch.
+    worker_probe = lambda: adb.shell(  # noqa: E731
+        f"[ -d {DATA}/cache/minecraft-downloads ] && echo yes || echo no",
+        check=False).strip() == "yes"
+    worker_seen = False
     try:
-        session.wait_for(
-            lambda: adb.shell(
-                f"[ -d {DATA}/cache/minecraft-downloads ] && echo yes || echo no",
-                check=False).strip() == "yes",
-            90, "install worker download cache", 3)
+        session.wait_for(worker_probe, 300, "install worker download cache", 3)
+        worker_seen = True
     except RuntimeError:
+        print("::notice::game-test worker not seen; relaunching engine", flush=True)
+        adb.force_stop()
+        adb.start_engine()
+        try:
+            session.wait_for(worker_probe, 300,
+                             "install worker download cache (relaunch)", 3)
+            worker_seen = True
+        except RuntimeError:
+            pass
+    if not worker_seen:
         adb.logcat(out, "worker-never-started")
         session.fatal(
             "install_worker_never_started",
