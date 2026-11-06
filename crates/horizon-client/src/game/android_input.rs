@@ -383,6 +383,13 @@ impl Game<'_> {
         let size = self.window.as_ref().unwrap().inner_size();
         let b = HudBatch::new([size.width, size.height]);
         let p = [t.location.x as f32 / b.scale, t.location.y as f32 / b.scale];
+        // Never hit-test the legacy auxiliary panel while the replacement HUD
+        // is active: it is not painted there, so its regions must not swallow
+        // touches on the title, login, lists or settings. Release paths above
+        // still run, so keys held before a mode switch cannot stick.
+        if craftix_experimental::enabled() {
+            return Ok(false);
+        }
         if let Some(action) = self
             .pad
             .touch_ui

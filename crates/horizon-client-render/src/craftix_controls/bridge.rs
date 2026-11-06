@@ -8,7 +8,7 @@ use super::{input::Event, layout::Action};
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum UiAction { More, Pause, Settings }
+pub enum UiAction { More, Pause, Settings, Keyboard, Group(u16) }
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum HostEvent {
@@ -38,6 +38,8 @@ impl Bridge {
                         Action::More => Some(UiAction::More),
                         Action::Pause => Some(UiAction::Pause),
                         Action::Settings => Some(UiAction::Settings),
+                        Action::Keyboard => Some(UiAction::Keyboard),
+                        Action::Group(group) => Some(UiAction::Group(*group)),
                         _ => None,
                     } {
                         out.push(HostEvent::Ui(ui, down));

@@ -14001,22 +14001,28 @@ impl Game<'_> {
                 && (!self.pad_in_menu() || self.android_inventory_controls()))
             || craftix_play
         {
-            self.pad.touch.context_use =
-                self.pad.touch.settings.contextual_interact && self.touch_context_use();
-            self.pad.touch.vertical_movement = self.player.as_ref().is_some_and(|p| p.flying);
-            self.pad.touch.swimming = self.player.as_ref().is_some_and(|p| p.swimming);
-            self.pad.touch.mounted = self.riding.is_some();
-            self.pad.touch.shield_available = self.touch_shield_available();
-            self.pad.touch.sneaking = self.keys.contains(&KeyCode::ShiftLeft);
-            self.pad.touch.break_progress = self.touch_mining_progress();
             if craftix_play {
                 let controls = &mut self.pad.craftix;
                 let elapsed = controls.last_frame.elapsed().as_secs_f32();
                 controls.last_frame = Instant::now();
-                let layout = controls.layouts.items[controls.layouts.active].resolved(hud.width,hud.height);
-                controls.animation.advance(&layout, &controls.router, elapsed);
-                horizon_client::craftix_controls::paint::paint(&mut hud, &self.gui.atlas, &layout, &controls.animation);
+                // Resolve into the reused buffer: no per-frame allocation.
+                let active = controls.layouts.active;
+                controls.layouts.items[active]
+                    .resolve_into(&mut controls.resolved, hud.width, hud.height);
+                controls.animation.advance(&controls.resolved, &controls.router, elapsed);
+                horizon_client::craftix_controls::paint::paint(&mut hud, &self.gui.atlas, &controls.resolved, &controls.animation);
             } else {
+                // Legacy HUD state: contextual-interact runs a world pick()
+                // raycast, so it is refreshed only when the legacy overlay
+                // actually draws (the replacement HUD never reads it).
+                self.pad.touch.context_use =
+                    self.pad.touch.settings.contextual_interact && self.touch_context_use();
+                self.pad.touch.vertical_movement = self.player.as_ref().is_some_and(|p| p.flying);
+                self.pad.touch.swimming = self.player.as_ref().is_some_and(|p| p.swimming);
+                self.pad.touch.mounted = self.riding.is_some();
+                self.pad.touch.shield_available = self.touch_shield_available();
+                self.pad.touch.sneaking = self.keys.contains(&KeyCode::ShiftLeft);
+                self.pad.touch.break_progress = self.touch_mining_progress();
                 self.pad.touch.draw(&mut hud, &self.gui.atlas);
             }
             if !craftix_experimental::enabled() && self.pad.touch.editor.is_none() && !self.pad_in_menu() {
@@ -14041,9 +14047,15 @@ impl Game<'_> {
         }
         #[cfg(target_os = "android")]
         {
+            // The legacy auxiliary panel (…/F3/F5/Chat/Keys + menu Mouse/Back)
+            // is a world-HUD element: with the replacement HUD enabled it must
+            // never paint over the title, login, lists or settings. Its key
+            // state (F3 latch, held keys) stays alive for the engine; only the
+            // floating visibility is removed and replaced in-world by the new
+            // control layout.
             if (crate::touch_visible() || self.settings.keypad.enabled)
                 && self.pad.touch.editor.is_none()
-                && (!craftix_experimental::enabled() || (self.pad_in_menu() && self.pad.craftix.editor.is_none()))
+                && !craftix_experimental::enabled()
             {
                 self.pad
                     .touch_ui

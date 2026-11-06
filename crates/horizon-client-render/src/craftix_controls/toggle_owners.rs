@@ -44,10 +44,11 @@ mod tests {
     fn router_bridge_and_real_toggle_ownership_preserve_hardware_and_other_fingers() {
         let mut layout=Layout::default();
         let builtin=layout.buttons.iter_mut().find(|b| b.id==Id::Sneak).unwrap();
-        builtin.circle.center=[0.60,0.25]; builtin.behavior=Behavior::Hold;
+        builtin.set_center([0.60,0.25],16.0/9.0); builtin.behavior=Behavior::Hold;
         layout.buttons.push(Button { id: Id::Custom(47), action: Some(Action::Key("key.keyboard.k".into())),
-            circle: Circle { center: [0.75,0.25], radius: 0.04 }, opacity: 1.0,
-            behavior: Behavior::Hold, icon: Icon::Text, icon_rgba_16: None, enabled: true, visibility: Visibility::Always, label: "K".into() });
+            circle: Circle { center: [0.75,0.25], radius: 0.04 }, rect: None, opacity: 1.0,
+            behavior: Behavior::Hold, icon: Icon::Text, icon_rgba_16: None, enabled: true,
+            visibility: Visibility::Always, label: "K".into(), penetrable: false, group: 0 });
         let mut bindings=KeyBinds::default(); bindings.set("key.sneak","key.keyboard.k");
         let mut router=Router::default(); let mut bridge=Bridge::default();
         let mut owners=ToggleOwners::default(); let mut toggles=ToggleKeys::default();
@@ -79,7 +80,7 @@ mod tests {
         for mode in [Behavior::Single, Behavior::Hold, Behavior::Toggle] {
             let mut layout=Layout::default();
             let button=layout.buttons.iter_mut().find(|b| b.id==Id::Sneak).unwrap();
-            button.behavior=mode; let point=button.circle.center;
+            button.behavior=mode; let point=button.center(16.0/9.0);
             let mut router=Router::default(); let mut bridge=Bridge::default();
             let mut owners=ToggleOwners::default(); let mut toggles=ToggleKeys::default();
             let pump=|router: &mut Router, bridge: &mut Bridge, owners: &mut ToggleOwners, toggles: &mut ToggleKeys| {

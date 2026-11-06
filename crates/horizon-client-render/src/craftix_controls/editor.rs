@@ -1,5 +1,5 @@
 //! Transactional, named layouts for the replacement editor.
-use super::layout::{Action, Behavior, Button, Circle, Icon, Id, Layout};
+use super::layout::{Action, Behavior, Button, Circle, Icon, Id, Layout, Rect, Visibility};
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeSet, io::{self, Read, Write}, path::Path};
 const MAX_BYTES: usize = 2 * 1024 * 1024;
@@ -111,8 +111,11 @@ impl Editor {
         let layout = &mut self.staged.items[self.staged.active];
         let id = (0..u32::MAX).map(Id::Custom).find(|id| !layout.buttons.iter().any(|b| b.id == *id))
             .ok_or_else(|| invalid("no button IDs available"))?;
-        let button = Button { id, action: Some(action), circle: Circle { center: [0.7, 0.30], radius: 0.05 },
-            opacity: 0.85, behavior: Behavior::Hold, icon, icon_rgba_16: None, enabled: true, visibility: super::layout::Visibility::Always, label: name.trim().into() };
+        let rect = Rect { anchor: [0.70, 0.30], size: [0.16, 0.11] };
+        let button = Button { id, action: Some(action), rect: Some(rect),
+            circle: Circle { center: rect.center(16.0 / 9.0), radius: 0.055 },
+            opacity: 0.85, behavior: Behavior::Hold, icon, icon_rgba_16: None, enabled: true,
+            visibility: Visibility::Always, label: name.trim().into(), penetrable: false, group: 0 };
         if !button.valid() || button.label.is_empty() { return Err(invalid("invalid button or binding")); }
         layout.buttons.push(button);
         Ok(id)
@@ -135,17 +138,16 @@ impl Editor {
     pub fn move_button_to(&mut self, id: Id, point: [f32; 2], aspect: f32) -> bool {
         if !aspect.is_finite() || aspect <= 0.0 || !point.into_iter().all(f32::is_finite) { return false; }
         let Some(button) = self.staged.items[self.staged.active].buttons.iter_mut().find(|b| b.id == id) else { return false; };
-        let x_margin=(button.circle.radius/aspect).min(0.5);
-        let y_margin=button.circle.radius.min(0.5);
-        button.circle.center=[point[0].clamp(x_margin,1.0-x_margin), point[1].clamp(y_margin,1.0-y_margin)];
+        button.set_center(point, aspect);
         true
     }
     /// Capture one pointer for the preview without moving a button underneath it.
     pub fn begin_drag(&mut self, pointer: u64, point: [f32; 2], aspect: f32) -> bool {
         if self.drag.is_some() || !aspect.is_finite() || aspect <= 0.0 || !point.into_iter().all(f32::is_finite) { return false; }
         let layout=&self.staged.items[self.staged.active];
-        if let Some(button)=layout.buttons.iter().rev().find(|b| b.circle.contains(point,aspect)) {
-            self.drag=Some((pointer,button.id,[point[0]-button.circle.center[0],point[1]-button.circle.center[1]]));
+        if let Some(button)=layout.buttons.iter().rev().find(|b| b.contains(point,aspect)) {
+            let center=button.center(aspect);
+            self.drag=Some((pointer,button.id,[point[0]-center[0],point[1]-center[1]]));
             true
         } else { false }
     }
@@ -154,10 +156,7 @@ impl Editor {
         let Some((owner,id,offset))=self.drag else { return false; };
         if owner != pointer { return false; }
         let Some(button)=self.staged.items[self.staged.active].buttons.iter_mut().find(|b| b.id==id) else { self.drag=None; return false; };
-        let x_margin=(button.circle.radius/aspect).min(0.5);
-        let y_margin=button.circle.radius.min(0.5);
-        button.circle.center=[(point[0]-offset[0]).clamp(x_margin,1.0-x_margin),
-            (point[1]-offset[1]).clamp(y_margin,1.0-y_margin)];
+        button.set_center([point[0]-offset[0], point[1]-offset[1]], aspect);
         true
     }
     pub fn end_drag(&mut self, pointer: u64) {
@@ -185,19 +184,22 @@ mod tests {
         e.duplicate("Gaming").unwrap(); assert_eq!(e.staged.active,1);
         e.rename("Creative").unwrap(); assert!(e.create("creative").is_err());
         e.staged.items[1].buttons[0].circle.radius=0.2; e.reset();
-        assert_eq!(e.staged.items[1].buttons[0].circle.radius,0.15);
+        assert_eq!(e.staged.items[1].buttons[0].circle.radius, Layout::default().buttons[0].circle.radius);
         e.delete().unwrap(); assert_eq!(e.cancel(),original);
     }
     #[test]
     fn preview_drag_is_owned_clamped_and_cancelled_transactionally() {
         let old=Layouts::default(); let mut editor=Editor::new(old.clone()).unwrap();
         let id=editor.add_key("Map","key.keyboard.m",Icon::Map).unwrap();
-        let p=editor.staged.items[0].buttons.iter().find(|b| b.id==id).unwrap().circle.center;
+        let p=editor.staged.items[0].buttons.iter().find(|b| b.id==id).unwrap().center(16.0/9.0);
         assert!(editor.begin_drag(11,p,16.0/9.0));
         assert!(!editor.move_drag(12,[0.8,0.5],16.0/9.0));
         assert!(editor.move_drag(11,[2.0,2.0],16.0/9.0));
-        let c=editor.staged.items[0].buttons.iter().find(|b| b.id==id).unwrap().circle;
-        assert!(c.center[0]+c.radius/(16.0/9.0) <= 1.0 && c.center[1]+c.radius<=1.0);
+        let b=editor.staged.items[0].buttons.iter().find(|b| b.id==id).unwrap().clone();
+        let c=b.center(16.0/9.0);
+        let hw=b.rect.map_or(b.circle.radius/(16.0/9.0), |r| r.size[0]/(16.0/9.0)*0.5);
+        let hh=b.half_height();
+        assert!(c[0]+hw <= 1.0 && c[0]-hw >= 0.0 && c[1]+hh <= 1.0 && c[1]-hh >= 0.0);
         editor.cancel_drag(); assert!(!editor.move_drag(11,[0.4,0.4],16.0/9.0));
         assert_eq!(editor.cancel(),old);
     }
@@ -217,7 +219,7 @@ mod tests {
         assert!(editor.add_key("Broken", "key.keyboard.not-real", Icon::Text).is_err());
         let id=editor.add_key("Map", "key.keyboard.m", Icon::Map).unwrap();
         let mut button=editor.staged.items[0].buttons.iter().find(|b| b.id==id).unwrap().clone();
-        button.circle.center=[0.77,0.31]; button.circle.radius=0.08; button.opacity=0.5; button.behavior=Behavior::Toggle;
+        button.rect=Some(Rect{anchor:[0.77,0.31],size:[0.16,0.11]}); button.opacity=0.5; button.behavior=Behavior::Toggle;
         editor.edit_button(id,button.clone()).unwrap();
         let settings=editor.commit().unwrap(); let restored=Layouts::from_json(&settings.to_json().unwrap()).unwrap();
         assert_eq!(restored.items[0].buttons.iter().find(|b| b.id==id),Some(&button));

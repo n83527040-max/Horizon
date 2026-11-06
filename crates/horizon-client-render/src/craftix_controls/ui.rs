@@ -95,7 +95,7 @@ impl EditorUi {
             } else { UiEvent::Save };
         }
         if self.page == Page::Position {
-            if let Some(index) = self.layout().buttons.iter().rposition(|b| b.circle.contains(point,aspect)) { self.selected=index; }
+            if let Some(index) = self.layout().buttons.iter().rposition(|b| b.contains(point,aspect)) { self.selected=index; }
             if self.model.begin_drag(id,point,aspect) { self.dragging=Some(id); }
             else if let Some(selected) = self.selected_id() { self.model.move_button_to(selected,point,aspect); }
             return UiEvent::None;
@@ -160,23 +160,34 @@ impl EditorUi {
                 }
             }
         } else if y < 0.73 {
-            if x < 0.25 { self.edit_selected(|b| b.behavior=match b.behavior { Behavior::Hold=>Behavior::Toggle, Behavior::Toggle=>Behavior::Single, Behavior::Single=>Behavior::Hold }); }
-            else if x < 0.50 { self.edit_selected(|b| b.icon=match b.icon { Icon::Text=>Icon::Map,Icon::Map=>Icon::Sword,Icon::Sword=>Icon::Use,Icon::Use=>Icon::Jump,Icon::Jump=>Icon::Sneak,Icon::Sneak=>Icon::Sprint,Icon::Sprint=>Icon::Text }); }
-            else if x < 0.75 { self.edit_selected(|b| b.enabled=!b.enabled); }
+            if x < 0.20 { self.edit_selected(|b| b.behavior=match b.behavior {
+                Behavior::Hold=>Behavior::Toggle, Behavior::Toggle=>Behavior::Single,
+                Behavior::Single=>Behavior::Swipe, Behavior::Swipe=>Behavior::Hold }); }
+            else if x < 0.40 { self.edit_selected(|b| b.icon=match b.icon { Icon::Text=>Icon::Map,Icon::Map=>Icon::Sword,Icon::Sword=>Icon::Use,Icon::Use=>Icon::Jump,Icon::Jump=>Icon::Sneak,Icon::Sneak=>Icon::Sprint,Icon::Sprint=>Icon::Text }); }
+            else if x < 0.60 { self.edit_selected(|b| b.enabled=!b.enabled); }
+            else if x < 0.80 { self.edit_selected(|b| b.penetrable=!b.penetrable); }
             else { self.edit_selected(|b| if matches!(b.id,Id::Custom(_)) { b.visibility=match b.visibility {
                 super::layout::Visibility::Always=>super::layout::Visibility::Gameplay,
                 super::layout::Visibility::Gameplay=>super::layout::Visibility::Inventory,
                 super::layout::Visibility::Inventory=>super::layout::Visibility::Always,
             }; }); }
-        } else if y < 0.81 {
-            self.edit_selected(|b| b.circle.radius=(0.02+x.clamp(0.0,1.0)*0.22).clamp(0.02,0.24));
+        } else if y < 0.79 {
+            self.edit_selected(|b| b.group = if b.group >= 4 { 0 } else { b.group + 1 });
+        } else if y < 0.85 {
+            self.edit_selected(|b| b.set_size_value(0.03 + x.clamp(0.0,1.0) * 0.42));
         } else if y < 0.90 {
             self.edit_selected(|b| b.opacity=x.clamp(0.0,1.0));
         }
         UiEvent::None
     }
     pub fn draw(&self, b: &mut HudBatch, atlas: &HudAtlas) {
-        if self.page == Page::Position { paint::paint(b,atlas,self.layout(),&paint::Animator::default()); }
+        if self.page == Page::Position {
+            // The editor must show every widget, including groups the GUI
+            // button currently collapses in-world.
+            let mut preview = self.layout().clone();
+            preview.hidden_groups.clear();
+            paint::paint(b, atlas, &preview, &paint::Animator::default());
+        }
         else { b.fill(atlas,0.0,0.0,b.width,b.height,rgba(8,6,18,220)); }
         let tabs=["Buttons","Layouts","Position","Icons"];
         for (i,label) in tabs.iter().enumerate() { plate(b,atlas,[i as f32/4.0,0.02,0.245,0.09],label,self.page==[Page::Buttons,Page::Layouts,Page::Position,Page::Icons][i]); }
@@ -188,12 +199,14 @@ impl EditorUi {
             plate(b,atlas,[0.02,0.41,0.96,0.09],&format!("Name: {}",selected.map_or("",|b| b.label.as_str())),false);
             let key=selected.and_then(|b| b.action.as_ref()).map_or("None".into(), |a| format!("{a:?}"));
             plate(b,atlas,[0.02,0.52,0.96,0.09],&format!("Key: {key} (custom only)"),false);
-            plate(b,atlas,[0.01,0.63,0.24,0.09],&format!("{:?}",selected.map(|b| b.behavior)),false);
-            plate(b,atlas,[0.26,0.63,0.24,0.09],&format!("{:?}",selected.map(|b| b.icon)),false);
-            plate(b,atlas,[0.51,0.63,0.24,0.09],if selected.is_some_and(|b| b.enabled) {"Enabled"} else {"Disabled"},false);
-            plate(b,atlas,[0.76,0.63,0.23,0.09],&format!("{:?}",selected.map(|b| b.visibility)),false);
-            plate(b,atlas,[0.02,0.74,0.96,0.06],&format!("Size: {:.2} — tap to change",selected.map_or(0.0,|b| b.circle.radius)),false);
-            plate(b,atlas,[0.02,0.82,0.96,0.06],&format!("Opacity: {:.0}% — tap to change",selected.map_or(0.0,|b| b.opacity*100.0)),false);
+            plate(b,atlas,[0.01,0.63,0.19,0.09],&format!("{:?}",selected.map(|b| b.behavior)),false);
+            plate(b,atlas,[0.21,0.63,0.19,0.09],&format!("{:?}",selected.map(|b| b.icon)),false);
+            plate(b,atlas,[0.41,0.63,0.19,0.09],if selected.is_some_and(|b| b.enabled) {"On"} else {"Off"},false);
+            plate(b,atlas,[0.61,0.63,0.19,0.09],if selected.is_some_and(|b| b.penetrable) {"Pass"} else {"Block"},false);
+            plate(b,atlas,[0.81,0.63,0.18,0.09],&format!("{:?}",selected.map(|b| b.visibility)),false);
+            plate(b,atlas,[0.02,0.74,0.96,0.05],&format!("Group {} — tap to cycle",selected.map_or(0,|b| b.group)),false);
+            plate(b,atlas,[0.02,0.80,0.96,0.05],&format!("Size: {:.2} — tap to change",selected.map_or(0.0,|b| b.size_value())),false);
+            plate(b,atlas,[0.02,0.86,0.96,0.04],&format!("Opacity: {:.0}% — tap to change",selected.map_or(0.0,|b| b.opacity*100.0)),false);
         } else if self.page == Page::Layouts {
             plate(b,atlas,[0.02,0.16,0.96,0.10],&format!("<  {}  >",self.layout().name),false);
             plate(b,atlas,[0.02,0.30,0.46,0.10],"Create",false); plate(b,atlas,[0.52,0.30,0.46,0.10],"Duplicate",false);
@@ -276,7 +289,8 @@ mod tests {
         ui.selected=ui.layout().buttons.iter().position(|b| b.id==Id::Chat).unwrap();
         ui.page=Page::Position;
         ui.touch(1,[0.5,0.5],16.0/9.0,true,false);
-        assert_eq!(ui.selected_button().unwrap().circle.center,[0.5,0.5]);
+        let c = ui.selected_button().unwrap().center(16.0/9.0);
+        assert!((c[0]-0.5).abs() < 1e-4 && (c[1]-0.5).abs() < 1e-4, "center {c:?}");
     }
     #[test]
     fn editor_output_reaches_router_and_real_key_token_bridge() {
@@ -286,7 +300,7 @@ mod tests {
         let button=ui.selected_button().unwrap().clone();
         let layout=ui.model.commit().unwrap().items.remove(0);
         let mut router=Router::default(); let mut bridge=Bridge::default();
-        router.begin(&layout,42,button.circle.center,16.0/9.0,0);
+        router.begin(&layout,42,button.center(16.0/9.0),16.0/9.0,0);
         assert_eq!(bridge.translate(router.drain()),vec![HostEvent::Input("key.keyboard.m".into(),true)]);
         router.end(42);
         assert_eq!(bridge.translate(router.drain()),vec![HostEvent::Input("key.keyboard.m".into(),false)]);

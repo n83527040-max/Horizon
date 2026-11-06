@@ -79,11 +79,16 @@ pub fn paint(b: &mut HudBatch, a: &HudAtlas, layout: &Layout, animation: &Animat
 }
 pub fn paint_for(b: &mut HudBatch, a: &HudAtlas, layout: &Layout, animation: &Animator, inventory: bool) {
     for button in &layout.buttons {
-        if !button.enabled || !button.visibility.permits(inventory) || button.opacity <= 0.0 { continue; }
-        let center=[button.circle.center[0]*b.width,button.circle.center[1]*b.height];
+        if !button.enabled || !layout.hidden_groups.contains(&button.group)
+            || !button.visibility.permits(inventory) || button.opacity <= 0.0 { continue; }
         let press=animation.press(button.id);
-        let radius=button.circle.radius*b.height*(1.0-0.05*press);
         let alpha=(button.opacity.clamp(0.0,1.0)*255.0) as u8;
+        if let Some(rect) = button.rect {
+            paint_rect_button(b, a, button, rect, press, alpha, animation);
+            continue;
+        }
+        let center=[button.circle.center[0]*b.width,button.circle.center[1]*b.height];
+        let radius=button.circle.radius*b.height*(1.0-0.05*press);
         let fill_r=(12.0+71.0*press) as u8;
         let fill_g=(9.0+16.0*press) as u8;
         let fill_b=(22.0+98.0*press) as u8;
@@ -121,6 +126,64 @@ pub fn paint_for(b: &mut HudBatch, a: &HudAtlas, layout: &Layout, animation: &An
         } else { icon(b,a,button.id,center,radius*0.95,alpha); }
     }
 }
+
+/// Zalith-style flat widget: translucent rounded panel, pressed state
+/// brightens the fill, centred label text. Rectangles cost one fill plus
+/// two accent lines instead of the 40-segment disks used by legacy
+/// circle buttons, which keeps the per-frame HUD vertex count low.
+fn paint_rect_button(
+    b: &mut HudBatch, a: &HudAtlas,
+    button: &super::layout::Button, rect: super::layout::Rect,
+    press: f32, alpha: u8, animation: &Animator,
+) {
+    let [x, y, w, h] = rect.box_px(b.width, b.height);
+    if button.id == Id::Joystick {
+        let cx = x + w * 0.5;
+        let cy = y + h * 0.5;
+        let base = w.min(h) * 0.5;
+        disk(b, a, [cx, cy], base, rgba(14, 10, 26, ((alpha as f32) * 0.62) as u8));
+        ring(b, a, [cx, cy], base, (base * 0.03).max(1.0), rgba(195, 119, 255, (alpha as f32 * 0.55) as u8));
+        let m = animation.joystick;
+        let knob = [cx + m[0] * base * 0.62, cy - m[1] * base * 0.62];
+        let kr = base * 0.30;
+        disk(b, a, knob, kr, rgba(105, 49, 157, alpha));
+        ring(b, a, knob, kr, (kr * 0.06).max(0.8), rgba(225, 178, 255, alpha));
+        return;
+    }
+    // Pressed widgets brighten toward the reference pressed style.
+    let fill = if press > 0.01 {
+        let t = press.clamp(0.0, 1.0);
+        rgba(
+            (18.0 + 54.0 * t) as u8,
+            (12.0 + 30.0 * t) as u8,
+            (30.0 + 74.0 * t) as u8,
+            ((alpha as f32) * (0.72 + 0.20 * t)) as u8,
+        )
+    } else {
+        rgba(18, 12, 30, ((alpha as f32) * 0.72) as u8)
+    };
+    b.fill(a, x, y, w, h, fill);
+    b.fill(a, x, y + h - 1.5, w, 1.5, rgba(195, 119, 255, (alpha as f32 * 0.55) as u8));
+    b.fill(a, x, y, w, 1.0, rgba(203, 121, 255, (alpha as f32 / 3.0) as u8));
+    let png = button.icon_rgba_16.as_deref();
+    if let Some(png) = png {
+        let side = w.min(h) * 0.52;
+        super::png_icon::paint(b, a, png, [x + (w - side) * 0.5, y + (h - side) * 0.62, side, side], alpha);
+    }
+    if button.label.is_empty() { return; }
+    let label_w = HudBatch::text_width(a, &button.label);
+    let start = b.vertices.len();
+    let scale = ((w - 4.0) / label_w.max(1.0)).min(1.0);
+    let text_y = match png {
+        Some(_) => y + h * 0.72 - 4.0,
+        None => y + (h - 8.0) * 0.5,
+    };
+    b.text(a, &button.label, x + (w - label_w * scale) * 0.5, text_y, rgba(250, 245, 255, alpha), false);
+    if (scale - 1.0).abs() > f32::EPSILON {
+        b.scale_since(start, x + w * 0.5, text_y + 4.0, scale, 1.0);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

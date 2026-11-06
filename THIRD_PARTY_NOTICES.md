@@ -1,5 +1,29 @@
 # Third-party notices
 
+## CRAFTIX control layer (derived from Zalith Launcher 2's LayerController)
+
+The in-game control layout model, its touch interaction contract and the
+control editor in `crates/horizon-client-render/src/craftix_controls/`
+are a Rust re-implementation derived from the `LayerController` module of
+[Zalith Launcher 2](https://github.com/ZalithLauncher/ZalithLauncher2)
+(anchored widget positions, height-fraction sizes, press/swipable/toggle
+behaviours with out-of-bounds release and swipe chains, penetrable
+widgets, collapsible widget groups, the default layout's positions and
+sizes, and the joystick dead-zone/lock contract).
+
+Zalith Launcher 2 is Copyright (C) 2025-2026 MovTery
+<movtery228@qq.com> and contributors, licensed under the GNU General
+Public License version 3 (full text:
+`third_party/zalith-layer-controller/LICENSE`, upstream README:
+`third_party/zalith-layer-controller/UPSTREAM-README.md`). This
+derivative work is distributed under GPL-3.0-or-later under the name
+**CRAFTIX** (package `com.craftix.launcher`); it is an unofficial
+modification, is not affiliated with or endorsed by the Zalith Launcher
+project, and does not use "Zalith" or any abbreviation of it as its own
+name. See `docs/craftix-controls-zalith-port.md` for exactly what was
+ported, what was intentionally not ported, and the deviations.
+
+
 ## wgpu-hal
 
 `third_party/wgpu-hal` is [wgpu-hal](https://github.com/gfx-rs/wgpu) 30.0.1 by the gfx-rs

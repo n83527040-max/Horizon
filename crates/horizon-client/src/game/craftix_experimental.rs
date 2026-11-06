@@ -4,7 +4,7 @@
 use super::{Game, Screen};
 use horizon_client::craftix_controls::{
     bridge::{Bridge, HostEvent, UiAction}, editor::Layouts,
-    input::Router, paint::Animator, ui::{EditorUi, UiEvent},
+    input::Router, layout::Layout, paint::Animator, ui::{EditorUi, UiEvent},
 };
 use std::{collections::BTreeSet, sync::OnceLock, time::Instant};
 use winit::event::{Touch, TouchPhase};
@@ -54,6 +54,9 @@ pub(super) struct Controls {
     inventory_active: bool,
     /// Diagnostic: pointers that delivered a Moved phase at least once.
     moved_seen: BTreeSet<u64>,
+    /// Reused per-frame resolution buffer: avoids reallocating the button
+    /// vector and its labels on every painted frame (frame pacing).
+    pub(super) resolved: Layout,
 }
 impl Default for Controls {
     fn default() -> Self {
@@ -88,7 +91,8 @@ impl Default for Controls {
         };
         Self { layouts, editor: None, load_error, router: Router::default(), bridge: Bridge::default(), animation: Animator::default(),
             last_frame: Instant::now(), reserved: BTreeSet::new(),
-        moved_seen: BTreeSet::new(), viewport: None, inventory_active: false }
+        moved_seen: BTreeSet::new(), viewport: None, inventory_active: false,
+            resolved: Layout::default() }
     }
 }
 impl Game<'_> {
@@ -109,6 +113,17 @@ impl Game<'_> {
                     if let Err(error) = self.pad_back() { log::warn!("Touch pause: {error}"); }
                 }
                 HostEvent::Ui(UiAction::Settings, true) => self.open_options(false),
+                HostEvent::Ui(UiAction::Keyboard, true) => self.android_show_keyboard(),
+                HostEvent::Ui(UiAction::Group(group), true) => {
+                    // LayerController switch_layer: toggle a widget group so
+                    // the top bar can be collapsed without leaving the world.
+                    let layouts = &mut self.pad.craftix.layouts;
+                    if let Some(layout) = layouts.items.get_mut(layouts.active) {
+                        if !layout.hidden_groups.remove(&group) {
+                            layout.hidden_groups.insert(group);
+                        }
+                    }
+                }
                 HostEvent::Ui(UiAction::More, true) => {
                     self.craftix_clear();
                     match EditorUi::new(self.pad.craftix.layouts.clone()) {

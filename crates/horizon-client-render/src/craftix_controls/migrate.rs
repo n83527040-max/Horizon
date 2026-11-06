@@ -39,8 +39,12 @@ pub fn preview(source: &Settings) -> Migration {
             (Id::Inventory,Control::Inventory), (Id::Perspective,Control::Perspective),
         ] {
             let old = settings.placement(control);
-            let button = layout.buttons.iter_mut().find(|button| button.id == id).expect("factory control");
+            // Some factory controls (for example Settings) are not part of
+            // the current default layout; they are simply not previewed.
+            let Some(button) = layout.buttons.iter_mut().find(|button| button.id == id) else { continue; };
             button.circle = circle(old, settings.button_scale);
+            button.set_center(old.center, 16.0 / 9.0);
+            button.set_size_value((old.size * settings.button_scale).clamp(0.03, 0.45));
             button.opacity = old.opacity;
             button.enabled = settings.visible(control);
             if id == Id::Sprint && settings.sprint_toggle { button.behavior = Behavior::Toggle; }
@@ -60,7 +64,9 @@ pub fn preview(source: &Settings) -> Migration {
             let label = if old.name.is_empty() { old.key.chars().take(32).collect() } else { old.name.clone() };
             layout.buttons.push(Button {
                 id: Id::Custom(index as u32), action, circle: circle(place,settings.button_scale),
+                rect: None,
                 opacity: place.opacity, enabled, label,
+                penetrable: false, group: 0,
                 behavior: if old.single { Behavior::Single } else if old.toggle { Behavior::Toggle } else { Behavior::Hold },
                 icon: match old.icon {
                     CustomIcon::Text => Icon::Text, CustomIcon::Attack => Icon::Sword, CustomIcon::Use => Icon::Use,
