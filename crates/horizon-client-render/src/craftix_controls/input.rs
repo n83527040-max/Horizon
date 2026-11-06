@@ -42,6 +42,10 @@ pub struct Router {
     /// Last host-supplied monotonic time; Single re-presses during moved()
     /// schedule against it because moved() carries no timestamp.
     last_now: u64,
+    /// Widgets this pointer released from its own chain; touching one again
+    /// re-presses it (Zalith onPointerBackInBounds), while unrelated widgets
+    /// under a camera drag stay untouched.
+    return_candidates: Vec<Id>,
 }
 impl Router {
     fn acquire(&mut self, action: Action, owner: Owner) {
@@ -72,9 +76,43 @@ impl Router {
         self.begin_for(layout, id, p, aspect, now_ms, false);
     }
     /// In menus, empty space belongs to the menu, not the camera.
+    /// Press a widget for a pointer: acquire per behavior and build the
+    /// pointer's role. Shared by begin, the chain-empty re-hit and the
+    /// back-in-bounds re-press so all three behave identically.
+    fn press_for_pointer(&mut self, id: u64, button: &super::layout::Button, p: [f32; 2]) -> Role {
+        let mut chain = Vec::new();
+        if let Some(action) = &button.action {
+            match button.behavior {
+                Behavior::Hold | Behavior::Swipe => {
+                    self.acquire(action.clone(), Owner::Finger(id));
+                    chain.push(button.id);
+                }
+                Behavior::Toggle => {
+                    if let Some(old) = self.toggles.remove(&button.id) {
+                        self.release(&old, Owner::Toggle(button.id));
+                    } else {
+                        self.toggles.insert(button.id, action.clone());
+                        self.acquire(action.clone(), Owner::Toggle(button.id));
+                    }
+                }
+                Behavior::Single => {
+                    let single = self.next_single;
+                    self.next_single = self.next_single.wrapping_add(1);
+                    self.acquire(action.clone(), Owner::Single(single));
+                    self.singles.insert(single, (action.clone(), self.last_now.saturating_add(100)));
+                }
+            }
+        }
+        if button.behavior == Behavior::Toggle {
+            Role::Toggle(button.id)
+        } else {
+            Role::Button { look: button.penetrable.then_some(p), chain }
+        }
+    }
     pub fn begin_for(&mut self, layout: &Layout, id: u64, p: [f32; 2], aspect: f32, now_ms: u64, inventory: bool) {
         if self.pointers.contains_key(&id) || !p.into_iter().all(|v| v.is_finite() && (0.0..=1.0).contains(&v)) || !aspect.is_finite() || aspect <= 0.0 { return; }
         self.last_now = now_ms;
+        self.return_candidates.clear();
         let role = match layout.hit_for(p, aspect, inventory) {
             Some(button) if button.id == Id::Joystick && inventory => return,
             Some(button) if button.id == Id::Joystick => {
@@ -90,33 +128,7 @@ impl Router {
                     self.pointers.insert(id, Role::Ignore);
                     return;
                 }
-                let mut chain = Vec::new();
-                if let Some(action) = &button.action {
-                    match button.behavior {
-                        Behavior::Hold | Behavior::Swipe => {
-                            self.acquire(action.clone(), Owner::Finger(id));
-                            chain.push(button.id);
-                        }
-                        Behavior::Toggle => {
-                            if let Some(old) = self.toggles.remove(&button.id) {
-                                self.release(&old, Owner::Toggle(button.id));
-                            } else {
-                                self.toggles.insert(button.id, action.clone());
-                                self.acquire(action.clone(), Owner::Toggle(button.id));
-                            }
-                        }
-                        Behavior::Single => {
-                            let single = self.next_single;
-                            self.next_single = self.next_single.wrapping_add(1);
-                            self.acquire(action.clone(), Owner::Single(single));
-                            self.singles.insert(single, (action.clone(), now_ms.saturating_add(100)));
-                        }
-                    }
-                }
-                if button.behavior == Behavior::Toggle { Role::Toggle(button.id) }
-                else {
-                    Role::Button { look: button.penetrable.then_some(p), chain }
-                }
+                self.press_for_pointer(id, button, p)
             }
             None if inventory => return,
             None => Role::Look(p),
@@ -143,7 +155,29 @@ impl Router {
                 *last = p;
                 self.events.push(Event::Look(delta));
             }
-            // Out-of-bounds release for swipable widgets (TouchProcessor).
+            // The landing widget decides the chain: a swipable landing keeps
+            // earlier members held even outside their own bounds (Zalith
+            // PointerEventBus swipe chain); anything else lets out-of-bounds
+            // members release.
+            let landing = layout.hit_for(p, aspect, false);
+            let blocked = chain.iter().any(|cid|
+                layout.buttons.iter().find(|b| b.id == *cid).is_some_and(|b| b.behavior.blocks_swipe_chain()));
+            let joins = !blocked
+                && let Some(button) = landing
+                && button.behavior.can_be_swiped_to()
+                && button.id != Id::Joystick
+                && !chain.contains(&button.id);
+            if joins {
+                if let Some(button) = landing
+                    && let Some(action) = &button.action
+                {
+                    self.acquire(action.clone(), Owner::Finger(id));
+                    chain.push(button.id);
+                }
+                self.pointers.insert(id, Role::Button { look, chain });
+                return;
+            }
+            let origin = chain.clone();
             let mut released = Vec::new();
             for button_id in chain.iter() {
                 if let Some(button) = layout.buttons.iter().find(|b| b.id == *button_id) {
@@ -161,63 +195,33 @@ impl Router {
                 }
             }
             if chain.is_empty() {
-                // No widget holds this finger any more: the event is
-                // unconsumed and the camera takes over; touching a widget
-                // again starts a fresh press (onPointerBackInBounds).
-                match layout.hit_for(p, aspect, false) {
-                    Some(button) if button.id != Id::Joystick => {
-                        let mut fresh = Vec::new();
-                        let mut penetrable = button.penetrable;
-                        if let Some(action) = &button.action {
-                            match button.behavior {
-                                Behavior::Hold | Behavior::Swipe => {
-                                    self.acquire(action.clone(), Owner::Finger(id));
-                                    fresh.push(button.id);
-                                }
-                                Behavior::Toggle => {
-                                    if !self.toggles.contains_key(&button.id) {
-                                        self.toggles.insert(button.id, action.clone());
-                                        self.acquire(action.clone(), Owner::Toggle(button.id));
-                                    } else { penetrable = false; }
-                                }
-                                Behavior::Single => {
-                                    let single = self.next_single;
-                                    self.next_single = self.next_single.wrapping_add(1);
-                                    self.acquire(action.clone(), Owner::Single(single));
-                                    self.singles.insert(single, (action.clone(), self.last_now.saturating_add(100)));
-                                }
-                            }
-                        }
-                        self.pointers.insert(id, Role::Button {
-                            look: penetrable.then_some(p), chain: fresh,
-                        });
-                        return;
+                // No widget holds this finger any more. A fresh Hold/Swipe
+                // under the finger starts a new press; anything else (empty
+                // space, or a Single that already pulsed) hands the pointer
+                // to the camera, remembering this finger's own widgets for
+                // an onPointerBackInBounds re-press.
+                match landing {
+                    Some(button) if button.id != Id::Joystick
+                        && button.behavior != Behavior::Single =>
+                    {
+                        let role = self.press_for_pointer(id, button, p);
+                        self.return_candidates.clear();
+                        self.pointers.insert(id, role);
                     }
                     _ => {
+                        self.return_candidates = origin;
                         self.pointers.insert(id, Role::Look(p));
-                        return;
                     }
                 }
-            }
-            // Swipe-in: the finger slides onto another swipable widget
-            // while no active widget blocks the chain (Toggle blocks).
-            let blocked = chain.iter().any(|cid|
-                layout.buttons.iter().find(|b| b.id == *cid).is_some_and(|b| b.behavior.blocks_swipe_chain()));
-            if !blocked
-                && let Some(button) = layout.hit_for(p, aspect, false)
-                && button.behavior.can_be_swiped_to()
-                && button.id != Id::Joystick
-                && !chain.contains(&button.id)
-            {
-                if let Some(action) = &button.action {
-                    self.acquire(action.clone(), Owner::Finger(id));
-                }
-                chain.push(button.id);
+                return;
             }
             self.pointers.insert(id, Role::Button { look, chain });
             return;
         }
-        // Joystick and camera motion: field-disjoint borrows only.
+        // Joystick and camera motion: field-disjoint borrows only. The
+        // back-in-bounds re-press runs after the borrow ends because it
+        // acquires through the whole router.
+        let mut repress: Option<Id> = None;
         match self.pointers.get_mut(&id) {
             Some(Role::Joystick { center, radius }) => {
                 let center = *center;
@@ -233,8 +237,25 @@ impl Router {
                 let delta = [(p[0] - last[0]) * aspect * layout.camera_sensitivity, (p[1] - last[1]) * layout.camera_sensitivity];
                 *last = p;
                 self.events.push(Event::Look(delta));
+                // onPointerBackInBounds: only widgets this finger itself
+                // released re-press; dragging across other HUD widgets must
+                // not press them.
+                if let Some(hit) = layout.hit_for(p, aspect, false)
+                    && hit.id != Id::Joystick
+                    && hit.behavior != Behavior::Single
+                    && self.return_candidates.contains(&hit.id)
+                {
+                    repress = Some(hit.id);
+                }
             }
             _ => {}
+        }
+        if let Some(hit_id) = repress
+            && let Some(hit) = layout.buttons.iter().find(|b| b.id == hit_id)
+        {
+            self.return_candidates.clear();
+            let role = self.press_for_pointer(id, hit, p);
+            self.pointers.insert(id, role);
         }
         // Joystick forward lock (Zalith lockEvents): a strong north flick
         // keeps walking forward with sprint after the finger lifts.
@@ -277,6 +298,7 @@ impl Router {
     pub fn clear(&mut self) {
         for action in std::mem::take(&mut self.owners).into_keys() { self.events.push(Event::Key(action, false)); }
         self.pointers.clear(); self.toggles.clear(); self.singles.clear(); self.joystick = None;
+        self.return_candidates.clear();
         self.locked = false; self.lock_pending = false;
         if self.movement != [0.0; 2] { self.movement = [0.0; 2]; self.events.push(Event::Move(self.movement)); }
     }
@@ -386,13 +408,18 @@ mod tests {
         let p = center(&l, Id::Custom(20));
         r.begin(&l, 1, p, 16.0/9.0, 0);
         assert!(r.active(&Action::Key("key.keyboard.m".into())));
-        // Finger leaves the widget: the swipable button releases...
-        r.moved(&l, 1, [0.9, 0.1], 16.0/9.0);
+        // Finger leaves the widget onto empty space (the default HUD's
+        // top-right is the GUI collapse button now, so use the clear middle
+        // band): the swipable button releases...
+        r.moved(&l, 1, [0.5, 0.15], 16.0/9.0);
         assert!(!r.active(&Action::Key("key.keyboard.m".into())));
         let e = r.drain();
         assert_eq!(e.last(), Some(&Event::Key(Action::Key("key.keyboard.m".into()), false)));
-        // ...and the camera takes over until the finger returns.
-        assert!(matches!(e.iter().find(|ev| matches!(ev, Event::Look(_))), Some(_)));
+        // ...and the camera takes over on the next move...
+        r.moved(&l, 1, [0.55, 0.18], 16.0/9.0);
+        let e2 = r.drain();
+        assert!(matches!(e2.iter().find(|ev| matches!(ev, Event::Look(_))), Some(_)));
+        // ...until the finger returns to the widget it released.
         r.moved(&l, 1, p, 16.0/9.0);
         assert!(r.active(&Action::Key("key.keyboard.m".into())));
         r.end(1);
