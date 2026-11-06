@@ -990,6 +990,14 @@ impl Game<'_> {
                 // Where the walk vector stands between keys and travel.
                 "move_vector": p.move_vector,
                 "applied_input": p.applied_input,
+                // The attribute that scales every walk gain (0.1 at rest).
+                "movement_speed": p
+                    .attributes
+                    .lookup(p.attributes.key("minecraft:movement_speed").as_ref())
+                    .and_then(|h| p.attributes.instance(&h).ok())
+                    .map(|i| i.cached_value()),
+                "flying": p.flying,
+                "sprinting": p.sprinting,
                 "on_ground": p.ground.on_ground,
                 "health": p.health.health(),
                 // The maximum the HUD's hearts last read (its cached value).
