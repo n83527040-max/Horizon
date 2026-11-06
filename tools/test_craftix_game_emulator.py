@@ -596,9 +596,13 @@ def run(args: argparse.Namespace) -> int:
     session.check("hud_attack_registers", bool(attacks) or bool(broke),
                   f"mobs={session.status().get('mobs')} attacks={json.dumps(attacks)[:200]}")
 
-    # Joystick: real touch drag -> player velocity.
-    session.control.command("tp 0 80 0")
-    time.sleep(2)
+    # Joystick: real touch drag -> player velocity. Stay grounded: a mid-air
+    # teleport leaves only trivial air-strafe, which reads as a dead stick.
+    grounded = session.wait_for(
+        lambda: (session.status().get("player") or {}).get("on_ground"), 30,
+        "player on the ground before the joystick drag")
+    session.check("joystick_player_grounded", bool(grounded),
+                  "on_ground before the drag")
     jox, joy = button_xy(w, h, "joystick")
     joy_y = joy
     drag_to = jox + int(w * 0.24)
