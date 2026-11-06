@@ -609,21 +609,35 @@ def run(args: argparse.Namespace) -> int:
                   "on_ground before the drag")
     jox, joy = button_xy(w, h, "joystick")
     joy_y = joy
-    proc = subprocess.Popen(
-        ["adb", "shell", "input", "swipe", str(jox), str(joy_y),
-         str(jox + int(w * 0.24)), str(joy_y), "2200"],
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    pos0 = ((session.status().get("player") or {}).get("position") or [0, 0, 0])
     max_speed = 0.0
-    deadline = time.time() + 5
-    while time.time() < deadline:
-        status = session.status()
-        player = status.get("player") or {}
-        velocity = player.get("velocity") or [0, 0, 0]
-        max_speed = max(max_speed, math.hypot(velocity[0], velocity[2]))
-        time.sleep(0.4)
-    session.finish(proc)
-    session.check("hud_joystick_moves_player", max_speed > 0.3,
-                  f"max horizontal speed {max_speed:.2f} m/s during joystick drag")
+
+    def drag(dx: int, dy: int) -> None:
+        """One swipe in screen space; sample velocity and drift while it runs."""
+        nonlocal max_speed
+        proc = subprocess.Popen(
+            ["adb", "shell", "input", "swipe", str(jox), str(joy_y),
+             str(jox + dx), str(joy_y + dy), "2200"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        deadline = time.time() + 4
+        while time.time() < deadline:
+            player = session.status().get("player") or {}
+            velocity = player.get("velocity") or [0, 0, 0]
+            max_speed = max(max_speed, math.hypot(velocity[0], velocity[2]))
+            time.sleep(0.4)
+        session.finish(proc)
+
+    # Push in several screen directions: one heading can be pinned against
+    # terrain, which reads as a dead stick.
+    step = int(w * 0.24)
+    for dx, dy in ((step, 0), (-step, 0), (0, -step)):
+        drag(dx, dy)
+    pos1 = ((session.status().get("player") or {}).get("position") or [0, 0, 0])
+    drift = math.hypot(float(pos1[0]) - float(pos0[0]), float(pos1[2]) - float(pos0[2]))
+    session.check("hud_joystick_moves_player",
+                  max_speed > 0.3 or drift > 1.0,
+                  f"max horizontal speed {max_speed:.2f} m/s; player drift "
+                  f"{drift:.2f} m over three swipes (pos {pos0} -> {pos1})")
     time.sleep(3)
 
     # Phase 5: More opens the editor; create + save a K button on device.
