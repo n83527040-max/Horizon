@@ -279,7 +279,9 @@ class Session:
             except Exception:  # noqa: BLE001
                 pass
             time.sleep(2)
-        raise RuntimeError(f"timeout waiting for {what}; last status keys: {list(last)[:8]}")
+        raise RuntimeError(
+            f"timeout waiting for {what}; screen={last.get('screen')} "
+            f"keys={last.get('keys')} editing={last.get('craftix_editing_text')}")
 
     def display_size(self) -> tuple[int, int]:
         try:
@@ -564,15 +566,20 @@ def run(args: argparse.Namespace) -> int:
     # Attack: a real swing through action:key.attack -> mouse-left engine path.
     session.control.command("hurtlog")  # drain
     session.control.command("summon zombie")
+    zombie_up = session.wait_for(
+        lambda: (session.status().get("mobs") or 0) > 0, 15, "zombie in status.mobs")
+    session.check("zombie_spawned_for_attacks", bool(zombie_up),
+                  f"status.mobs={session.status().get('mobs')}")
     time.sleep(1)
     ax, ay = button_xy(w, h, "attack")
-    proc = session.hold(ax, ay, 2000)
+    proc = session.hold(ax, ay, 2500)
     session.finish(proc)
     time.sleep(1)
     hurt = session.control.command("hurtlog")
     attacks = [p for p in hurt.get("players", []) if p.get("attacks")]
     hurts = [p for p in hurt.get("players", []) if p.get("hurts")]
     session.check("hud_attack_registers", bool(attacks or hurts),
+                  f"mobs={session.status().get('mobs')} "
                   f"attacks={json.dumps(attacks)[:400]} hurts={json.dumps(hurts)[:200]}")
 
     # Joystick: real touch drag -> player velocity.
@@ -582,7 +589,7 @@ def run(args: argparse.Namespace) -> int:
     joy_y = joy
     proc = subprocess.Popen(
         ["adb", "shell", "input", "swipe", str(jox), str(joy_y),
-         str(jox + int(w * 0.10)), str(joy_y), "1500"],
+         str(jox + int(w * 0.24)), str(joy_y), "2200"],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     max_speed = 0.0
     deadline = time.time() + 5
@@ -716,8 +723,35 @@ def run(args: argparse.Namespace) -> int:
     session.check("inventory_custom_button_works", bool(saw_k),
                   f"pre-seeded K button at {ikx},{iky} outside the container")
     session.finish(proc)
+    time.sleep(1)
     session.control.command("key e tap")
-    session.wait_status(lambda s: s.get("screen") == "playing", 15, "back to playing")
+    try:
+        session.wait_status(lambda s: s.get("screen") == "playing", 25,
+                            "back to playing after inventory close")
+    except RuntimeError:
+        screen_now = session.status().get("screen")
+        if screen_now in ("inventory", "creative"):
+            session.control.command("key e tap")
+            try:
+                session.wait_status(lambda s: s.get("screen") == "playing", 25,
+                                    "back to playing after inventory retry")
+            except RuntimeError:
+                adb.logcat(out, "inventory-stuck")
+                session.fatal(
+                    "inventory_closes_on_e",
+                    f"inventory still open after two 'key e' taps; "
+                    f"state: {session.failure_snapshot()}")
+        elif screen_now == "paused":
+            session.control.command("resume")
+            session.wait_status(lambda s: s.get("screen") == "playing", 25,
+                                "back to playing after resume")
+        else:
+            adb.logcat(out, "inventory-stuck")
+            session.fatal(
+                "inventory_closes_on_e",
+                f"screen={screen_now} after closing inventory; "
+                f"state: {session.failure_snapshot()}")
+    session.check("inventory_closes_on_e", True, "'key e' returned to playing")
 
     # Phase 7: menu opened while a touch is held; no stuck keys afterwards.
     session.phase("menu while holding")
@@ -751,6 +785,8 @@ def run(args: argparse.Namespace) -> int:
     jx, jy = button_xy(w, h, "jump")
     session.control.command("hurtlog")
     session.control.command("summon zombie")
+    session.wait_for(lambda: (session.status().get("mobs") or 0) > 0, 15,
+                     "zombie for simultaneous click")
     time.sleep(1)
     proc = session.hold(jx, jy, 2500)
     session.wait_for(lambda: "Space" in session.status().get("keys", []), 4, "Space held")
@@ -765,7 +801,8 @@ def run(args: argparse.Namespace) -> int:
                or p.get("hurts")]
     session.check("simultaneous_touch_and_mouse", "Space" not in keys and bool(attacks),
                   f"HUD jump held + engine mouse click; keys after release {sorted(keys)}; "
-                  f"mouse target record {json.dumps(attacks)[:200]}")
+                  f"mobs={status.get('mobs')}; mouse target record "
+                  f"{json.dumps(attacks)[:200]}")
     # A real touchscreen tap must flip the active input back to Touch.
     session.tap(round(0.5 * w), round(0.45 * h))  # empty area: camera drag start/end
     time.sleep(1)
