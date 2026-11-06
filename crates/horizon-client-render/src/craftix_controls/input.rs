@@ -162,17 +162,19 @@ impl Router {
             let landing = layout.hit_for(p, aspect, false);
             let blocked = chain.iter().any(|cid|
                 layout.buttons.iter().find(|b| b.id == *cid).is_some_and(|b| b.behavior.blocks_swipe_chain()));
-            let joins = !blocked
-                && let Some(button) = landing
-                && button.behavior.can_be_swiped_to()
-                && button.id != Id::Joystick
-                && !chain.contains(&button.id);
+            let joins = match landing {
+                Some(button) => !blocked
+                    && button.behavior.can_be_swiped_to()
+                    && button.id != Id::Joystick
+                    && !chain.contains(&button.id),
+                None => false,
+            };
             if joins {
-                if let Some(button) = landing
-                    && let Some(action) = &button.action
-                {
-                    self.acquire(action.clone(), Owner::Finger(id));
-                    chain.push(button.id);
+                if let Some(button) = landing {
+                    if let Some(action) = &button.action {
+                        self.acquire(action.clone(), Owner::Finger(id));
+                        chain.push(button.id);
+                    }
                 }
                 self.pointers.insert(id, Role::Button { look, chain });
                 return;
@@ -240,22 +242,23 @@ impl Router {
                 // onPointerBackInBounds: only widgets this finger itself
                 // released re-press; dragging across other HUD widgets must
                 // not press them.
-                if let Some(hit) = layout.hit_for(p, aspect, false)
-                    && hit.id != Id::Joystick
-                    && hit.behavior != Behavior::Single
-                    && self.return_candidates.contains(&hit.id)
-                {
-                    repress = Some(hit.id);
+                if let Some(hit) = layout.hit_for(p, aspect, false) {
+                    if hit.id != Id::Joystick
+                        && hit.behavior != Behavior::Single
+                        && self.return_candidates.contains(&hit.id)
+                    {
+                        repress = Some(hit.id);
+                    }
                 }
             }
             _ => {}
         }
-        if let Some(hit_id) = repress
-            && let Some(hit) = layout.buttons.iter().find(|b| b.id == hit_id)
-        {
-            self.return_candidates.clear();
-            let role = self.press_for_pointer(id, hit, p);
-            self.pointers.insert(id, role);
+        if let Some(hit_id) = repress {
+            if let Some(hit) = layout.buttons.iter().find(|b| b.id == hit_id) {
+                self.return_candidates.clear();
+                let role = self.press_for_pointer(id, hit, p);
+                self.pointers.insert(id, role);
+            }
         }
         // Joystick forward lock (Zalith lockEvents): a strong north flick
         // keeps walking forward with sprint after the finger lifts.
