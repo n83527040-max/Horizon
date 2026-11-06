@@ -243,9 +243,30 @@ class Session:
                 k: v for k, v in reply.items() if k != "ok"}
         except Exception as error:  # noqa: BLE001 - recorded in the report
             stats = {"error": str(error)}
-        pss = self.adb.shell(
-            "dumpsys meminfo com.craftix.launcher 2>/dev/null | grep -i -m2 total",
-            check=False)
+        # Memory and CPU straight from /proc: dumpsys meminfo prints nothing
+        # useful for this package on the test image.
+        def _ticks() -> tuple[str, str]:
+            pid = self.adb.shell(
+                "pidof com.craftix.launcher | cut -d' ' -f1",
+                check=False).strip().split()
+            pid = pid[0] if pid else ""
+            if not pid:
+                return "", ""
+            ticks = self.adb.shell(
+                f"awk '{{print $14 + $15}}' /proc/{pid}/stat 2>/dev/null",
+                check=False).strip()
+            mem = self.adb.shell(
+                f"grep -E 'VmRSS' /proc/{pid}/status 2>/dev/null",
+                check=False).strip()
+            return ticks.split()[0] if ticks.split() else "", mem
+        cpu0, _ = _ticks()
+        cpu1, mem = _ticks()
+        cpu_pct = ""
+        try:
+            if cpu0 and cpu1 and dt:
+                cpu_pct = f"{(int(cpu1) - int(cpu0)) / dt:.1f}%"
+        except ValueError:
+            pass
         sample = {
             "label": label,
             "window_s": round(dt, 1),
@@ -253,12 +274,14 @@ class Session:
             "fps": round(frames / dt, 1) if dt else 0.0,
             "tps": round(ticks / dt, 1) if dt else 0.0,
             "screen": s1.get("screen"),
-            "meminfo": " ".join((pss or "").split())[:300],
+            "meminfo": " ".join((mem or "").split())[:200],
+            "cpu": cpu_pct,
             "stats": stats,
         }
         self.perf[label] = sample
         print(f"::notice::game-test perf {label}: fps={sample['fps']} "
-              f"tps={sample['tps']} mem={sample['meminfo'][:120]}"[:300], flush=True)
+              f"tps={sample['tps']} cpu={sample['cpu']} "
+              f"mem={sample['meminfo'][:120]}"[:300], flush=True)
         return sample
 
     def check(self, name: str, ok: bool, detail: str = "") -> bool:
