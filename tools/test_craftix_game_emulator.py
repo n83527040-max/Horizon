@@ -604,16 +604,23 @@ def run(args: argparse.Namespace) -> int:
     # goes PadState -> pad_move -> physics without any touch involved.
     session.control.command("pad stick left 1 0")
     control_speed = 0.0
+    applied_max = 0.0
+    move_max = 0.0
     deadline = time.time() + 3
     while time.time() < deadline:
         player = session.status().get("player") or {}
         velocity = player.get("velocity") or [0, 0, 0]
         control_speed = max(control_speed, math.hypot(velocity[0], velocity[2]))
+        applied = player.get("applied_input") or [0, 0]
+        applied_max = max(applied_max, math.hypot(applied[0], applied[1]))
+        mv = player.get("move_vector") or [0, 0]
+        move_max = max(move_max, math.hypot(mv[0], mv[1]))
         time.sleep(0.4)
     session.control.command("pad stick left 0 0")
     session.check("control_stick_moves_player", control_speed > 0.3,
                   f"max horizontal speed {control_speed:.2f} m/s from "
-                  f"'pad stick left 1 0'")
+                  f"'pad stick left 1 0'; max |move_vector|={move_max:.2f} "
+                  f"max |applied_input|={applied_max:.2f}")
     time.sleep(1)
 
     # Land on fresh open ground: spawn geometry can box the player in, which

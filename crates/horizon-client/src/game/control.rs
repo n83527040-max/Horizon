@@ -987,6 +987,9 @@ impl Game<'_> {
             json!({
                 "position": [p.position.x, p.position.y, p.position.z],
                 "velocity": [p.velocity.x, p.velocity.y, p.velocity.z],
+                // Where the walk vector stands between keys and travel.
+                "move_vector": p.move_vector,
+                "applied_input": p.applied_input,
                 "on_ground": p.ground.on_ground,
                 "health": p.health.health(),
                 // The maximum the HUD's hearts last read (its cached value).
