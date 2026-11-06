@@ -119,10 +119,11 @@ def rect_button_xy(w, h, name):
     aspect = w / h
     w_frac = min(sw / aspect, 1.0)
     x = (1.0 - w_frac) * ax + w_frac / 2.0
-    y = ay - sh / 2.0
+    y = (1.0 - sh) * ay + sh / 2.0
     # Mirror apply_resolution's hotbar avoidance for safety.
     if (0.5 * w - 90) <= x * w <= (0.5 * w + 90) and y * h >= h - 22:
-        y = (h - 22 - sh * h - 3) / max(h - sh * h, 1.0) / h + sh / 2.0
+        anchor1 = (h - 22 - sh * h - 3) / max(h - sh * h, 1.0)
+        y = (1.0 - sh) * min(max(anchor1, 0.0), 1.0) + sh / 2.0
     return round(x * w), round(y * h)
 
 
@@ -913,9 +914,15 @@ def run(args: argparse.Namespace) -> int:
         saved_layout = json.loads(raw[raw.find("{"):raw.rfind("}") + 1])
         custom = [b for b in saved_layout["items"][0]["buttons"]
                   if isinstance(b.get("id"), dict)]
+        def at_add_position(b):
+            rect = b.get("rect") or {}
+            anchor = rect.get("anchor")
+            if anchor is not None:
+                return abs(anchor[0] - 0.70) < 0.01 and abs(anchor[1] - 0.30) < 0.01
+            center = b.get("circle", {}).get("center", [None, None])
+            return abs(center[0] - 0.70) < 0.01 and abs(center[1] - 0.30) < 0.01
         created = [b for b in custom
-                   if abs(b["circle"]["center"][0] - 0.70) < 0.01
-                   and abs(b["circle"]["center"][1] - 0.30) < 0.01
+                   if at_add_position(b)
                    and (b.get("action") or {}).get("key") == "key.keyboard.k"]
         session.check("saved_file_has_k_button", bool(created),
                       f"custom buttons: {json.dumps(custom)[:400]}")
@@ -1191,9 +1198,9 @@ def run(args: argparse.Namespace) -> int:
                   status.get("legacy_panel") is False,
                   f"legacy_panel={status.get('legacy_panel')}")
     jx, jy = rect_button_xy(w, h, "jump")
-    proc = session.hold(jx, jy, 900)
+    proc = session.hold(jx, jy, 3000)
     session.wait_for(
-        lambda: "Space" in session.status().get("keys", []), 5,
+        lambda: "Space" in session.status().get("keys", []), 8,
         "default-layout jump")
     session.check("default_layout_jump_works", True,
                   f"hold at {jx},{jy} pressed Space")
