@@ -243,8 +243,8 @@ class Session:
         except Exception as error:  # noqa: BLE001 - recorded in the report
             stats = {"error": str(error)}
         pss = self.adb.shell(
-            "dumpsys meminfo com.craftix.launcher | grep -E 'TOTAL PSS|TOTAL RSS' "
-            "| head -2", check=False)
+            "dumpsys meminfo com.craftix.launcher 2>/dev/null | grep -i -m2 total",
+            check=False)
         sample = {
             "label": label,
             "window_s": round(dt, 1),
@@ -558,6 +558,7 @@ def run(args: argparse.Namespace) -> int:
 
     if args.baseline_apk:
         session.phase("baseline perf (pre-replacement controls)")
+        adb.shell(f"rm -f {CONTROL_JSON}", check=False)
         adb.start_engine()
         try:
             session.control = session.connect_control(420)
@@ -576,6 +577,9 @@ def run(args: argparse.Namespace) -> int:
         session.sample_perf("baseline_world", seconds=20)
         adb.force_stop()
         adb.run("install", "-r", args.apk, timeout=600)
+        # The upgraded install hands out a fresh control token; the baseline
+        # process's control.json is stale and its port is gone.
+        adb.shell(f"rm -f {CONTROL_JSON}", check=False)
         session.check("upgrade_from_baseline", True,
                       f"upgraded baseline -> {Path(args.apk).name}")
         session.control = None
@@ -583,6 +587,7 @@ def run(args: argparse.Namespace) -> int:
     # Phase 2: relaunch into the game with a pre-seeded controls file.
     session.phase("game launch")
     push_layout_file(adb)
+    adb.shell(f"rm -f {CONTROL_JSON}", check=False)
     adb.start_engine()
     try:
         session.control = session.connect_control(420)
@@ -592,13 +597,19 @@ def run(args: argparse.Namespace) -> int:
         print(f"control socket missing ({error}); retrying with renderer=open-gl", flush=True)
         adb.force_stop()
         adb.shell(f"echo '{{\"renderer\":\"open-gl\"}}' > {HOME}/android-launcher.json")
+        adb.shell(f"rm -f {CONTROL_JSON}", check=False)
         adb.start_engine()
         try:
             session.control = session.connect_control(420)
         except RuntimeError as error2:
+            crash = adb.shell(
+                "logcat -d -v brief -t 1500 2>/dev/null | grep -iE "
+                "'FATAL|panic|SIGSEGV|SIGABRT|AndroidRuntime|craftix' "
+                "| tail -14", check=False)
             session.fatal(
                 "game_launch",
-                f"{error2}; state: {session.install_state()}; "
+                f"{error2}; crash-tail: {' '.join(crash.split())[:800]}; "
+                f"state: {session.install_state()}; "
                 f"snapshot: {session.failure_snapshot()}")
     status = session.wait_status(
         lambda s: s.get("screen") in ("title", "playing"), 300, "title screen")
@@ -1162,6 +1173,7 @@ def run(args: argparse.Namespace) -> int:
     session.phase("default rectangular layout")
     adb.force_stop()
     adb.shell(f"rm -f {LAYOUT_FILE}")
+    adb.shell(f"rm -f {CONTROL_JSON}", check=False)
     adb.start_engine()
     session.control = session.connect_control(420)
     status = session.wait_status(
