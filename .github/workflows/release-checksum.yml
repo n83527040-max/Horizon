@@ -1,0 +1,23 @@
+name: Release checksum notice
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  checks: write
+
+jobs:
+  announce:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch release checksums and announce
+        run: |
+          base="https://github.com/n83527040-max/Horizon/releases/download/craftix-0.10.0-beta"
+          curl -sL --max-time 120 -o sums.txt "$base/SHA256SUMS.txt"
+          curl -sL --max-time 120 -o cert.txt "$base/certificate.txt"
+          curl -sL --max-time 120 -o ver.json "$base/verification.json"
+          curl -sL --max-time 300 -o apk.head -r 0-0 "$base/CRAFTIX-0.10.0-arm64-v8a.apk" || true
+          echo "::notice::SHA256SUMS: $(tr -d '\n' < sums.txt)"
+          echo "::notice::CERT: $(grep -iE 'SHA-?256' cert.txt | head -1 | tr -d '\n')"
+          echo "::notice::VERIF: $(tr -d '\n' < ver.json | head -c 700)"
