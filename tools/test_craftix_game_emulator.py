@@ -824,6 +824,15 @@ def run(args: argparse.Namespace) -> int:
                   f"nudge={snap.get('nudge')}")
     time.sleep(1)
 
+    # Attack tests and zombie knockback can shove the player against the
+    # arena wall, which reads as a dead stick; re-center on the open floor
+    # (ax_, az_ from the room build) before probing the joystick.
+    session.control.command(f"tp {ax_ + 0.5} 70 {az_ + 0.5}")
+    session.wait_for(
+        lambda: (session.status().get("player") or {}).get("on_ground"), 15,
+        "re-centered on the arena floor")
+    time.sleep(1)
+
     grounded = session.wait_for(
         lambda: (session.status().get("player") or {}).get("on_ground"), 15,
         "grounded before the joystick drag")
