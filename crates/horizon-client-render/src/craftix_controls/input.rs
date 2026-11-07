@@ -1,6 +1,6 @@
 //! Per-pointer ownership and ordered engine edges for the new controls.
 //!
-//! Touch semantics follow Zalith Launcher 2's `TouchProcessor` /
+//! Touch semantics follow the upstream `TouchProcessor` /
 //! `PointerEventBus` / `InteractionBehavior` contract: topmost widget hit
 //! testing, penetrable widgets that let the camera keep the pointer,
 //! out-of-bounds release for swipable widgets with re-press on return,
@@ -31,7 +31,7 @@ pub struct Router {
     singles: BTreeMap<u64, (Action, u64)>,
     next_single: u64,
     joystick: Option<u64>,
-    /// Auto-run lock (Zalith joystick lockEvents): forward movement plus
+    /// Auto-run lock (upstream joystick lockEvents): forward movement plus
     /// the sprint action until the joystick is touched again.
     locked: bool,
     /// A strong north flick happened while the stick was held; the lock
@@ -43,7 +43,7 @@ pub struct Router {
     /// schedule against it because moved() carries no timestamp.
     last_now: u64,
     /// Widgets this pointer released from its own chain; touching one again
-    /// re-presses it (Zalith onPointerBackInBounds), while unrelated widgets
+    /// re-presses it (upstream onPointerBackInBounds), while unrelated widgets
     /// under a camera drag stay untouched.
     return_candidates: Vec<Id>,
 }
@@ -149,14 +149,14 @@ impl Router {
         };
         if let Some((mut look, mut chain)) = button_state {
             // Camera keeps receiving the pointer while a penetrable widget
-            // is held (Zalith isPenetrable pass-through).
+            // is held (upstream isPenetrable pass-through).
             if let Some(last) = look.as_mut() {
                 let delta = [(p[0] - last[0]) * aspect * layout.camera_sensitivity, (p[1] - last[1]) * layout.camera_sensitivity];
                 *last = p;
                 self.events.push(Event::Look(delta));
             }
             // The landing widget decides the chain: a swipable landing keeps
-            // earlier members held even outside their own bounds (Zalith
+            // earlier members held even outside their own bounds (upstream
             // PointerEventBus swipe chain); anything else lets out-of-bounds
             // members release.
             let landing = layout.hit_for(p, aspect, false);
@@ -260,7 +260,7 @@ impl Router {
                 self.pointers.insert(id, role);
             }
         }
-        // Joystick forward lock (Zalith lockEvents): a strong north flick
+        // Joystick forward lock (upstream lockEvents): a strong north flick
         // keeps walking forward with sprint after the finger lifts.
         if matches!(self.pointers.get(&id), Some(Role::Joystick { .. })) {
             self.lock_pending =

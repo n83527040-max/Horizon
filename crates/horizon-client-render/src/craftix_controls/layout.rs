@@ -1,7 +1,7 @@
 //! Versioned, independent CRAFTIX control layouts.
 //!
 //! The geometry and interaction model follows the widget contract of
-//! Zalith Launcher 2's `LayerController` module (GPL-3.0): anchored
+//! the upstream `LayerController` module (GPL-3.0): anchored
 //! positions, sizes expressed as a fraction of screen height, press /
 //! swipable / toggle behaviors with out-of-bounds release and swipe
 //! chains, penetrable widgets that let the camera keep the pointer, and
@@ -77,7 +77,7 @@ pub fn valid_chord(modifiers: &[String], key: &str) -> bool {
     matches!(parse_key_action(&text), Some(Action::Chord { modifiers: parsed, key: parsed_key }) if parsed == modifiers && parsed_key == key)
 }
 
-/// Interaction behavior model after Zalith's `InteractionBehavior`:
+/// Interaction behavior model after the upstream `InteractionBehavior`:
 /// `Hold` (press) keeps pressing outside the widget, `Swipe` releases
 /// when the pointer leaves the widget and accepts swipe chains, `Toggle`
 /// flips on press and blocks swipe chains. `Single` is a CRAFTIX edge
@@ -126,7 +126,7 @@ impl Circle {
             && self.radius.is_finite() && (0.02..=0.24).contains(&self.radius)
     }
 }
-/// Zalith-style rectangle: the anchor is a fraction of the *available*
+/// Upstream-style rectangle: the anchor is a fraction of the *available*
 /// space (0 = flush left/top, 1 = flush right/bottom) and both sizes are a
 /// fraction of screen height, so resizing never pushes a widget off-screen
 /// and neighbouring anchors stay clear of each other.
@@ -374,7 +374,7 @@ fn rect_overlap_hotbar(x: f32, y: f32, w: f32, h: f32, hotbar: [f32; 4]) -> bool
 }
 impl Default for Layout {
     fn default() -> Self {
-        // Port of Zalith Launcher 2's default_layout.json positions and
+        // Port of the upstream default_layout.json positions and
         // sizes (rects are fractions of screen height, anchors are
         // fractions of the available space) mapped onto CRAFTIX engine
         // actions. Group 1 is the collapsible top bar (GUI button).
@@ -413,10 +413,10 @@ impl Default for Layout {
             enabled: true, visibility: Visibility::Gameplay, label: "Move".into(),
             penetrable: false, group: 0,
         });
-        // Analog engine:0.25 keeps Zalith's generous centre guard while
+        // Analog engine:0.25 keeps upstream's generous centre guard while
         // staying responsive for stick vectors (their 0.5 guards 8-way
         // key emulation; documented deviation in the port notes).
-        Self { name: "Zalith-style".into(), joystick_dead_zone: 0.25, joystick_sensitivity: 1.0,
+        Self { name: "Default".into(), joystick_dead_zone: 0.25, joystick_sensitivity: 1.0,
             camera_sensitivity: 1.0, hidden_groups: BTreeSet::new(), buttons }
     }
 }

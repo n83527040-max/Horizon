@@ -141,7 +141,7 @@ jobs:
             exit 1
           fi
           gh release create "$TAG" --target "$GITHUB_SHA" --prerelease --title 'CRAFTIX 0.10.0 beta' \
-            --notes 'Candidate build: Zalith Launcher 2 style LayerController touch controls (rect widgets, Press/Swipe/Toggle behaviors, hidden groups, layouts editor) are the default in-game path (CRAFTIX_EXPERIMENTAL_TOUCH=0 rolls back to the legacy renderer). Signed with the existing CRAFTIX certificate.' \
+            --notes 'Candidate build: replacement in-game touch controls (rect widgets, Press/Swipe/Toggle behaviors, hidden groups, layouts editor) are the default path (CRAFTIX_EXPERIMENTAL_TOUCH=0 rolls back to the legacy renderer). Derived from a GPL-3.0 upstream; attribution and license in THIRD_PARTY_NOTICES.md. Signed with the existing CRAFTIX certificate.' \
             .local/android/releases/candidate/CRAFTIX-0.10.0-arm64-v8a.apk \
             .local/android/releases/candidate/SHA256SUMS.txt \
             .local/android/releases/candidate/verification.json \

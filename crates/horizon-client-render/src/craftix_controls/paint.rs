@@ -127,7 +127,7 @@ pub fn paint_for(b: &mut HudBatch, a: &HudAtlas, layout: &Layout, animation: &An
     }
 }
 
-/// Zalith-style flat widget: translucent rounded panel, pressed state
+/// Upstream-style flat widget: translucent rounded panel, pressed state
 /// brightens the fill, centred label text. Rectangles cost one fill plus
 /// two accent lines instead of the 40-segment disks used by legacy
 /// circle buttons, which keeps the per-frame HUD vertex count low.
